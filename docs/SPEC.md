@@ -8,7 +8,8 @@ Re-derivation recipe: `docs/analysis/00-recipe.md`.
 
 ## 1. Goal
 
-A minimal Android app (Kotlin, regular Android views — no webview, no network backend)
+A minimal Android app (Kotlin, Jetpack Compose + Material 3 — UI toolkit decided
+2026-11-04; no webview, no network backend)
 that reproduces SocialLite 3.0.1's content blocking on the **real** apps. Primary feature
 (user's words): *keep me out of shorts, reels and other short-video surfaces inside the
 apps — not out of the apps themselves*.
