@@ -1,4 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Free Social</string>
+
+    <!-- Shared -->
+    <string name="nav_back">Back</string>
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="stepper_decrease">Decrease</string>
+    <string name="stepper_increase">Increase</string>
+
+    <!-- Hub (F6) -->
+    <string name="hub_status_on">Filtering on</string>
+    <string name="hub_status_off">Filtering off</string>
+    <string name="hub_master_title">Filtering</string>
+    <string name="hub_master_subtitle">All three apps · short-video surfaces</string>
+    <string name="hub_apps_section">Apps</string>
+    <string name="hub_budget_row">Reels &amp; Shorts budget</string>
+    <string name="hub_min_left">%1$d min left</string>
+    <string name="hub_schedule_row">Schedule</string>
+    <string name="hub_permissions_row">Permissions</string>
+    <string name="hub_permissions_value">3 of 4</string>
+    <string name="hub_caption">Rules verified · IG 454 · YT 21.43 · TT 47.6</string>
+    <string name="hub_rule_inspector">Rule inspector</string>
+    <string name="hub_rule_inspector_dev">Dev</string>
+    <string name="schedule_on">On</string>
+    <string name="schedule_off">Off</string>
+
+    <!-- App detail (F7–F9) -->
+    <string name="app_instagram">Instagram</string>
+    <string name="app_youtube">YouTube</string>
+    <string name="app_tiktok">TikTok</string>
+    <string name="section_mode">Mode</string>
+    <string name="section_surfaces">Surfaces</string>
+    <string name="mode_filter">Filter</string>
+    <string name="mode_block">Block</string>
+    <string name="mode_allow">Allow</string>
+    <string name="chip_filtering">Filtering</string>
+    <string name="chip_blocked">Blocked</string>
+    <string name="chip_allowed">Allowed</string>
+    <string name="surface_hide_feed_reels">Hide reel cells in feed</string>
+    <string name="surface_hide_reels_tab">Hide Reels tab</string>
+    <string name="surface_hide_shorts_shelf">Hide Shorts shelf in Home</string>
+    <string name="surface_shorts_count_budget">Shorts player counts against budget</string>
+    <string name="surface_videos_count_budget">Videos count against budget</string>
+    <string name="surface_back_when_spent">Back out when budget is spent</string>
+    <string name="info_instagram">Opening a reel on purpose? It plays — and counts against your daily budget.</string>
+    <string name="info_youtube">When the budget runs out, Shorts exit automatically.</string>
+    <string name="info_tiktok">Direct messages are never touched.</string>
+    <string name="rules_verified_for">Rules verified for %1$s</string>
+
+    <!-- Budget (F10) -->
+    <string name="budget_title">Reels &amp; Shorts budget</string>
+    <string name="budget_min_left_today">min left today</string>
+    <string name="budget_of_daily">of %1$d min daily</string>
+    <string name="budget_daily_allowance">Daily allowance</string>
+    <string name="budget_minutes_value">%1$d min</string>
+    <string name="budget_info">Counts Instagram reels, YouTube Shorts and TikTok playback together. Resets at midnight.</string>
+    <string name="budget_caption">During locked schedule hours the budget counts as spent.</string>
+
+    <!-- Schedule (F11) -->
+    <string name="schedule_title">Schedule</string>
+    <string name="schedule_master_title">Nightly lock</string>
+    <string name="schedule_master_subtitle">One window, every weekday</string>
+    <string name="schedule_wind_down">Wind-down</string>
+    <string name="schedule_morning_lock">Morning lock</string>
+    <string name="schedule_minutes_value">%1$d min</string>
+    <string name="schedule_preview">Locked %1$s–%2$s tonight</string>
+    <string name="day_mon">Mon</string>
+    <string name="day_tue">Tue</string>
+    <string name="day_wed">Wed</string>
+    <string name="day_thu">Thu</string>
+    <string name="day_fri">Fri</string>
+    <string name="day_sat">Sat</string>
+    <string name="day_sun">Sun</string>
+    <string name="time_bedtime">Bedtime</string>
+    <string name="time_wake">Wake</string>
+
+    <!-- Permissions / inspector stubs -->
+    <string name="permissions_title">Permissions</string>
+    <string name="permissions_caption">Live permission state lands in a later wave.</string>
+    <string name="inspector_title">Rule inspector</string>
+    <string name="inspector_caption">Dump a screen after an app update, then patch rules.json.</string>
 </resources>
