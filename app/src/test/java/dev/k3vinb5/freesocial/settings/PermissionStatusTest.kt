@@ -1,13 +1,22 @@
 package dev.k3vinb5.freesocial.settings
 
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Pure-logic coverage for the wizard/permissions plumbing (waves 2). */
 class PermissionStatusTest {
+
+    private val zone = ZoneId.of("Europe/Amsterdam")
+
+    /** Wed 4 Nov 2026, 12:00 local unless overridden. */
+    private fun noon(day: Int = 4, hour: Int = 12): ZonedDateTime =
+        ZonedDateTime.of(2026, 11, day, hour, 0, 0, 0, zone)
 
     private class InMemoryPrefs : PrefsStore {
         val booleans = mutableMapOf<String, Boolean>()
@@ -100,6 +109,9 @@ class PermissionStatusTest {
         assertEquals(3, full.grantedRequired)
         assertTrue(full.allRequiredGranted)
         assertTrue(full.copy(blockService = true).allRequiredGranted)
+        // The hub counts all four rows, including the optional block service.
+        assertEquals(2, full.copy(blockService = false, batteryExempt = false).grantedCount)
+        assertEquals(4, full.copy(blockService = true).grantedCount)
     }
 
     @Test
@@ -115,5 +127,22 @@ class PermissionStatusTest {
         )
         assertNull(AppTarget.fromPlatform(null, null))
         assertNull(AppTarget.fromPlatform("snapchat", "com.snapchat.android"))
+    }
+
+    @Test
+    fun `disabled nightly lock never locks and offers no preview window`() {
+        val settings = SettingsRepository(InMemoryPrefs())
+        // 23:00 sits inside the default 22:00–07:30 window.
+        assertTrue(settings.isLocked(noon(hour = 23)))
+        assertNotNull(settings.tonightLockWindow(noon()))
+
+        settings.updateScheduleEnabled(false)
+        assertFalse(settings.isLocked(noon(hour = 23)))
+        assertFalse(settings.isLocked(noon(day = 5, hour = 2)))
+        assertNull(settings.tonightLockWindow(noon()))
+
+        settings.updateScheduleEnabled(true)
+        assertTrue(settings.isLocked(noon(hour = 23)))
+        assertEquals(LockWindow(1320, 450), settings.tonightLockWindow(noon()))
     }
 }

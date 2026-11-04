@@ -18,8 +18,9 @@
     <string name="hub_budget_row">Reels &amp; Shorts budget</string>
     <string name="hub_min_left">%1$d min left</string>
     <string name="hub_schedule_row">Schedule</string>
+    <string name="hub_schedule_value">On · %1$s–%2$s</string>
     <string name="hub_permissions_row">Permissions</string>
-    <string name="hub_permissions_value">3 of 4</string>
+    <string name="hub_permissions_value">%1$d of 4</string>
     <string name="hub_caption">Rules verified · IG 454 · YT 21.43 · TT 47.6</string>
     <string name="hub_rule_inspector">Rule inspector</string>
     <string name="hub_rule_inspector_dev">Dev</string>
@@ -66,6 +67,7 @@
     <string name="schedule_morning_lock">Morning lock</string>
     <string name="schedule_minutes_value">%1$d min</string>
     <string name="schedule_preview">Locked %1$s–%2$s tonight</string>
+    <string name="schedule_preview_off">Nightly lock is off</string>
     <string name="day_mon">Mon</string>
     <string name="day_tue">Tue</string>
     <string name="day_wed">Wed</string>
@@ -99,6 +101,7 @@
     <string name="filter_chip">Recommended</string>
     <string name="filter_service">Filter service</string>
     <string name="filter_open">Open accessibility settings</string>
+    <string name="filter_done">Done — next</string>
     <string name="block_service">Block service</string>
     <string name="block_optional_title">Whole-app blocking (optional)</string>
     <string name="block_optional_body">Want an app blocked entirely? Enable the second service. Filtering works without it.</string>

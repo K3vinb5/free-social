@@ -1,5 +1,6 @@
 package dev.k3vinb5.freesocial.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -58,8 +59,16 @@ class BlockActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Leaves for the launcher instead of finishing in place: this task is singleInstance with
+     * an empty affinity, so moveTaskToBack would resurface the blocked app underneath.
+     */
     private fun goHome() {
-        moveTaskToBack(true)
+        startActivity(
+            Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
         finish()
     }
 

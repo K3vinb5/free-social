@@ -140,6 +140,13 @@ data class PermissionStatus(
 ) {
     val grantedRequired: Int get() = listOf(filterService, overlay, batteryExempt).count { it }
     val allRequiredGranted: Boolean get() = filterService && overlay && batteryExempt
+
+    /** All four switches shown on F12, including the optional block service ("3 of 4"). */
+    val grantedCount: Int get() = listOf(filterService, blockService, overlay, batteryExempt).count { it }
+
+    companion object {
+        const val TOTAL = 4
+    }
 }
 
 /**
@@ -327,13 +334,15 @@ class SettingsRepository(private val store: PrefsStore) {
         morningLockMinutes = morningLockMinutes,
     )
 
-    fun isLocked(now: ZonedDateTime): Boolean = scheduleState().isLocked(now)
+    /** True only while the master "Nightly lock" switch is on and a window covers [now]. */
+    fun isLocked(now: ZonedDateTime): Boolean = scheduleEnabled && scheduleState().isLocked(now)
 
     /**
-     * The window that covers [now] if one is active, otherwise the next one to start ("tonight").
-     * The active/upcoming window is confirmed against [ScheduleState.isLocked].
+     * The window that covers [now] if one is active, otherwise the next one to start ("tonight");
+     * null while the master switch is off, so every preview reads as an off state.
      */
-    fun tonightLockWindow(now: ZonedDateTime): LockWindow {
+    fun tonightLockWindow(now: ZonedDateTime): LockWindow? {
+        if (!scheduleEnabled) return null
         val today = now.toLocalDate()
         val candidates = listOf(today.minusDays(1), today, today.plusDays(1)).map { day ->
             windowBounds(day, daySchedule(day.dayOfWeek.value), now.zone)
