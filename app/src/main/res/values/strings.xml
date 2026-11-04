@@ -78,7 +78,68 @@
 
     <!-- Permissions / inspector stubs -->
     <string name="permissions_title">Permissions</string>
-    <string name="permissions_caption">Live permission state lands in a later wave.</string>
     <string name="inspector_title">Rule inspector</string>
     <string name="inspector_caption">Dump a screen after an app update, then patch rules.json.</string>
+
+    <!-- Onboarding wizard (F1–F5) -->
+    <string name="onboarding_step">%1$d/5</string>
+    <string name="welcome_subtitle">Short-video, on your terms.</string>
+    <string name="welcome_body">Reels, Shorts and TikTok clips get filtered out of the apps you already use. The apps stay yours.</string>
+    <string name="welcome_start">Start setup</string>
+    <string name="welcome_caption">No account. No cloud. Runs entirely on your phone.</string>
+    <string name="restricted_title">Allow restricted settings</string>
+    <string name="restricted_body">Android shields accessibility for sideloaded apps. In the app menu choose \'Allow restricted settings\' first.</string>
+    <string name="restricted_step_open_app_info">Open app info</string>
+    <string name="restricted_step_menu">Tap the ⋮ menu</string>
+    <string name="restricted_step_allow">Allow restricted settings</string>
+    <string name="restricted_open">Open app settings</string>
+    <string name="restricted_done">Done — next</string>
+    <string name="filter_title">Turn on content filtering</string>
+    <string name="filter_body">Free Social reads the screen of Instagram, YouTube and TikTok to hide reels and shorts. Nothing else.</string>
+    <string name="filter_chip">Recommended</string>
+    <string name="filter_service">Filter service</string>
+    <string name="filter_open">Open accessibility settings</string>
+    <string name="block_service">Block service</string>
+    <string name="block_optional_title">Whole-app blocking (optional)</string>
+    <string name="block_optional_body">Want an app blocked entirely? Enable the second service. Filtering works without it.</string>
+    <string name="block_enable">Enable block service</string>
+    <string name="block_skip">Skip for now</string>
+    <string name="last_permissions_title">Last two permissions</string>
+    <string name="perm_overlay_title">Display over other apps</string>
+    <string name="perm_overlay_hint">for the block screen</string>
+    <string name="perm_battery_title">Ignore battery optimizations</string>
+    <string name="perm_battery_hint">so filtering survives</string>
+    <string name="perm_allow">Allow</string>
+    <string name="perm_finish">Finish setup</string>
+
+    <!-- Status labels shared by wizard + permissions (F3, F12) -->
+    <string name="status_waiting">Waiting…</string>
+    <string name="status_on">On</string>
+    <string name="status_off">Off</string>
+    <string name="status_not_enabled">Not enabled</string>
+    <string name="status_off_optional">Off, optional</string>
+    <string name="status_on_optional">On, optional</string>
+    <string name="status_needed">Needed</string>
+    <string name="status_allowed">Allowed</string>
+
+    <!-- Permissions screen (F12) -->
+    <string name="permissions_service">Content filter service</string>
+    <string name="permissions_open_settings">Open settings</string>
+    <string name="permissions_banner">Android 13+: if a toggle won\'t enable, allow restricted settings first.</string>
+
+    <!-- Block screen (F13) -->
+    <string name="block_screen_title">%1$s is blocked</string>
+    <string name="block_screen_body">Focus time — come back at 07:30.</string>
+    <string name="block_go_home">Go home</string>
+    <string name="block_caption">Blocked by Free Social</string>
+    <string name="block_app_fallback">This app</string>
+
+    <!-- Rule inspector (F14) -->
+    <string name="inspector_captured">Captured screens</string>
+    <string name="inspector_nodes">— nodes</string>
+    <string name="inspector_screen_ig_feed">IG · home feed</string>
+    <string name="inspector_screen_ig_reels">IG · reels viewer</string>
+    <string name="inspector_screen_yt_shorts">YT · shorts player</string>
+    <string name="inspector_screen_tt_playback">TT · playback</string>
+    <string name="inspector_dump">Dump screen</string>
 </resources>

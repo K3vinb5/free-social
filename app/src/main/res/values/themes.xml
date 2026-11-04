@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.FreeSocial" parent="android:Theme.Material.NoActionBar" />
+
+    <!-- F13 block screen: full-bleed dark window so the blocked app never peeks through. -->
+    <style name="Theme.FreeSocial.Block" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF131218</item>
+        <item name="android:colorBackground">#FF131218</item>
+        <item name="android:statusBarColor">#FF131218</item>
+        <item name="android:navigationBarColor">#FF131218</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

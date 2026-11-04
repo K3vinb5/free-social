@@ -2,6 +2,8 @@ package dev.k3vinb5.freesocial.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +77,27 @@ enum class AppTarget(
     ;
 
     fun surface(key: String): SurfaceToggle? = surfaces.firstOrNull { it.key == key }
+
+    companion object {
+        /**
+         * Resolves a block intent's `platform` slug or `package_name` extra to a known target.
+         * Returns null for anything we do not ship rules for, so the block screen can fall back
+         * to a generic title.
+         */
+        fun fromPlatform(platform: String?, packageName: String?): AppTarget? {
+            val byPackage = packageName
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { pkg -> entries.firstOrNull { it.packageName.equals(pkg, ignoreCase = true) } }
+            if (byPackage != null) return byPackage
+            return when (platform?.trim()?.lowercase()) {
+                "instagram", "ig" -> INSTAGRAM
+                "youtube", "yt" -> YOUTUBE
+                "tiktok", "tt" -> TIKTOK
+                else -> null
+            }
+        }
+    }
 }
 
 /** Storage seam so the repository is testable without Android's SharedPreferences. */
@@ -104,6 +127,22 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : PrefsStor
 data class LockWindow(val startMinutes: Int, val endMinutes: Int)
 
 /**
+ * Live permission snapshot shared by the first-run wizard (F5) and the permissions screen (F12).
+ *
+ * The block service is optional, so [grantedRequired] counts only the three permissions the
+ * filtering experience cannot work without.
+ */
+data class PermissionStatus(
+    val filterService: Boolean = false,
+    val blockService: Boolean = false,
+    val overlay: Boolean = false,
+    val batteryExempt: Boolean = false,
+) {
+    val grantedRequired: Int get() = listOf(filterService, overlay, batteryExempt).count { it }
+    val allRequiredGranted: Boolean get() = filterService && overlay && batteryExempt
+}
+
+/**
  * All user-facing settings, persisted in the `"settings"` SharedPreferences file and exposed as
  * Compose-observable state. Deliberately boring: plain `mutableStateOf` fields, writes go straight
  * through to storage, no coroutines.
@@ -122,6 +161,17 @@ class SettingsRepository(private val store: PrefsStore) {
         private set
 
     var budgetDate by mutableStateOf(store.getString(KEY_BUDGET_DATE))
+        private set
+
+    /** False until the F1–F5 wizard's "Finish setup" runs; gates the first launch (SPEC §2.4). */
+    var firstRunCompleted by mutableStateOf(store.getBoolean(KEY_FIRST_RUN, false))
+        private set
+
+    /**
+     * Last observed permission state. Screens refresh it on resume via [refreshPermissions];
+     * keeping it here lets the wizard and the permissions page agree without re-reading twice.
+     */
+    var permissionStatus by mutableStateOf(PermissionStatus())
         private set
 
     var scheduleEnabled by mutableStateOf(store.getBoolean(KEY_SCHEDULE_ENABLED, true))
@@ -161,6 +211,20 @@ class SettingsRepository(private val store: PrefsStore) {
                 ),
             )
         }
+    }
+
+    // --- First run + permissions ---------------------------------------------------------
+
+    fun completeFirstRun() {
+        firstRunCompleted = true
+        store.putBoolean(KEY_FIRST_RUN, true)
+    }
+
+    /** Reads the live permission state into [permissionStatus]; call from onResume. */
+    fun refreshPermissions(context: Context): PermissionStatus {
+        val status = readPermissionStatus(context)
+        permissionStatus = status
+        return status
     }
 
     // --- Master switch -------------------------------------------------------------------
@@ -304,12 +368,68 @@ class SettingsRepository(private val store: PrefsStore) {
         const val MAX_MINUTES = 180
 
         const val KEY_FILTERING = "filtering_enabled"
+        const val KEY_FIRST_RUN = "first_run_completed"
         const val KEY_BUDGET_LIMIT = "budget_limit_minutes"
         const val KEY_BUDGET_USED = "budget_used_seconds"
         const val KEY_BUDGET_DATE = "budget_date"
         const val KEY_SCHEDULE_ENABLED = "schedule_enabled"
         const val KEY_WIND_DOWN = "wind_down_minutes"
         const val KEY_MORNING_LOCK = "morning_lock_minutes"
+
+        /** Accessibility component class names the services are (or will be) declared with. */
+        const val FILTER_SERVICE_CLASS = "dev.k3vinb5.freesocial.service.FilterService"
+        const val BLOCK_SERVICE_CLASS = "dev.k3vinb5.freesocial.service.BlockService"
+
+        /**
+         * True when [enabledServices] — the raw `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`
+         * string, colon-separated `package/class` pairs — contains one of [packageName]'s services.
+         * With [componentClass] set the match is exact; otherwise any service of the package counts.
+         */
+        fun accessibilityServiceEnabled(
+            enabledServices: String?,
+            packageName: String,
+            componentClass: String? = null,
+        ): Boolean {
+            if (enabledServices.isNullOrBlank()) return false
+            return enabledServices.split(':').any { entry ->
+                val flattened = entry.trim()
+                if (flattened.isEmpty()) {
+                    false
+                } else if (componentClass != null) {
+                    flattened.equals("$packageName/$componentClass", ignoreCase = true)
+                } else {
+                    flattened.startsWith("$packageName/", ignoreCase = true)
+                }
+            }
+        }
+
+        /**
+         * Live permission state straight from the system. Never cached by Android, so call it
+         * from onResume: the user grants permissions in other activities.
+         */
+        fun readPermissionStatus(context: Context): PermissionStatus {
+            val enabledServices = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            )
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            return PermissionStatus(
+                // TODO(FilterService): match FILTER_SERVICE_CLASS only once the service is declared.
+                // Until then accept any accessibility service of our package for the filter step.
+                filterService = accessibilityServiceEnabled(
+                    enabledServices,
+                    context.packageName,
+                    FILTER_SERVICE_CLASS,
+                ) || accessibilityServiceEnabled(enabledServices, context.packageName),
+                blockService = accessibilityServiceEnabled(
+                    enabledServices,
+                    context.packageName,
+                    BLOCK_SERVICE_CLASS,
+                ),
+                overlay = Settings.canDrawOverlays(context),
+                batteryExempt = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true,
+            )
+        }
 
         fun from(context: Context): SettingsRepository =
             SettingsRepository(SharedPrefsStore(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)))
