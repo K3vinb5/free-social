@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Project-local override: fully unattended runs in this workspace.
+  // Agent rules are appended after global rules, so these win over the
+  // global "ask" list in ~/.config/opencode/opencode.jsonc.
+  "agents": {
+    "build": {
+      "permissions": [
+        { "action": "shell", "resource": "*", "effect": "allow" }
+      ]
+    }
+  }
+}
