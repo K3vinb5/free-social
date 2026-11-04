@@ -121,22 +121,27 @@ fun ScheduleScreen(
             )
 
             HorizontalGap(16.dp)
+            val off = window == null
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(FsColors.PrimaryContainer),
+                    .background(if (off) FsColors.Surface else FsColors.PrimaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = stringResource(
-                        R.string.schedule_preview,
-                        SettingsRepository.formatClock(window.startMinutes),
-                        SettingsRepository.formatClock(window.endMinutes),
-                    ),
+                    text = if (window == null) {
+                        stringResource(R.string.schedule_preview_off)
+                    } else {
+                        stringResource(
+                            R.string.schedule_preview,
+                            SettingsRepository.formatClock(window.startMinutes),
+                            SettingsRepository.formatClock(window.endMinutes),
+                        )
+                    },
                     style = MaterialTheme.typography.labelLarge,
-                    color = FsColors.Primary,
+                    color = if (off) FsColors.TextTertiary else FsColors.Primary,
                 )
             }
             Spacer(Modifier.height(24.dp))

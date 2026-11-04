@@ -11,8 +11,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.k3vinb5.freesocial.R
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.settings.SettingsRepository
@@ -40,6 +42,13 @@ fun SettingsHubScreen(
     onOpenRuleInspector: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Permission grants happen in system screens; re-read them whenever we come back.
+    val context = LocalContext.current
+    LifecycleResumeEffect(settings) {
+        settings.refreshPermissions(context)
+        onPauseOrDispose { }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -102,7 +111,10 @@ fun SettingsHubScreen(
             Spacer(Modifier.height(8.dp))
             ListRow(
                 title = stringResource(R.string.hub_permissions_row),
-                value = stringResource(R.string.hub_permissions_value),
+                value = stringResource(
+                    R.string.hub_permissions_value,
+                    settings.permissionStatus.grantedCount,
+                ),
                 chevron = true,
                 onClick = onOpenPermissions,
             )
@@ -122,12 +134,13 @@ fun SettingsHubScreen(
     }
 }
 
-/** "On · 22:30–07:00" for today's weekday, or "Off". */
+/** "On · 22:00–07:30" — the effective window (wind-down/morning-lock applied) or "Off". */
 @Composable
 private fun scheduleSummary(settings: SettingsRepository, now: ZonedDateTime): String {
-    val day = settings.daySchedule(now.dayOfWeek.value)
-    val start = SettingsRepository.formatClock(day.bedtimeMinutes)
-    val end = SettingsRepository.formatClock(day.wakeMinutes)
-    val state = stringResource(if (settings.scheduleEnabled) R.string.schedule_on else R.string.schedule_off)
-    return "$state · $start–$end"
+    val window = settings.tonightLockWindow(now) ?: return stringResource(R.string.schedule_off)
+    return stringResource(
+        R.string.hub_schedule_value,
+        SettingsRepository.formatClock(window.startMinutes),
+        SettingsRepository.formatClock(window.endMinutes),
+    )
 }

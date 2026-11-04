@@ -74,9 +74,9 @@ fun OnboardingScreen(
         onPauseOrDispose { }
     }
 
-    BackHandler(enabled = step > STEP_WELCOME) { step -= 1 }
+    BackHandler(enabled = step > STEP_WELCOME) { step = WizardProgress.back(step) }
 
-    val goNext: () -> Unit = { step = (step + 1).coerceAtMost(STEP_PERMISSIONS) }
+    val goNext: () -> Unit = { step = WizardProgress.next(step) }
 
     Column(
         modifier = modifier
@@ -86,7 +86,7 @@ fun OnboardingScreen(
         if (step > STEP_WELCOME) {
             TopBar(
                 title = "",
-                onBack = { step -= 1 },
+                onBack = { step = WizardProgress.back(step) },
                 actions = {
                     Text(
                         text = stringResource(R.string.onboarding_step, step),
@@ -219,7 +219,10 @@ private fun ColumnScope.FilterStep(settings: SettingsRepository, onNext: () -> U
         text = stringResource(R.string.filter_open),
         onClick = { openSystemSettings(context, SystemSettingsTarget.ACCESSIBILITY) },
     )
-    HorizontalGap(20.dp)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        TextButton(text = stringResource(R.string.filter_done), onClick = onNext)
+    }
+    HorizontalGap(8.dp)
 }
 
 // --- F4 Block service (3/5, optional) -----------------------------------------------------
@@ -386,4 +389,20 @@ private fun AppPill(label: String) {
             color = FsColors.TextSecondary,
         )
     }
+}
+
+/**
+ * Pure wizard progress model, kept out of Compose so the step chain is unit-testable. Every
+ * step must be able to move forward exactly once; the last step finishes the flow.
+ */
+internal object WizardProgress {
+    /** Welcome + 4 permission steps (SPEC §2.4). */
+    const val STEP_COUNT = 5
+    const val LAST_STEP = STEP_COUNT - 1
+
+    fun next(step: Int): Int = (step + 1).coerceIn(0, LAST_STEP)
+
+    fun back(step: Int): Int = (step - 1).coerceIn(0, LAST_STEP)
+
+    fun isLast(step: Int): Boolean = step.coerceIn(0, LAST_STEP) == LAST_STEP
 }
