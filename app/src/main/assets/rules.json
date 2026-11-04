@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "ig_feed_reel_cell",
+      "appPackage": "com.instagram.android",
+      "surface": "feed_reel_cell",
+      "layer": 1,
+      "match": {
+        "classNameRegex": "(?i).*(clips|reel).*"
+      },
+      "action": "REDIRECT_HOME",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "ig_reels_tab",
+      "appPackage": "com.instagram.android",
+      "surface": "reels_tab",
+      "layer": 1,
+      "match": {
+        "textRegex": "(?i)^reels?(,.*)?$"
+      },
+      "action": "TAP_HOME_TAB",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "ig_clips_viewer",
+      "appPackage": "com.instagram.android",
+      "surface": "clips_viewer",
+      "layer": 2,
+      "match": {
+        "viewId": "com.instagram.android:id/clips_viewer_view_pager"
+      },
+      "action": "BACK",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "ig_deep_link_open",
+      "appPackage": "com.instagram.android",
+      "surface": "deep_link_open",
+      "layer": 2,
+      "match": {
+        "classNameRegex": "com\\.instagram\\.android\\.activity\\.(ClipsUrlHandlerActivity|MediaUrlHandlerActivity)"
+      },
+      "action": "BACK",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "yt_shorts_shelf",
+      "appPackage": "com.google.android.youtube",
+      "surface": "shorts_shelf",
+      "layer": 1,
+      "match": {
+        "viewId": "com.google.android.youtube:id/reel_recycler"
+      },
+      "action": "REDIRECT_HOME",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "yt_shorts_player",
+      "appPackage": "com.google.android.youtube",
+      "surface": "shorts_player",
+      "layer": 2,
+      "match": {
+        "viewId": "com.google.android.youtube:id/shorts_player_container"
+      },
+      "action": "BACK",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "tiktok_playback",
+      "appPackage": "com.zhiliaoapp.musically",
+      "surface": "playback",
+      "layer": 2,
+      "match": {
+        "classNameRegex": "(?i).*(video|player).*"
+      },
+      "action": "BACK",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    },
+    {
+      "id": "tiktok_dm_carve_out",
+      "appPackage": "com.zhiliaoapp.musically",
+      "surface": "dm_carve_out",
+      "layer": 2,
+      "match": {
+        "textRegex": "(?i)^(back to chat|reply privately)$"
+      },
+      "action": "SKIP",
+      "notes": "UNVERIFIED placeholder — replace from device dumps",
+      "verifiedAgainstAppVersion": null
+    }
+  ]
+}
