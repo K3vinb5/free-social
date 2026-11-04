@@ -132,6 +132,17 @@ fun Chevron(modifier: Modifier = Modifier, color: Color = FsColors.TextTertiary)
     }
 }
 
+/** Small coloured status dot (permission state, step progress, list status). */
+@Composable
+fun StatusDot(color: Color, modifier: Modifier = Modifier, diameter: Dp = 8.dp) {
+    Box(
+        modifier
+            .size(diameter)
+            .clip(CircleShape)
+            .background(color),
+    )
+}
+
 // --- Cards and rows ----------------------------------------------------------------------
 
 @Composable
@@ -178,6 +189,7 @@ fun ListRow(
     chevron: Boolean = false,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -189,6 +201,10 @@ fun ListRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(12.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -224,8 +240,56 @@ fun ListRow(
     }
 }
 
-// --- Chips, pills, switches --------------------------------------------------------------
+/**
+ * Row with a coloured status dot, a title and a coloured status line — permissions (F12) and
+ * the wizard's service steps (F3/F4). [actionLabel] is the trailing text affordance.
+ */
+@Composable
+fun StatusListRow(
+    title: String,
+    status: String,
+    statusColor: Color,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .background(FsColors.Card)
+            .then(if (onAction != null) Modifier.clickable(role = Role.Button, onClick = onAction) else Modifier)
+            .heightIn(min = 60.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusDot(statusColor)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = FsColors.TextPrimary,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor,
+            )
+        }
+        if (actionLabel != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = actionLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = FsColors.Primary,
+            )
+        }
+    }
+}
 
+// --- Chips, pills, switches --------------------------------------------------------------
 /** State chip: Filter = success "Filtering", Block = danger "Blocked", Allow = tertiary "Allowed". */
 @Composable
 fun StateChip(mode: AppMode, modifier: Modifier = Modifier) {
@@ -333,6 +397,78 @@ fun SwitchRow(
                 uncheckedTrackColor = FsColors.Surface,
                 uncheckedBorderColor = FsColors.Outline,
             ),
+        )
+    }
+}
+
+/** Selectable pill chip (inspector app filter, F14). Selected chips get the primary container. */
+@Composable
+fun ChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(PillShape)
+            .background(if (selected) FsColors.PrimaryContainer else FsColors.Card)
+            .clickable(role = Role.Tab, onClick = onClick)
+            .height(36.dp)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (selected) {
+            StatusDot(FsColors.Primary, diameter = 6.dp)
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) FsColors.Primary else FsColors.TextSecondary,
+        )
+    }
+}
+
+/** Numbered step badge for the restricted-settings card (F2). */
+@Composable
+fun StepBadge(number: Int, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(FsColors.PrimaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = number.toString(),
+            style = MaterialTheme.typography.labelLarge,
+            color = FsColors.Primary,
+        )
+    }
+}
+
+/** Tinted informational card: coloured dot plus one or two lines of copy (F12 banner). */
+@Composable
+fun InfoBanner(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = FsColors.Warning,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        StatusDot(color, modifier = Modifier.padding(top = 5.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = FsColors.TextPrimary,
         )
     }
 }
@@ -462,6 +598,39 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
     )
 }
 
+/** Tinted primary-container button: secondary action that still reads as warm (F4). */
+@Composable
+fun PrimaryContainerButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    ButtonSurface(
+        text = text,
+        background = FsColors.PrimaryContainer,
+        contentColor = FsColors.Primary,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+/** Compact pill action, e.g. "Allow" inside a permission card (F5). */
+@Composable
+fun SmallTintedButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .widthIn(min = 88.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(FsColors.PrimaryContainer)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = FsColors.Primary,
+        )
+    }
+}
+
 @Composable
 fun TextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
@@ -525,11 +694,16 @@ fun TimeChip(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun Caption(text: String, modifier: Modifier = Modifier) {
+fun Caption(
+    text: String,
+    modifier: Modifier = Modifier,
+    align: TextAlign = TextAlign.Start,
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
         color = FsColors.TextTertiary,
+        textAlign = align,
         modifier = modifier.fillMaxWidth(),
     )
 }

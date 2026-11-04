@@ -22,6 +22,7 @@ import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.Screen
 import dev.k3vinb5.freesocial.ui.screens.AppDetailScreen
 import dev.k3vinb5.freesocial.ui.screens.BudgetScreen
+import dev.k3vinb5.freesocial.ui.screens.OnboardingScreen
 import dev.k3vinb5.freesocial.ui.screens.PermissionsScreen
 import dev.k3vinb5.freesocial.ui.screens.RuleInspectorScreen
 import dev.k3vinb5.freesocial.ui.screens.ScheduleScreen
@@ -43,7 +44,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Hand-rolled navigation: one [Screen] at a time, back always returns to the hub. */
+/**
+ * Hand-rolled navigation: one [Screen] at a time, back always returns to the hub. Until the
+ * wizard's "Finish setup" runs, the first-run flow owns the whole window (SPEC §2.4).
+ */
 @Composable
 fun FreeSocialApp(
     settings: SettingsRepository,
@@ -59,7 +63,7 @@ fun FreeSocialApp(
         }
     }
 
-    BackHandler(enabled = screen != Screen.Hub) {
+    BackHandler(enabled = settings.firstRunCompleted && screen != Screen.Hub) {
         screen = Screen.Hub
     }
 
@@ -74,26 +78,38 @@ fun FreeSocialApp(
                 .background(FsColors.Background)
                 .padding(innerPadding),
         ) {
-            val toHub: () -> Unit = { screen = Screen.Hub }
-            when (val current = screen) {
-                Screen.Hub -> SettingsHubScreen(
+            if (!settings.firstRunCompleted) {
+                OnboardingScreen(
                     settings = settings,
-                    now = now,
-                    onOpenApp = { app -> screen = Screen.AppDetail(app) },
-                    onOpenBudget = { screen = Screen.Budget },
-                    onOpenSchedule = { screen = Screen.Schedule },
-                    onOpenPermissions = { screen = Screen.Permissions },
-                    onOpenRuleInspector = { screen = Screen.RuleInspector },
+                    onFinish = { screen = Screen.Hub },
                 )
-                is Screen.AppDetail -> AppDetailScreen(
-                    app = current.app,
-                    settings = settings,
-                    onBack = toHub,
-                )
-                Screen.Budget -> BudgetScreen(settings = settings, now = now, onBack = toHub)
-                Screen.Schedule -> ScheduleScreen(settings = settings, now = now, onBack = toHub)
-                Screen.Permissions -> PermissionsScreen(onBack = toHub)
-                Screen.RuleInspector -> RuleInspectorScreen(onBack = toHub)
+            } else {
+                val toHub: () -> Unit = { screen = Screen.Hub }
+                when (val current = screen) {
+                    Screen.Hub -> SettingsHubScreen(
+                        settings = settings,
+                        now = now,
+                        onOpenApp = { app -> screen = Screen.AppDetail(app) },
+                        onOpenBudget = { screen = Screen.Budget },
+                        onOpenSchedule = { screen = Screen.Schedule },
+                        onOpenPermissions = { screen = Screen.Permissions },
+                        onOpenRuleInspector = { screen = Screen.RuleInspector },
+                    )
+                    is Screen.AppDetail -> AppDetailScreen(
+                        app = current.app,
+                        settings = settings,
+                        onBack = toHub,
+                    )
+                    Screen.Budget -> BudgetScreen(settings = settings, now = now, onBack = toHub)
+                    Screen.Schedule -> ScheduleScreen(settings = settings, now = now, onBack = toHub)
+                    Screen.Permissions -> PermissionsScreen(settings = settings, onBack = toHub)
+                    Screen.RuleInspector -> RuleInspectorScreen(onBack = toHub)
+                    // Unreachable while onboarding is pending; keeps the sealed when exhaustive.
+                    Screen.Onboarding -> OnboardingScreen(
+                        settings = settings,
+                        onFinish = { screen = Screen.Hub },
+                    )
+                }
             }
         }
     }
