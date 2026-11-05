@@ -33,20 +33,74 @@ REMOTE_SHOT = "/sdcard/freesocial-driver-shot.png"
 # would be mistaken for a wall.
 WALL_STRONG = (
     "iniciar sessao",
+    "iniciar sesion",
     "criar nova conta",
+    "criar conta",
+    "crear cuenta",
+    "crear una cuenta",
     "continuar como",
+    "fortfahren als",
+    "continuer comme",
     "aceitar tudo",
     "aceitar todos",
+    "aceptar todo",
+    "aceptar todo y continuar",
+    "tout accepter",
+    "alles akzeptieren",
+    "alle akzeptieren",
     "concordo com",
     "termos e politicas",
+    "termos de servico",
+    "terminos y condiciones",
+    "condicions do servizo",
     "politica de privacidade",
+    "politique de confidentialite",
+    "datenschutzrichtlinie",
     "accept all",
     "allow all",
+    "se connecter",
+    "creer un compte",
+    "konto erstellen",
     "usar a localizacao",
+    "usar la ubicacion",
+    "utiliser la localisation",
+    "standort verwenden",
     "permitir acesso",
+    "permitir o acceso",
+    "permite o acceso",
     "autorizar acesso",
+    "autoriser l acces",
+    "zugriff erlauben",
 )
-WALL_WEAK = ("sign up", "log in", "permitir", "entrar", "continuar")
+WALL_WEAK = (
+    "sign up",
+    "log in",
+    "login",
+    "permitir",
+    "entrar",
+    "continuar",
+    "acceder",
+    "acceso",
+    "anmelden",
+    "registrieren",
+    "connexion",
+    "zulassen",
+    "erlauben",
+    "fortfahren",
+)
+# Structural login-wall signal: a visible password input, locale-independent via the
+# field's resource-id/hint words (see _guard). Never interact with such a screen.
+PASSWORD_FIELD_WORDS = (
+    "password",
+    "senha",
+    "palavra-passe",
+    "palavra passe",
+    "contrasinal",
+    "contrasena",
+    "passwort",
+    "kennwort",
+    "mot de passe",
+)
 
 
 class DriverError(RuntimeError):
@@ -228,6 +282,15 @@ class Device:
         for node in nodes:
             if not node.visible:
                 continue
+            blob = _deaccent(
+                " ".join(filter(None, (node.resource_id, node.text, node.content_desc)))
+            ).lower()
+            if node.resource_id and any(w in _deaccent(node.resource_id).lower() for w in PASSWORD_FIELD_WORDS):
+                strong.append(("password-field-id", node.resource_id[:70]))
+            elif ("edittext" in (node.cls or "").lower() or "textfield" in (node.cls or "").lower()) and any(
+                w in blob for w in PASSWORD_FIELD_WORDS
+            ):
+                strong.append(("password-field", (node.text or node.content_desc or node.resource_id or "")[:70]))
             for field in (node.text, node.content_desc):
                 low = _deaccent(field).lower().strip()
                 if not low or len(low) > 60 or "\n" in field:

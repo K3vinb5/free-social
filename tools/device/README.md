@@ -37,3 +37,16 @@ All adb calls are pinned to one serial and bounded to 15 s.
 4. Assert with `d.assert_visible(...)` / `raise AssertionError(...)`.
 5. End by asserting the expected package (`d.current_package()`).
 6. Run `uv run tools/device/drive.py run my_flow`; exit 0 means PASS.
+
+## Locale & size independence
+
+Scenarios must stay independent of screen size and phone language:
+
+- **Size:** every tap/swipe resolves node bounds from the live dump at runtime;
+  never store coordinates (grep scenarios for digit-heavy taps as a self-check).
+- **Locale:** prefer resource-id / class selectors (locale-proof). String selectors
+  (text/content-desc) carry a list of **observed** variants only — never guess a
+  translation — and scenarios report `ABSENT_OR_LOCALE` when no variant matches.
+- **Walls:** detection is deaccented and multilingual (EN/PT/ES/FR/DE markers) plus
+  a structural password-field signal (`PASSWORD_FIELD_WORDS` on ids/hints); a wall
+  aborts the scenario untapped (`WALL` status).
