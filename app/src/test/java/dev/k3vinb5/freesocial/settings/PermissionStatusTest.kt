@@ -70,7 +70,7 @@ class PermissionStatusTest {
 
     @Test
     fun `accessibility lookup matches any of our services or one exact component`() {
-        val enabled = "com.other/com.other.Svc:$pkg/dev.k3vinb5.freesocial.service.FilterService"
+        val enabled = "com.other/com.other.Svc:$pkg/${SettingsRepository.FILTER_SERVICE_CLASS}"
         assertTrue(SettingsRepository.accessibilityServiceEnabled(enabled, pkg))
         assertTrue(
             SettingsRepository.accessibilityServiceEnabled(
@@ -88,11 +88,19 @@ class PermissionStatusTest {
         )
         assertTrue(
             SettingsRepository.accessibilityServiceEnabled(
-                "$pkg/dev.k3vinb5.freesocial.service.BlockService",
+                "$pkg/${SettingsRepository.BLOCK_SERVICE_CLASS}",
                 pkg,
                 SettingsRepository.BLOCK_SERVICE_CLASS,
             ),
         )
+    }
+
+    @Test
+    fun `service class constants point at real declared services`() {
+        // Pins the constant to the actual class so it cannot drift again
+        // (it did: service.FilterService vs filter.FilterService).
+        Class.forName(SettingsRepository.FILTER_SERVICE_CLASS)
+        // TODO: Class.forName(SettingsRepository.BLOCK_SERVICE_CLASS) once BlockService is declared.
     }
 
     @Test
