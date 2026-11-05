@@ -632,3 +632,114 @@ spare. This is the root cause, not the feed-cell rule: those same C2 scans show 
   capture; consume/expiry restores enforcement automatically.
 
 Tests: `DirectEngagementPolicyTest`, `RuleGateTest`, `ActionArbiterTest`, `RuleModelTest`.
+
+## D10 — the mode segment persists but the engine keeps the mode it loaded at connect
+
+### Observed (user, 2026-11-05, build 0.2.0-e6d7fce)
+
+*"The screen you open when pressing instagram/youtube/tiktok has 3 modes but when clicking
+nothing appears to change — extremely confusing."*
+
+### Repro (Reno4, HEAD a5402bc)
+
+`reverse/runtime-reno/d10-01-appdetail-before.png` → tap "Block" →
+`reverse/runtime-reno/d10-02-after-tap-block.png`: the Block pill is highlighted, the Filter pill
+is not, and `shared_prefs/settings.xml` now holds `app_mode_com.instagram.android=block`. The
+control is **not** dead and the chip **does** reflect the write. The defect is behavioural: the
+engine never sees it.
+
+- 20:33 write `block`; 20:37 open Instagram → it opens normally, the engine logs a normal filter
+  scan (`matched=0`, `gate=NONE`) because it still holds the `filter` it loaded at install/connect.
+- 20:38 a harness `uiautomator dump` rebinds accessibility → the engine reloads and now holds
+  `block`.
+- 20:39 write `filter` back; 20:40 the engine still reports
+  `com.instagram.android is not filtered (master off or monitor mode)` and `BlockService` opens
+  `dev.k3vinb5.freesocial/.ui.BlockActivity` — the mirror-image failure from the other snapshot.
+- 20:40:48 another rebind logs `connected, rules=8`; only then does the same prefs set produce
+  `neutralising …/reels_tab`.
+- Supplies: `reverse/runtime-reno/d10-engine-stale-snapshot.log`.
+
+### Root cause — one `SettingsRepository` per process consumer, never refreshed
+
+`SettingsRepository` snapshots **every** value into Compose state at construction
+(`settings/SettingsRepository.kt:157-221`: `filteringEnabled`, `budgetLimitMinutes`,
+`budgetUsedSeconds`, `budgetDate`, `scheduleEnabled`, `windDownMinutes`, `morningLockMinutes`, the
+`modes` map at `:197-199`, `surfaceStates` at `:201-207`, and `days` at `:209-221`). The UI's
+instance is created once per activity (`MainActivity.kt:40`) and its own writes update its own
+state, so the chip redraws.
+
+The services create **separate** instances: `FilterService.loadEngine()` calls
+`SettingsRepository.from(this)` (`filter/FilterService.kt:171-176`) and `engine()` only re-runs
+`loadEngine` through `EngineBootstrap` on `force`/retry (`:182-188`); `BlockService` does the same
+at `block/BlockService.kt:41-51`. Every decision then reads those cached fields
+(`FilterService.kt:159`, `:332`, `:352`; `BlockService.kt:66-77`). SharedPreferences updates are
+shared across the process, but **the instance fields are not re-read**, so a UI write is invisible
+to both services until the accessibility connection re-binds (process restart / service toggle).
+
+This also explains the "nothing appears to change" report: Allow, Block and Filter all behave like
+Filter until the next rebind, and each toggle row has the same fate.
+
+### Alternatives ruled out
+
+- **Dead control / non-reflecting chip.** Ruled out: the tap writes prefs and the pill redraws
+  (d10-02). `SegmentedControl` renders `selectedIndex` and `AppDetailScreen` reads the observable
+  `mutableStateMapOf` (`ui/screens/AppDetailScreen.kt:65`), so recomposition is real.
+- **`apply()` not visible cross-instance.** Ruled out by Android semantics: `apply()` updates the
+  in-memory map before dispatching, so a *newly constructed* repository sees the value (proved at
+  20:40:48: a rebind loads the fresh value).
+- **External `run-as` writes.** A different, already known caveat (no listener fires for writer
+  processes) — not this defect, and not fixed by this change.
+
+### Fix
+
+Live propagation at the repository seam: `PrefsStore.observe()` (implemented in
+`SharedPrefsStore` with `registerOnSharedPreferenceChangeListener`, held strongly by the
+repository) calls `SettingsRepository.reload()`, which re-reads every field from the store. Every
+instance — UI, `FilterService`, `BlockService`, schedule alarm — is then consistent with the
+current prefs after any same-process write, without touching a single caller.
+
+Tests: `SettingsRepositoryTest` (`same-process writes keep a second instance in lock-step`).
+
+## D11 — "still see reels and shorts with 0 minutes left"
+
+### Observed (user, 2026-11-05)
+
+*"Nothing is working — I can still see reels and shorts with 0 minutes of budget left."*
+Hub shows `0 min left`; IG Reels/YT Shorts/TikTok playback still play.
+
+### Root cause — same stale snapshot as D10, budget fields included
+
+`FilterService.isBudgetExhausted` reads `repo.budgetLimitMinutes` and `repo.usedSecondsToday(now)`
+(`filter/FilterService.kt:602-607`), both cached at construction (`settings/SettingsRepository.kt`
+`budgetLimitMinutes`/`budgetUsedSeconds`/`budgetDate`). Driving the Budget stepper to 0 writes
+`budget_limit_minutes=0` into prefs, the hub (UI instance) renders `0 min left`, and the engine
+keeps paying out the limit it loaded at connect. Two snapshots, two truths — the same mechanism
+D10 proved on device with the per-app mode.
+
+The budget arithmetic itself is correct, and this was checked on the device: with prefs
+`limit=0`, `used=451s` and a forced engine reload, the scan reports `budget=true` and the very next
+Reels tap is `neutralising com.instagram.android/reels_tab via TAP_HOME_TAB` (log 20:40:53,
+`reverse/runtime-reno/d10-08-ig-reels-after-reload.png`). So `ShortVideoBudget.isExhausted` and
+`RuleGate` are fine; only the gate input was stale.
+
+Surface detection is also fine on this device: the scan line reports `rules=3/8, matched=2` on the
+Reels screen for IG; the failure was only the gate input. App versions match the rule stamps
+(`com.instagram.android 454.0.0.54.77`, `com.google.android.youtube 21.43.523`,
+`com.zhiliaoapp.musically 47.6.3`), so **no version drift is involved**.
+
+### Why the existing device scenario did not catch this
+
+`tools/device/scenarios/exhaustion_consistent.py` writes the limit through the stepper and then
+relies on `uiautomator dump` — every dump rebinds the accessibility connection, which re-runs
+`onServiceConnected` → `loadEngine()` → a fresh `SettingsRepository`, silently reloading prefs.
+The scenario therefore exercises the "restart" path, not the live path a user has. The 20:40:48
+`connected, rules=8` line in the D10 log is exactly that rebind. Do not treat a dump-driven
+scenario as proof that a settings change reaches a running engine.
+
+### Fix
+
+D10's repository-level `observe()`/`reload()` covers the budget fields (`budgetLimitMinutes`,
+`budgetUsedSeconds`, `budgetDate`) and the master/schedule switches, i.e. everything the engine's
+gate reads, for every surface. One seam, all settings.
+
+Tests: `SettingsRepositoryTest` (`budget limit written by one instance is seen by another`).
