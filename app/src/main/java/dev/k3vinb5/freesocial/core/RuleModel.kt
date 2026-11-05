@@ -34,16 +34,24 @@ data class Rule(
     val verifiedAgainstAppVersion: String? = null,
 )
 
-/** AND-combined optional criteria; at least one must be present. */
+/**
+ * AND-combined optional criteria; at least one must be present.
+ *
+ * [selected] is a tri-state predicate on the node's `isSelected` flag: `true` only matches a
+ * selected node (e.g. the Reels tab while the Reels screen is up), `false` only an unselected one,
+ * and `null` ignores the flag entirely. When another criterion supplies the anchor node, the
+ * predicate is checked on that same node so a selected sibling cannot satisfy it.
+ */
 @Serializable
 data class MatchSpec(
     val viewId: String? = null,
     val textRegex: String? = null,
     val contentDescriptionRegex: String? = null,
     val classNameRegex: String? = null,
+    val selected: Boolean? = null,
 ) {
     val isEmpty: Boolean
-        get() = listOfNotNull(viewId, textRegex, contentDescriptionRegex, classNameRegex).isEmpty()
+        get() = listOfNotNull(viewId, textRegex, contentDescriptionRegex, classNameRegex, selected).isEmpty()
 }
 
 @Serializable
@@ -51,6 +59,12 @@ enum class Action {
     BACK,
     TAP_HOME_TAB,
     CLICK_VIEW_ID,
+    /** Swipe the matched cell/shelf out of view, staying inside the foreground app. */
+    SCROLL_PAST,
+    /**
+     * Engine fallback only: leave the app when no in-app escape is possible. No shipped rule uses
+     * it — an in-app surface must be neutralised in place.
+     */
     REDIRECT_HOME,
     /** DM carve-out: leave the screen alone. */
     SKIP,

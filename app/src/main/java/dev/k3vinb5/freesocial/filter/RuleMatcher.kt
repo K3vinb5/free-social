@@ -21,9 +21,11 @@ class RuleMatcher(
     private val textRegex: Regex? = spec.textRegex?.let(::Regex)
     private val contentDescriptionRegex: Regex? = spec.contentDescriptionRegex?.let(::Regex)
     private val classNameRegex: Regex? = spec.classNameRegex?.let(::Regex)
+    private val selected: Boolean? = spec.selected
 
     val hasCriteria: Boolean
-        get() = viewId != null || textRegex != null || contentDescriptionRegex != null || classNameRegex != null
+        get() = viewId != null || textRegex != null || contentDescriptionRegex != null ||
+            classNameRegex != null || selected != null
 
     /** Convenience overload for callers holding a tree instead of a flattened list. */
     fun match(root: NodeSnapshot): NodeSnapshot? = match(NodeTree.flatten(root, visitCap))
@@ -65,6 +67,16 @@ class RuleMatcher(
                 node.className?.let(classNameRegex::containsMatchIn) == true
             } ?: return null
             if (anchor == null) anchor = hit
+        }
+
+        if (selected != null) {
+            val current = anchor
+            if (current != null) {
+                // Another criterion picked the anchor: the flag must hold on that exact node.
+                if (current.selected != selected) return null
+            } else {
+                anchor = visible.firstOrNull { it.selected == selected } ?: return null
+            }
         }
 
         return anchor

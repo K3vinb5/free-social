@@ -5,6 +5,7 @@ import dev.k3vinb5.freesocial.core.MatchSpec
 import dev.k3vinb5.freesocial.settings.AppTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,7 +68,71 @@ class RuleGateTest {
     fun `layer one outranks layer two when both matched`() {
         val hits = listOf(layerTwoHit, layerOneHit)
         assertEquals(GateOutcome.NEUTRALISE, RuleGate.decide(hits, budgetExhausted = false, scheduleLocked = false))
-        assertEquals(listOf(layerOneHit), RuleGate.activeHits(hits))
+        assertEquals(listOf(layerOneHit), RuleGate.eligibleHits(hits, budgetExhausted = false, scheduleLocked = false))
+    }
+
+    @Test
+    fun `one action per scan, most escape-like wins`() {
+        // Added weakest → strongest; each addition must become the single chosen hit.
+        val ascending = listOf(
+            Action.REDIRECT_HOME,
+            Action.CLICK_VIEW_ID,
+            Action.SCROLL_PAST,
+            Action.BACK,
+            Action.TAP_HOME_TAB,
+        )
+        val hits = mutableListOf<RuleHit>()
+        for ((i, action) in ascending.withIndex()) {
+            val next = hit(rule("r$i", surface = "s$i", layer = 1, action = action))
+            hits += next
+            assertEquals(next, RuleGate.chosen(hits, budgetExhausted = false, scheduleLocked = false))
+        }
+        // Out-of-order input still resolves to the strongest, not the asset-order first.
+        assertEquals(Action.TAP_HOME_TAB, RuleGate.chosen(hits.reversed(), false, false)?.rule?.action)
+        assertEquals(GateOutcome.NEUTRALISE, RuleGate.decide(hits, false, false))
+    }
+
+    @Test
+    fun `skip shields the whole scan and yields no action`() {
+        val strongest = hit(rule("tap", surface = "reels_tab", layer = 1, action = Action.TAP_HOME_TAB))
+        val hits = listOf(strongest, layerTwoHit, skipHit)
+        assertEquals(GateOutcome.SKIP, RuleGate.decide(hits, budgetExhausted = true, scheduleLocked = true))
+        assertNull(RuleGate.chosen(hits, budgetExhausted = true, scheduleLocked = true))
+    }
+
+    @Test
+    fun `layer two only competes once the gate opens`() {
+        val swipe = hit(rule("shelf", surface = "shorts_shelf", layer = 1, action = Action.SCROLL_PAST))
+        val back = hit(rule("player", surface = "shorts_player", layer = 2, action = Action.BACK))
+        // While the budget lasts the layer-2 BACK is not even a candidate.
+        assertEquals(swipe, RuleGate.chosen(listOf(back, swipe), budgetExhausted = false, scheduleLocked = false))
+        // Exhausted: BACK outranks SCROLL_PAST and the viewer exits.
+        assertEquals(back, RuleGate.chosen(listOf(swipe, back), budgetExhausted = true, scheduleLocked = false))
+        assertEquals(back, RuleGate.chosen(listOf(swipe, back), budgetExhausted = false, scheduleLocked = true))
+    }
+
+    @Test
+    fun `reels tab rule only fires while the tab is selected`() {
+        val reels = rule(
+            id = "ig_reels_tab",
+            surface = "reels_tab",
+            layer = 1,
+            match = MatchSpec(viewId = "$IG:id/clips_tab", selected = true),
+            action = Action.TAP_HOME_TAB,
+        )
+        val matcher = RuleSetMatcher(listOf(reels))
+        val tabBar = node(
+            children = listOf(
+                node(viewId = "$IG:id/feed_tab", description = "Home", clickable = true, selected = false),
+                node(viewId = "$IG:id/clips_tab", description = "Reels", selected = false),
+            ),
+        )
+        assertTrue(matcher.hits(AppTarget.INSTAGRAM, IG, tabBar).isEmpty())
+
+        val onReels = node(
+            children = listOf(node(viewId = "$IG:id/clips_tab", description = "Reels", selected = true)),
+        )
+        assertEquals(1, matcher.hits(AppTarget.INSTAGRAM, IG, onReels).size)
     }
 
     @Test

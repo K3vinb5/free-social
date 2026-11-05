@@ -62,6 +62,30 @@ class RuleMatcherTest {
     }
 
     @Test
+    fun `selected is a tri-state predicate on the anchor node`() {
+        val spec = MatchSpec(viewId = "$IG:id/clips_tab", selected = true)
+        val selectedTab = node(viewId = "$IG:id/clips_tab", selected = true)
+        val unselectedTab = node(viewId = "$IG:id/clips_tab", selected = false)
+
+        assertEquals(selectedTab, match(spec, selectedTab))
+        assertNull(match(spec, unselectedTab))
+        // A selected sibling cannot satisfy the predicate for an unselected anchor.
+        assertNull(match(spec, node(children = listOf(unselectedTab, node(selected = true)))))
+        // selected = false is a real criterion too.
+        assertNotNull(match(MatchSpec(viewId = "$IG:id/clips_tab", selected = false), unselectedTab))
+    }
+
+    @Test
+    fun `selected is ignored when null`() {
+        val spec = MatchSpec(viewId = "$IG:id/clips_tab")
+        assertNotNull(match(spec, node(viewId = "$IG:id/clips_tab", selected = false)))
+        assertNotNull(match(spec, node(viewId = "$IG:id/clips_tab", selected = true)))
+        // selected alone is a valid criterion.
+        assertNotNull(match(MatchSpec(selected = true), node(selected = true)))
+        assertNull(match(MatchSpec(selected = true), node(selected = false)))
+    }
+
+    @Test
     fun `view id lookup is bounded to the fallback budget of 200 nodes`() {
         val spec = MatchSpec(viewId = "$YT:id/reel_recycler")
 
