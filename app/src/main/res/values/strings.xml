@@ -143,6 +143,13 @@
     <string name="block_reason_schedule">Sleep mode is active — go to bed.</string>
     <string name="block_reason_app">This app is blocked by Free Social.</string>
 
+    <!-- Escape flash: 2.2 s screen after the filter engine escapes a short-video surface -->
+    <string name="flash_title">Free Social blocked this</string>
+    <string name="flash_reason_budget">Reels &amp; Shorts budget used up · resets at midnight</string>
+    <string name="flash_reason_sleep">Sleep mode is active · go to bed</string>
+    <string name="flash_caption_budget">You can watch again after the budget resets.</string>
+    <string name="flash_caption_sleep">Short videos are back after sleep mode ends.</string>
+
     <!-- Surfaces & rules (F14) -->
     <string name="inspector_captured">Screens to capture</string>
     <string name="inspector_nodes">— nodes</string>

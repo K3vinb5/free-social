@@ -40,6 +40,16 @@
             android:taskAffinity=""
             android:theme="@style/Theme.FreeSocial.Block" />
 
+        <!-- Escape flash: 2.2 s explanation after a filter escape, never a dismissable wall.
+             singleInstance + empty affinity + no recents entry so it cannot stack or linger. -->
+        <activity
+            android:name=".ui.ContentFlashActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.FreeSocial.Block" />
+
         <service
             android:name=".filter.FilterService"
             android:exported="false"
