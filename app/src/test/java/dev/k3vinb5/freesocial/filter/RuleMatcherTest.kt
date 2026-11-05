@@ -20,22 +20,52 @@ class RuleMatcherTest {
     }
 
     @Test
-    fun `AND combination requires every criterion, on any node`() {
+    fun `proof criteria are AND-combined, on any node`() {
         val spec = MatchSpec(
             viewId = "$IG:id/clips_viewer_view_pager",
-            textRegex = "(?i)original audio",
+            classNameRegex = "androidx\\.viewpager\\.widget\\.ViewPager",
         )
-        // View id lives on the pager, the caption on a child — still one match.
+        // View id and class may live on the pager and a child — still one match.
         val pager = node(
             viewId = "$IG:id/clips_viewer_view_pager",
-            children = listOf(node(text = "Home · Original audio")),
+            children = listOf(node(className = "androidx.viewpager.widget.ViewPager")),
         )
         assertEquals("$IG:id/clips_viewer_view_pager", match(spec, pager)!!.viewId)
 
-        // View id present, text absent: no match.
+        // View id present, class absent: no match.
         assertNull(match(spec, node(viewId = "$IG:id/clips_viewer_view_pager")))
-        // Text present, view id absent: no match.
-        assertNull(match(spec, node(text = "Home · Original audio")))
+        // Class present, view id absent: no match.
+        assertNull(match(spec, node(className = "androidx.viewpager.widget.ViewPager")))
+    }
+
+    @Test
+    fun `a localized text hint never decides a match`() {
+        val proof = node(viewId = "$IG:id/clips_viewer_view_pager")
+        val spec = MatchSpec(
+            viewId = "$IG:id/clips_viewer_view_pager",
+            textRegex = "(?i)original audio",
+            contentDescriptionRegex = "(?i)^reels$",
+        )
+        // Hint absent (a Portuguese UI, or the app reworded the caption): the proof still matches.
+        assertEquals(proof, match(spec, proof))
+        // Hint present: it confirms the same anchor, never replaces it.
+        val withHint = match(
+            spec,
+            node(
+                viewId = "$IG:id/clips_viewer_view_pager",
+                children = listOf(node(text = "Áudio original", description = "Reels")),
+            ),
+        )
+        assertEquals("$IG:id/clips_viewer_view_pager", withHint!!.viewId)
+    }
+
+    @Test
+    fun `a text-only spec can never prove a match`() {
+        val textOnly = MatchSpec(textRegex = "(?i)for you")
+        assertNull(match(textOnly, node(text = "For You")))
+        assertNull(match(MatchSpec(contentDescriptionRegex = "(?i)^reels$"), node(description = "Reels")))
+        assertEquals(false, RuleMatcher(textOnly).hasProof)
+        assertEquals(true, RuleMatcher(textOnly).hasCriteria)
     }
 
     @Test
@@ -46,19 +76,48 @@ class RuleMatcherTest {
 
     @Test
     fun `invisible and zero-sized nodes never match`() {
-        val spec = MatchSpec(textRegex = "Reels")
-        assertNull(match(spec, node(text = "Reels", visible = false)))
-        assertNull(match(spec, node(text = "Reels", bounds = Bounds.EMPTY)))
+        val spec = MatchSpec(viewId = "$IG:id/video_container", textRegex = "Reels")
+        assertNull(match(spec, node(viewId = "$IG:id/video_container", visible = false)))
+        assertNull(match(spec, node(viewId = "$IG:id/video_container", bounds = Bounds.EMPTY)))
     }
 
     @Test
-    fun `content description and class name are regex matches`() {
-        assertNotNull(match(MatchSpec(contentDescriptionRegex = "(?i)reels?$"), node(description = "Reels")))
-        assertNull(match(MatchSpec(contentDescriptionRegex = "^reels$"), node(description = "Reels tab")))
-
+    fun `class names are regex-matched proof signals`() {
         val klass = "androidx.recyclerview.widget.RecyclerView"
         assertNotNull(match(MatchSpec(classNameRegex = ".*(RecyclerView|ViewPager).*"), node(className = klass)))
         assertNull(match(MatchSpec(classNameRegex = ".*PlayerView.*"), node(className = klass)))
+        // A hint cannot stand in for a class match.
+        assertNull(
+            match(
+                MatchSpec(classNameRegex = ".*PlayerView.*", contentDescriptionRegex = "(?i)reels?$"),
+                node(description = "Reels"),
+            ),
+        )
+    }
+
+    @Test
+    fun `a class-only proof prefers the candidate a hint confirms`() {
+        // Reused container class: the localized description merely breaks the tie.
+        val spec = MatchSpec(
+            classNameRegex = "android\\.view\\.ViewGroup",
+            contentDescriptionRegex = "(?i)^shorts$",
+        )
+        val tree = node(
+            className = "android.widget.FrameLayout",
+            children = listOf(
+                node(className = "android.view.ViewGroup", description = "Recomendados"),
+                node(className = "android.view.ViewGroup", description = "Clipes curtos"),
+            ),
+        )
+        assertNotNull(match(spec, tree))
+        val hinted = node(
+            className = "android.widget.FrameLayout",
+            children = listOf(
+                node(className = "android.view.ViewGroup", description = "Recomendados"),
+                node(className = "android.view.ViewGroup", description = "Shorts"),
+            ),
+        )
+        assertEquals("Shorts", match(spec, hinted)!!.contentDescription)
     }
 
     @Test

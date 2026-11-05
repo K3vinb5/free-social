@@ -12,7 +12,7 @@
       },
       "action": "SCROLL_PAST",
       "enabled": false,
-      "notes": "RETIRED (direct-engagement policy, 2026-11-05): passive feed surfaces are never touched — no scroll, no redirect, no tap; auto-scrolling the user's page ruined the experience. Kept as documentation only (enabled=false) so the detection evidence is not lost. Original: IG feed reel/video cell: the video slot of a feed row (id video_container, class android.view.ViewGroup). Layer 1 (always hidden): swipes the cell upward out of view in place, so the feed stays usable and a relaunch does not land on the same autoplay cell. Evidence: 233205-ig_feed_scroll3 (+233157) show the id on a playing feed video while the bottom nav is present; 233005-ig_home (photo-only feed) and 233528-ig_reels_tab (clips viewer) do not contain the id, so it does not fire on photos or on the viewer. Runtime report scenarios 1 and 4 prove the old whole-app exit was unusable (launcher bounce loop); see docs/rules/RULES.md.",
+      "notes": "RETIRED (direct-engagement policy, 2026-11-05): passive feed surfaces are never touched — no scroll, no redirect, no tap; auto-scrolling the user's page ruined the experience. Kept as documentation only (enabled=false) so the detection evidence is not lost. Original: IG feed reel/video cell: the video slot of a feed row (id video_container, class android.view.ViewGroup). Layer 1 (always hidden): swipes the cell upward out of view in place, so the feed stays usable and a relaunch does not land on the same autoplay cell. Evidence: 233205-ig_feed_scroll3 (+233157) show the id on a playing feed video while the bottom nav is present; 233005-ig_home (photo-only feed) and 233528-ig_reels_tab (clips viewer) do not contain the id, so it does not fire on photos or on the viewer. Runtime report scenarios 1 and 4 prove the old whole-app exit was unusable (launcher bounce loop); see docs/rules/RULES.md. LOCALE-PROOF: id video_container + ViewGroup class; no localized string is used.",
       "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
@@ -27,7 +27,7 @@
         "selected": true
       },
       "action": "TAP_HOME_TAB",
-      "notes": "IG Reels bottom-nav tab (id clips_tab, content-desc \"Reels\", class FrameLayout) — selected=true only on the Reels screen (233528), selected=false on feed/DM (233005, 234011), so the selected criterion narrows the rule to the blocked surface itself. TAP_HOME_TAB resolves the separate Home tab (id feed_tab) and clicks that, never the matched Reels node; the global Home action is only the last resort. The DM screen also stays shielded by ig_dm_carve_out (SKIP wins in RuleGate). Runtime report scenario 2 is the inverted-tap defect this replaces; see docs/rules/RULES.md.",
+      "notes": "IG Reels bottom-nav tab (id clips_tab, content-desc \"Reels\", class FrameLayout) — selected=true only on the Reels screen (233528), selected=false on feed/DM (233005, 234011), so the selected criterion narrows the rule to the blocked surface itself. TAP_HOME_TAB resolves the separate Home tab (id feed_tab) and clicks that, never the matched Reels node; the global Home action is only the last resort. The DM screen also stays shielded by ig_dm_carve_out (SKIP wins in RuleGate). Runtime report scenario 2 is the inverted-tap defect this replaces; see docs/rules/RULES.md. LOCALE-PROOF: id clips_tab + class FrameLayout + selected=true are the proof (identical on every UI language); content-desc \"Reels\" is an auxiliary hint only.",
       "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
@@ -40,7 +40,7 @@
         "classNameRegex": "androidx\\.viewpager\\.widget\\.ViewPager"
       },
       "action": "BACK",
-      "notes": "IG Reels/clips viewer (id clips_viewer_view_pager, class androidx.viewpager.widget.ViewPager; siblings clips_viewer_container / clips_viewer_video_layout also present). Layer 2 = the budget gate itself: RuleGate only neutralises layer 2 when the budget is exhausted or the nightly window is locked, which is exactly the analysis rule e-5 (never hijack the viewer during grace). Evidence 233528-ig_reels_tab (full tree captured while the viewer played).",
+      "notes": "IG Reels/clips viewer (id clips_viewer_view_pager, class androidx.viewpager.widget.ViewPager; siblings clips_viewer_container / clips_viewer_video_layout also present). Layer 2 = the budget gate itself: RuleGate only neutralises layer 2 when the budget is exhausted or the nightly window is locked, which is exactly the analysis rule e-5 (never hijack the viewer during grace). Evidence 233528-ig_reels_tab (full tree captured while the viewer played). LOCALE-PROOF: the view id and ViewPager class are the whole key; no localized string is used.",
       "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
@@ -53,7 +53,7 @@
         "classNameRegex": "android\\.widget\\.EditText"
       },
       "action": "SKIP",
-      "notes": "IG DM carve-out: an open DM thread keeps its composer (id row_thread_composer_edittext, class EditText, hint \"Message…\"). SKIP outranks every neutralisation in RuleGate, so shared reels playing inside a thread are left alone. Evidence 234329-ig_dm_thread: thread with two shared reels on screen plus composer and direct_thread_* chrome; inbox bar direct_inbox_action_bar seen in 234011 (screenshot black: IG Direct is FLAG_SECURE).",
+      "notes": "IG DM carve-out: an open DM thread keeps its composer (id row_thread_composer_edittext, class EditText, hint \"Message…\"). SKIP outranks every neutralisation in RuleGate, so shared reels playing inside a thread are left alone. Evidence 234329-ig_dm_thread: thread with two shared reels on screen plus composer and direct_thread_* chrome; inbox bar direct_inbox_action_bar seen in 234011 (screenshot black: IG Direct is FLAG_SECURE). LOCALE-PROOF: the composer id + EditText class identify the thread on any UI language; the localized hint \"Message…\" is not used as a key.",
       "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
@@ -67,7 +67,7 @@
       },
       "action": "SCROLL_PAST",
       "enabled": false,
-      "notes": "RETIRED (direct-engagement policy, 2026-11-05): passive shelves are never touched — no scroll, no redirect, no tap; the feed is left exactly as the user found it. Kept as documentation only (enabled=false). Original: YT Shorts shelf on the Home feed. YouTube 21.43.523 exposes NO resource-ids on the shelf or the bottom nav (reel_recycler only exists in the player), so the shelf was matched on accessibility text: the shelf header ViewGroup content-desc \"Shorts\" and each shelf card ViewGroup content-desc \"<title> - play Short\" (234610-yt_home, en-US). Locale variants are alternate branches of the same regex — EN \" - play Short\" and pt \" – reproduzir Short\" (en dash, pt-yt-home3 on the Reno4, locale pt-PT); the header stays \"Shorts\" in both. RuleLookup already splits top-level alternation into literal queries, so no schema change. The bottom-nav Shorts entry is a Button, excluded by classNameRegex. The action swiped the shelf out of view in place instead of leaving the app. IG/TikTok PT variants are unauthored (no dump yet) — see docs/rules/RULES.md.",
+      "notes": "RETIRED (direct-engagement policy, 2026-11-05): passive shelves are never touched — no scroll, no redirect, no tap; the feed is left exactly as the user found it. Kept as documentation only (enabled=false). Original: YT Shorts shelf on the Home feed. YouTube 21.43.523 exposes NO resource-ids on the shelf or the bottom nav (reel_recycler only exists in the player), so the shelf was matched on accessibility text: the shelf header ViewGroup content-desc \"Shorts\" and each shelf card ViewGroup content-desc \"<title> - play Short\" (234610-yt_home, en-US). Locale variants are alternate branches of the same regex — EN \" - play Short\" and pt \" – reproduzir Short\" (en dash, pt-yt-home3 on the Reno4, locale pt-PT); the header stays \"Shorts\" in both. RuleLookup already splits top-level alternation into literal queries, so no schema change. The bottom-nav Shorts entry is a Button, excluded by classNameRegex. The action swiped the shelf out of view in place instead of leaving the app. IG/TikTok PT variants are unauthored (no dump yet) — see docs/rules/RULES.md. LOCALE-PROOF STATUS: UNPROOFED — no dump shows a view id or distinctive structure for the shelf; the only non-string criterion left is the generic ViewGroup class, so every desc branch is a hint only. Do not re-enable without a structural/geometry anchor (see RULES.md).",
       "verifiedAgainstAppVersion": "YouTube 21.43.523"
     },
     {
@@ -80,7 +80,7 @@
         "classNameRegex": "android\\.support\\.v7\\.widget\\.RecyclerView"
       },
       "action": "BACK",
-      "notes": "YT Shorts player (id reel_recycler, class android.support.v7.widget.RecyclerView; reel_player_page_container and reel_watch_fragment_root are siblings). Layer 2: plays while the budget lasts, Back once exhausted/locked. Evidence 234810-yt_shorts_player, captured while a Short played. NOTE: the shorts_player_container id used by SocialLite 03c does not exist in 21.43.523 — do not key on it.",
+      "notes": "YT Shorts player (id reel_recycler, class android.support.v7.widget.RecyclerView; reel_player_page_container and reel_watch_fragment_root are siblings). Layer 2: plays while the budget lasts, Back once exhausted/locked. Evidence 234810-yt_shorts_player, captured while a Short played. NOTE: the shorts_player_container id used by SocialLite 03c does not exist in 21.43.523 — do not key on it. LOCALE-PROOF: the view id and RecyclerView class are the whole key; no localized string is used.",
       "verifiedAgainstAppVersion": "YouTube 21.43.523"
     },
     {
@@ -89,11 +89,12 @@
       "surface": "playback",
       "layer": 2,
       "match": {
+        "viewId": "com.zhiliaoapp.musically:id/player_view",
         "contentDescriptionRegex": "(?i)^for you$|like video\\.|read or add comments|share video\\.|add or remove this video from favorites",
         "classNameRegex": "android\\.view\\.(TextureView|SurfaceView)|android\\.widget\\.VideoView"
       },
       "action": "BACK",
-      "notes": "TikTok playing video, anchored on chrome that is visible during playback (defect D2a). Two id-free signals, AND-combined: (1) the FYP action chrome described by TikTok always — the selected \"For You\" tab plus the right-rail buttons \"Like video. …\", \"Read or add comments…\", \"Share video. …\", \"Add or remove this video from Favorites\"; (2) a video surface rendered by TextureView/SurfaceView/VideoView, which a photo post never has (235543-tt_fyp_next2 has none, 234958-tt_consent_check has TextureView id wjv). The old anchor was id video_seek_bar, a player-control that reports isVisibleToUser=false while a video plays, so the rule could never match (234958/001928 list it but the engine filters it). The seek bar remains only an optional extra signal, never the sole one — do not re-add it as the anchor. Layer 2: play while the budget lasts, one Back when exhausted. Photo/live posts stay untracked; TikTok ids are obfuscated and churn per release, which is why no id is used.",
+      "notes": "TikTok playing video. LOCALE-PROOF PROOF (rule #271): the player container id player_view AND a video surface class (TextureView/SurfaceView/VideoView). Dumps: 234958 has player_view [0,0][1080,2169] wrapping TextureView wjv; 235543 (photo) has player_view but NO video surface; 235326 (live preview) has a SurfaceView but NO player_view, so live is excluded. The FYP chrome descriptions (For You, Like video., Read or add comments, Share video., favourites) are AUXILIARY HINTS only now: they confirm the surface but a Portuguese/Spanish UI or a reworded accessibility label no longer kills or creates the match. The old anchor was id video_seek_bar, a player control that reports isVisibleToUser=false while a video plays (D2a) — never use it as the anchor. Layer 2: play while the budget lasts, one Back when exhausted. DM-opened videos match too; tiktok_dm_carve_out (SKIP) shields them.",
       "verifiedAgainstAppVersion": "TikTok 47.6.3"
     },
     {
@@ -106,7 +107,7 @@
         "classNameRegex": "android\\.widget\\.Button"
       },
       "action": "SKIP",
-      "notes": "TikTok DM carve-out: the in-thread composer button (id udm, class Button, text \"Message <name>…\") is present while a video shared in a DM plays full-screen — the exact screen where tiktok_playback would otherwise fire. SKIP wins in RuleGate. Evidence 001928-tt_dm_video_paused (player_view + the seek bar + \"Message Carol...\") and 001335-tt_activity_carol (chat thread with shared videos). The SocialLite strings \"Back to chat\"/\"Reply privately\" (03c f3348u0) do not occur in build 47.6.3; plain threads use composer id ui_slot_input_layout_redesign. See docs/rules/RULES.md.",
+      "notes": "TikTok DM carve-out: the in-thread composer button (id udm, class Button, text \"Message <name>…\") is present while a video shared in a DM plays full-screen — the exact screen where tiktok_playback would otherwise fire. SKIP wins in RuleGate. Evidence 001928-tt_dm_video_paused (player_view + the seek bar + \"Message Carol...\") and 001335-tt_activity_carol (chat thread with shared videos). The SocialLite strings \"Back to chat\"/\"Reply privately\" (03c f3348u0) do not occur in build 47.6.3; plain threads use composer id ui_slot_input_layout_redesign. LOCALE-PROOF: id udm + Button class identify the DM composer on any UI language; the localized \"Message <name>…\" text is an observable hint, never a key. See docs/rules/RULES.md.",
       "verifiedAgainstAppVersion": "TikTok 47.6.3"
     }
   ]

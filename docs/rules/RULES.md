@@ -58,13 +58,60 @@ was using the phone mid-capture). Deleted at the end of this run.
 | `ig_dm_carve_out` | `dm_carve_out` (2) | `234329` (+ `234011`) | `id/row_thread_composer_edittext` + class `EditText` | Instagram 454.0.0.54.77 | SKIP |
 | `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` (en-US), `pt-yt-home3` (pt-PT) | content-desc `^Shorts$` / `- play Short$` / ` – reproduzir Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
 | `yt_shorts_player` | `shorts_player` (2) | `234810` | `id/reel_recycler` + class `android.support.v7.widget.RecyclerView` | YouTube 21.43.523 | BACK |
-| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative) | content-desc FYP chrome (`For You`, `Like video.`, `Read or add comments`, `Share video.`, favourites) **and** class `TextureView`/`SurfaceView`/`VideoView` | TikTok 47.6.3 | BACK |
+| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative), `235326` (live, negative) | **proof** `id/player_view` + class `TextureView`/`SurfaceView`/`VideoView`; content-desc FYP chrome (`For You`, `Like video.`, …) is now a hint only | TikTok 47.6.3 | BACK |
 | `tiktok_dm_carve_out` | `dm_carve_out` (2) | `001928` (DM video) + `001335` (thread) | `id/udm` + class `android.widget.Button` ("Message <name>...") | TikTok 47.6.3 | SKIP |
 
 All eight surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
 in this revision). Locale coverage is partial: only the YouTube shelf has a non-English dump
 (pt-PT, see *Locale variants*); IG and TikTok are EN-only. Rules are version-stamped; a mismatch
 with the installed app should be surfaced in the UI as "rules last verified against …" (SPEC §2.5).
+
+## Locale-proof anchors (rule #271, 2026-11-05)
+
+The phone's UI language is **not fixed** (EN today, pt/es tomorrow), so filtering must work
+regardless. Every **enabled** rule is proved by at least one **locale-independent** signal — view
+id, class name, geometry/structure or a flag. Localized `textRegex` / `contentDescriptionRegex`
+values are
+**auxiliary hints only**: they may confirm a match (a class-only anchor prefers the candidate that
+also carries the hint), but a missing or reworded string must **not** kill it. Per-locale string
+lists are explicitly not the mechanism; the EN/pt alternations kept below exist for the text graft
+(`RuleLookup.literalQueries`) and for documentation, not for proving a surface.
+
+Enforcement is in code, not prose:
+
+* `core/RuleModel.kt` — the proof set is one named helper, `isLocaleProofCriterion(kind)`
+  (`VIEW_ID`, `CLASS_NAME`, `SELECTED` are proof; `TEXT`, `CONTENT_DESCRIPTION` are hints).
+  `validate()` throws `RuleSetException` for any rule with no proof criterion.
+* `filter/RuleMatcher.kt` — only proof criteria are AND-combined; a hint-only spec can never
+  match (fail open), and a present hint never causes a null when the proof holds.
+* `LocaleProofRulesTest` — asserts the shipped catalog satisfies both, and that each enabled rule
+  below cites a dump file.
+
+| rule (enabled) | proof anchor(s) | dump citation | auxiliary hints (never a key) |
+| --- | --- | --- | --- |
+| `ig_reels_tab` | `com.instagram.android:id/clips_tab` + `android.widget.FrameLayout` + `selected=true` | `233528-ig_reels_tab.xml` (selected); `233005-ig_home.xml`, `234011-ig_dm_inbox2.xml` (selected=false, negative) | content-desc `Reels` |
+| `ig_clips_viewer` | `com.instagram.android:id/clips_viewer_view_pager` + `androidx.viewpager.widget.ViewPager` | `233528-ig_reels_tab.xml` | — |
+| `ig_dm_carve_out` | `com.instagram.android:id/row_thread_composer_edittext` + `android.widget.EditText` | `234329-ig_dm_thread.xml` | `Message…` (not authored as a criterion) |
+| `yt_shorts_player` | `com.google.android.youtube:id/reel_recycler` + `android.support.v7.widget.RecyclerView` | `234810-yt_shorts_player.xml`, `170126-yt_shorts.xml` | — |
+| `tiktok_playback` | `com.zhiliaoapp.musically:id/player_view` + `TextureView`/`SurfaceView`/`VideoView` | `234958-tt_consent_check.xml` (video); `235543-tt_fyp_next2.xml` (photo: id, no surface); `235326-tt_fyp_next.xml` (live: SurfaceView, no `player_view`) | FYP chrome descriptions (`For You`, `Like video.`, …) |
+| `tiktok_dm_carve_out` | `com.zhiliaoapp.musically:id/udm` + `android.widget.Button` | `001928-tt_dm_video_paused.xml`, `001335-tt_activity_carol.xml` | `Message <name>…` (observed, not a key) |
+| `ig_feed_reel_cell` (RETIRED) | `com.instagram.android:id/video_container` + `android.view.ViewGroup` | `233205-ig_feed_scroll3.xml`, `233157-ig_feed_scroll2.xml` | — |
+| `yt_shorts_shelf` (RETIRED) | **UNPROOFED** — see below | `234610-yt_home.xml`, `reverse/runtime-reno/pt-yt-home3.xml` | desc `Shorts` / ` - play Short` / ` – reproduzir Short` |
+
+Why TikTok uses `player_view` and not the video-surface class alone: `235326-tt_fyp_next.xml`
+(live preview) **does** render a `SurfaceView`, so the class by itself would flag LIVE, which is
+not a short-video surface. The `player_view` container exists for a post/video and is absent on
+LIVE; the surface class is what keeps the `235543` photo negative clean (`player_view` there, no
+video surface). Neither signal is a string.
+
+**`yt_shorts_shelf` — UNPROOFED as a locale-independent anchor.** No dump (EN `234610-yt_home.xml`
+or pt-PT `pt-yt-home3.xml`) shows a view id or a distinctive structural/geometry fingerprint for
+the shelf; the only non-string criterion available is the generic `android.view.ViewGroup` class,
+which every card and many unrelated nodes share. It is **retired** (`enabled=false`, direct-
+engagement policy) so it never matches at runtime. Missing data needed to un-retire it: a dump with
+either a shelf-container id (the nearest id-bearing ancestor is `id/results`, which also exists on
+shelf-free Home feeds) or a stable structural fingerprint (e.g. the four-card grid geometry
+relative to the screen), plus its negative control. Its strings are hints only.
 
 ## Anchor sweep — persistent chrome only (defect D2a)
 
@@ -82,18 +129,22 @@ is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
 | `ig_dm_carve_out` | `id/row_thread_composer_edittext` | **Yes** — the thread composer is thread chrome, present for the whole thread (`234329`); it is what keeps shared reels in a DM usable. |
 | `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` / ` – reproduzir Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
 | `yt_shorts_player` | `id/reel_recycler` | **Yes** — the Shorts player's pager container (`234810`), present for as long as the player is. |
-| `tiktok_playback` | FYP chrome content-descs + `TextureView`/`SurfaceView`/`VideoView` class | **Yes** — the "For You" tab and the right-rail buttons are on screen during playback, and the video surface only exists while a video plays. The old `video_seek_bar` anchor was `isVisibleToUser=false` during playback (D2a). |
+| `tiktok_playback` | `id/player_view` + `TextureView`/`SurfaceView`/`VideoView` class | **Yes** — the player container and the video surface exist only while a video plays (FYP chrome strings are hints; see *Locale-proof anchors*). The old `video_seek_bar` anchor was `isVisibleToUser=false` during playback (D2a). |
 | `tiktok_dm_carve_out` | `id/udm` + class `Button` | **Yes** — the in-thread composer button is DM chrome, not a player control (`001928`, `001335`); re-verify it on every TikTok update, like every TikTok id. |
 
-## Locale variants
+## Locale variants (hint data only)
+
+> Since rule #271 (see *Locale-proof anchors* above) these alternations are **not** what proves a
+> surface. They are hint data: they let `RuleLookup.literalQueries` graft text-described nodes and
+> they document the observed wording. A device whose language none of these branches cover matches
+> on the rule's view id / class / flag instead.
 
 The engine's capture is locale-blind: only the match strings are English, so a Portuguese device
-matched nothing (`matched=0`, `grafted=1` — defect D8 round 2). The model needs **no schema
-change** for this: `contentDescriptionRegex` / `textRegex` are regexes and the matcher evaluates
-them with `containsMatchIn`, so a top-level alternation is already an "any of these strings"
-criterion. `RuleLookup.literalQueries` also already splits top-level alternation into one
-`findAccessibilityNodeInfosByText` query per branch, so every locale alternate is graftable —
-proven by `TextGraftCaptureTest` and the new `YouTubeShelfLocaleTest`.
+matched nothing (`matched=0`, `grafted=1` — defect D8 round 2). `contentDescriptionRegex` /
+`textRegex` are regexes and the matcher evaluates them with `containsMatchIn`, so a top-level
+alternation is already an "any of these strings" hint. `RuleLookup.literalQueries` also splits
+top-level alternation into one `findAccessibilityNodeInfosByText` query per branch, so every locale
+alternate is graftable — proven by `TextGraftCaptureTest` and the new `YouTubeShelfLocaleTest`.
 
 Rule: a locale string is authored **only** if it appears in a dump; otherwise the rule stays
 EN-only and is recorded here as unverified. `schemaVersion` stays 1.

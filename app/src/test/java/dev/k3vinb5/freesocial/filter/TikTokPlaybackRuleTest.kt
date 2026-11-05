@@ -2,15 +2,17 @@ package dev.k3vinb5.freesocial.filter
 
 import dev.k3vinb5.freesocial.core.Rule
 import dev.k3vinb5.freesocial.core.loadRuleSet
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D2a: `tiktok_playback` must match on always-visible FYP chrome plus a video surface, and must not
- * depend on `video_seek_bar` — a player control the host hides (`isVisibleToUser=false`) during
- * playback while uiautomator still lists it.
+ * D2a + rule #271: `tiktok_playback` is proved by the player container id (`player_view`) AND a
+ * video surface class, both locale-independent. The FYP chrome descriptions are auxiliary hints
+ * now: a pt-PT UI must still match. The rule must never depend on `video_seek_bar` — a player
+ * control the host hides (`isVisibleToUser=false`) during playback while uiautomator still lists it.
  */
 class TikTokPlaybackRuleTest {
 
@@ -71,7 +73,35 @@ class TikTokPlaybackRuleTest {
         assertNull(match(fypTree(videoSurface = false, chrome = false, seekBar = true, seekBarVisible = false)))
         // Even a visible seek bar is not the anchor any more.
         assertNull(match(fypTree(videoSurface = false, chrome = false, seekBar = true, seekBarVisible = true)))
-        assertNull(rule.match.viewId)
+        assertEquals("$TT:id/player_view", rule.match.viewId)
+    }
+
+    @Test
+    fun `the localized FYP chrome is a hint, not a key`() {
+        // A pt-PT device words "For You" / "Like video." differently (or the app rewords it):
+        // the id + surface class must still prove the match.
+        val withoutChrome = fypTree(chrome = false)
+        assertNotNull("the id + video surface must match with every string changed", match(withoutChrome))
+    }
+
+    @Test
+    fun `a live preview with a SurfaceView and no player container does not match`() {
+        // 235326-tt_fyp_next: live preview renders a SurfaceView under a bare FrameLayout and has
+        // no player_view id — the id is what separates a short-video post from LIVE.
+        val live = node(
+            bounds = Bounds(0, 0, 1080, 2424),
+            children = listOf(
+                node(
+                    className = "android.widget.FrameLayout",
+                    bounds = Bounds(0, 478, 1080, 2169),
+                    children = listOf(
+                        node(className = "android.view.SurfaceView", bounds = Bounds(0, 478, 1080, 2169)),
+                    ),
+                ),
+                node(className = "android.widget.TextView", text = "LIVE now", bounds = Bounds(45, 1932, 186, 1990)),
+            ),
+        )
+        assertNull(match(live))
     }
 
     @Test
