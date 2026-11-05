@@ -44,6 +44,12 @@ data class Rule(
  * selected node (e.g. the Reels tab while the Reels screen is up), `false` only an unselected one,
  * and `null` ignores the flag entirely. When another criterion supplies the anchor node, the
  * predicate is checked on that same node so a selected sibling cannot satisfy it.
+ *
+ * LOCALE POLICY (rule #271): the phone language is not fixed (EN today, PT/ES/GL tomorrow), so a
+ * node may only be *proved* by a locale-independent signal. [textRegex] and
+ * [contentDescriptionRegex] are localized and therefore **auxiliary hints**: they may confirm or
+ * pick between candidates, but a missing or reworded string never decides a match. The proof set
+ * lives in one place, [isLocaleProofCriterion]; [hasLocaleProofSignal] is what the loader enforces.
  */
 @Serializable
 data class MatchSpec(
@@ -56,6 +62,45 @@ data class MatchSpec(
     val isEmpty: Boolean
         get() = listOfNotNull(viewId, textRegex, contentDescriptionRegex, classNameRegex, selected).isEmpty()
 }
+
+/** Every criterion kind a [MatchSpec] can carry, for the locale-proof audit. */
+enum class CriterionKind {
+    VIEW_ID,
+    CLASS_NAME,
+    SELECTED,
+    TEXT,
+    CONTENT_DESCRIPTION,
+}
+
+/**
+ * The single definition of the locale-proof criterion set (rule #271).
+ *
+ * A view id, a class name and a flag are identical on every device language; a text or
+ * content-description string is localized and is never allowed to be the only positive key. The
+ * loader rejects a rule whose criteria have no kind for which this returns `true`.
+ */
+fun isLocaleProofCriterion(kind: CriterionKind): Boolean = when (kind) {
+    CriterionKind.VIEW_ID, CriterionKind.CLASS_NAME, CriterionKind.SELECTED -> true
+    CriterionKind.TEXT, CriterionKind.CONTENT_DESCRIPTION -> false
+}
+
+/** Present criterion kinds, in schema order. */
+val MatchSpec.criterionKinds: List<CriterionKind>
+    get() = buildList {
+        if (!viewId.isNullOrBlank()) add(CriterionKind.VIEW_ID)
+        if (classNameRegex != null) add(CriterionKind.CLASS_NAME)
+        if (selected != null) add(CriterionKind.SELECTED)
+        if (textRegex != null) add(CriterionKind.TEXT)
+        if (contentDescriptionRegex != null) add(CriterionKind.CONTENT_DESCRIPTION)
+    }
+
+/** The locale-independent subset of [criterionKinds] — the only kinds that can prove a match. */
+val MatchSpec.proofKinds: List<CriterionKind>
+    get() = criterionKinds.filter(::isLocaleProofCriterion)
+
+/** True when this spec carries at least one locale-proof signal. */
+val MatchSpec.hasLocaleProofSignal: Boolean
+    get() = proofKinds.isNotEmpty()
 
 @Serializable
 enum class Action {
@@ -115,6 +160,15 @@ private fun validate(set: RuleSet) {
             throw RuleSetException(
                 "rule '${rule.id}': SCROLL_PAST is retired — passive surfaces are never touched; " +
                     "set enabled=false to keep the rule as documentation",
+            )
+        }
+        // LOCALE POLICY (rule #271): a localized string may never be the only positive key, so a
+        // rule without a view id / class / flag cannot prove anything on a phone whose language
+        // changed. Text and content-description criteria stay valid as auxiliary hints.
+        if (!rule.match.hasLocaleProofSignal) {
+            throw RuleSetException(
+                "rule '${rule.id}': no locale-proof criterion — localized text/content-description " +
+                    "strings are hints only; add a viewId, classNameRegex or selected flag",
             )
         }
         if (!seen.add(rule.appPackage to rule.surface)) {

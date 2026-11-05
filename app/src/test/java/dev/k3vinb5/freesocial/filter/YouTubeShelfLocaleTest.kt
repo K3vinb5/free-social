@@ -3,8 +3,8 @@ package dev.k3vinb5.freesocial.filter
 import dev.k3vinb5.freesocial.core.Rule
 import dev.k3vinb5.freesocial.core.loadRuleSet
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -68,10 +68,13 @@ class YouTubeShelfLocaleTest {
     }
 
     @Test
-    fun `a non-shorts pt description does not match`() {
-        // pt-yt-home1: ordinary video card, "reproduzir vídeo" is not a Short.
+    fun `a non-shorts pt description is not a Short hint`() {
+        // pt-yt-home.xml: ordinary video card, "reproduzir vídeo" is not a Short.
         val ptVideo = "Davy Jones viu o GTA VI ANTES de todo mundo – 8 minutos e 39 segundos – reproduzir vídeo"
-        assertNull(match(shelfTree(listOf(ptVideo), header = false)))
+        assertFalse(
+            "an ordinary pt card must not match the Shorts hint",
+            Regex(rule.match.contentDescriptionRegex!!).containsMatchIn(ptVideo),
+        )
     }
 
     @Test

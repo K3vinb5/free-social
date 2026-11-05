@@ -130,6 +130,48 @@ class RuleModelTest {
     }
 
     @Test
+    fun `a text-only rule is rejected by the locale-proof invariant`() {
+        // A localized string may never be the only positive key (rule #271): the phone language
+        // changes, so the loader refuses the rule instead of letting it silently stop matching.
+        expectError(
+            set(rule(match = """{"textRegex":"(?i)for you"}""")),
+            "no locale-proof criterion",
+        )
+        expectError(
+            set(rule(match = """{"contentDescriptionRegex":"(?i)^reels$"}""")),
+            "no locale-proof criterion",
+        )
+    }
+
+    @Test
+    fun `an id or a class satisfies the locale-proof invariant`() {
+        val withId = loadRuleSet(
+            set(rule(match = """{"viewId":"com.instagram.android:id/clips_tab","contentDescriptionRegex":"(?i)^reels$"}""")),
+        ).rules.single()
+        assertTrue(withId.match.hasLocaleProofSignal)
+        assertEquals(
+            listOf(CriterionKind.VIEW_ID, CriterionKind.CONTENT_DESCRIPTION),
+            withId.match.criterionKinds,
+        )
+        assertEquals(listOf(CriterionKind.VIEW_ID), withId.match.proofKinds)
+
+        val classOnly = loadRuleSet(
+            set(rule(match = """{"classNameRegex":"android\\\\.view\\\\.TextureView"}""")),
+        ).rules.single()
+        assertTrue(classOnly.match.hasLocaleProofSignal)
+        assertEquals(listOf(CriterionKind.CLASS_NAME), classOnly.match.proofKinds)
+    }
+
+    @Test
+    fun `the proof set is the one named helper`() {
+        assertTrue(isLocaleProofCriterion(CriterionKind.VIEW_ID))
+        assertTrue(isLocaleProofCriterion(CriterionKind.CLASS_NAME))
+        assertTrue(isLocaleProofCriterion(CriterionKind.SELECTED))
+        assertFalse(isLocaleProofCriterion(CriterionKind.TEXT))
+        assertFalse(isLocaleProofCriterion(CriterionKind.CONTENT_DESCRIPTION))
+    }
+
+    @Test
     fun `shipped asset covers the eight filter surfaces`() {
         val asset = java.io.File("src/main/assets/rules.json").readText()
         val set = loadRuleSet(asset)
