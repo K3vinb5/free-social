@@ -644,3 +644,160 @@ Note: `logcat -c` precedes each scenario so the excerpt belongs to that scenario
   `profile_tab selected="true"`, `feed_tab selected="false"`, `clips_tab selected="false"`
   (`waveC-06-ig-profile.png`, `/tmp/opencode/waveC/wc2-profile.xml`), `logcat -c` then 7 s
   untouched → **zero FilterService lines**. Merely showing the tab bar on Profile does not fire.
+
+## Wave D — policy acceptance
+
+Device: OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, 1080×2400, pt-PT UI,
+2–3 s pacing. APK `7f530f7` (unchanged); driver at `e6d7fce`. No app code changed, no commits,
+**no reboot, no `am force-stop`**. Every run: `uv run tools/device/drive.py run <scenario>`
+(exit 0 = PASS) with evidence under `reverse/runtime-reno/driver-<ts>/<scenario>/`.
+
+Standing fixtures: budget limit/used driven through the app UI where the scenario needs a
+zero-minute budget; prefs written only through `run-as` and recorded in each `steps.log`
+(`FIXTURE prefs write …`). Log windows are device-clock stamps (`policy.log_stamp`) and action
+lines are the `ACTION_RE` set (`neutralising`, `gesture completed/failed`, `ACTION_SCROLL_FORWARD`,
+`action failed`); scans and gate decisions are *not* actions.
+
+### D1 — `exhaustion_consistent` — **PASS** (3/3 escapes, identical shape)
+
+* Budget driven to **0 min** via the UI stepper (`budget limit now 0 min (target 0)`), then three
+  fresh IG Reels entries: `entry 1/2/3: escaped=True actions=1 clips_tab_selected=False
+  foreground=com.instagram.android`, `outcomes=[True, True, True] total_actions=3 entries=3`.
+* No allow-then-deny: every entry produced exactly one escape action and never left Instagram.
+* Evidence: `driver-20261105-182815/exhaustion_consistent/` (`engine-entry-{1,2,3}.log`,
+  `01..06-*.png`, `07-final-pass.png`). Budget restored to 20 min at the end.
+
+### D2 — `direct_entry_pays` — **PASS** (gate=PAY, no escape)
+
+* Budget before entry `{used: 0, limit: 20}`, after entering Reels `{used: 12, limit: 20}`
+  (delta **12 s**); `gate=PAY` line present; app never bounced out of Reels.
+* Evidence: `driver-20261105-183112/direct_entry_pays/` (`engine-window.log`, `05-final-pass.png`).
+
+### D3 — `dm_carveout_structural` — **LOCALE-GAP** (not a policy verdict)
+
+* TikTok FYP on this build is undumpable (`02/05-dump-failed.png`, `window-structure.txt`), so
+  there is no semantic route into the DM inbox; 10 s on the FYP produced **24 engine lines,
+  0 actions**. Carve-out stays unproven, not disproven.
+* Evidence: `driver-20261105-181138/dm_carveout_structural/`.
+
+### D4 — `passive_feed_untouched` — **PASS** (zero actions across 3 deliberate swipes)
+
+* YT Home, window opened at `11-05T18:36:41`; three swipes inside `results` at 2.5 s spacing;
+  **12 engine lines, 0 action lines**; foreground still `com.google.android.youtube`;
+  `results` still visible after the window closed.
+* Evidence: `driver-20261105-183632/passive_feed_untouched/` (`engine-window.log`,
+  `01-yt-home-before.png` … `05-yt-still-home-clean.png`).
+
+### D5 — `capture_pause_filter` — **PASS** (paused, not racing)
+
+* Guided capture armed from *Surfaces & rules → Instagram → Home feed*; the app launched IG, the
+  scenario swiped and tapped a `video_container` cell during the armed window.
+* **26 engine lines, 0 action lines** for the whole guided window; finish line
+  `guided capture com.instagram.android/feed_reel_cell: 9 nodes, verified=true,
+  file=com.instagram.android-20261105-184025-156.json`; inspector banner
+  `Capture complete — 9 nodes.`; dump header `"surface": "feed_reel_cell", "surfaceVerified": true,
+  "nodeCount": 9, "grafted": 4`.
+* Caveat recorded: tapping into the feed video cell changed the detected surface, so the session
+  auto-stopped at ~6 s (18:40:19 → 18:40:25) per `docs/rules/CAPTURE.md` §6 instead of running the
+  full 15 s. Zero actions still holds across the entire arm.
+* First attempt `driver-20261105-183724` aborted before any capture: IG had resumed into a
+  full-screen Reels player left by the previous wave, so `uiautomator dump` could not reach idle
+  (`02-dump-failed.png`). Prep (back to IG Home feed) and re-run only — no scenario edits.
+* Evidence: `driver-20261105-183953/capture_pause_filter/` (`engine-window.log`, `newest-dump.json`,
+  `04-ig-during-capture-video.png`, `06-inspector-capture-complete.png`).
+
+### D6 — `capture_match_list` — **PASS** (`ig_reels_tab` in the analysis)
+
+* Guided capture on the IG Reels-tab surface: `guided capture com.instagram.android/reels_tab:
+  10 nodes, verified=true, file=com.instagram.android-20261105-184350-119.json`; dump header
+  `"surface": "reels_tab", "surfaceVerified": true, "nodeCount": 10, "grafted": 6`; **0 action
+  lines** while armed (gate decisions only).
+* Expanding that dump in the inspector shows **Rules that match this dump** with
+  `ig_reels_tab · reels_tab` (`05-analysis-match-list.png`), closing Wave 2/C2's no-match gap.
+* Evidence: `driver-20261105-184245/capture_match_list/`.
+
+### D7 — guided-capture notification (bonus) — **NOT RENDERED on ColorOS**
+
+* Notification permission is granted (`POST_NOTIFICATIONS: granted=true`; hub *Permissions 4 of 4*)
+  and the record is posted: `dumpsys notification` shows
+  `pkg=dev.k3vinb5.freesocial … channel=node_capture … importance=2`,
+  `android.title=String (Node capture)`, text `Surface left — capture stopped at N nodes`
+  (`reverse/runtime-reno/waveD-notification/notification-dumpsys.txt`).
+* It does not appear in the shade on this firmware: two fresh captures + shade expansions
+  (`reverse/runtime-reno/waveD-notification/01-recording-notification{,-fast}.png`,
+  `02-shade-scrolled.png`) show the
+  system/Instagram/YouTube/OneDrive/Nextcloud rows but never the Free Social one, while the record
+  stays live. The screenshot is also self-defeating: expanding the shade itself wins the window
+  focus, so the session ends as `Surface left — capture stopped` (text captured above).
+* Verdict: **bonus not obtainable**; the notification's existence/props are evidenced, its
+  rendering is a ColorOS shade behavior, not app behavior.
+
+### D8 — fixture writes, prefs cache, driver fixes
+
+* Fixtures this wave: exhaustion set `budget_limit_minutes` 20→0 through the app stepper and back
+  to 20; `policy.prefs_fixture` attempted `budget_used_seconds=0` / `budget_limit_minutes=20` /
+  `budget_date=2026-11-05` through `run-as` (logged as `FIXTURE prefs write …`).
+* **`policy.prefs_fixture` does not land on this device.** Observed: after the logged fixture the
+  read-back still returned the old `used=397` and `settings.xml`'s mtime had not changed, i.e. the
+  write silently no-op'd (the `sh -c "… | base64 -d > …"` argv is re-joined by `adb shell`, so the
+  redirect/mv did not run under `run-as`). The final restore was therefore executed as one quoted
+  run-as command (`cat > shared_prefs/settings.xml.new` on stdin, then `mv`) and verified: on disk
+  `budget_used_seconds=0`, `budget_limit_minutes=20`, `budget_date=2026-11-05`
+  (`reverse/runtime-reno/waveD-final/settings-final.xml`, `03-hub-final-restored.png`).
+* **Prefs-cache caveat (recorded, not worked around):** an external prefs write lands on disk but
+  the running process keeps its `SharedPreferences` map; only a process restart (explicitly *not*
+  done) reloads it. Visible right now: disk says `used=0` (20 min left) while the live hub still
+  reads **16 min left** from the cached value; the engine will keep using the cached budget until
+  the next process start. The write is also not durable against the app itself: after the first
+  successful restore (`used=0`), re-foregrounding IG to check it sat on Home let the app flush its
+  cache back to `used=443`, so the final write below was made as the **last** device action.
+* Driver bug fixes carried by `e6d7fce` (needed for these runs):
+  1. wall guard read a nonexistent `Node.cls` → `Node.class_name` (the `EditText` password-field
+     signal never matched before);
+  2. `app_settings_read` ignored typed prefs (`<int>/<long>/<boolean>` carry `value=` attributes),
+     so every budget read returned 0 — it now falls back to the element's `value`.
+
+### Wave D final state
+
+* Budget: on disk limit **20** / used **0** / date `2026-11-05`, written as the last action and
+  re-read 15 s later with no UI interaction
+  (`reverse/runtime-reno/waveD-final/settings-final.xml`); live engine still cached (hub shows
+  16 min left — see D8).
+* Schedule **untouched**: `schedule_enabled=true`, `schedule_day_4_wake=420`,
+  `schedule_day_4_bedtime=1350`, `wind_down_minutes=0`, `morning_lock_minutes=0`; hub reads
+  `Schedule · On · 22:30–07:00`.
+* Apps left on their home screens (IG dump: `feed_tab selected="true"`, `clips_tab
+  selected="false"`; YouTube Home; then launcher reached); Free Social hub brought to front last
+  (`reverse/runtime-reno/waveD-final/05-hub-final-verified.png`), both services bound:
+  `Enabled services:{{…filter.FilterService}, {…block.BlockService}}`.
+
+## Final tally — direct-engagement acceptance (2026-11-05)
+
+Note: the original §6 item list predates the direct-engagement redefinition
+(user steer 2026-11-05). Passive-surface items are SUPERSEDED by policy
+(retired rules), not failed. This tally keys on the behaviours the policy
+defines, each with its evidence.
+
+| Behaviour | Verdict | Evidence |
+|---|---|---|
+| Passive feed surfaces untouched (no auto-scroll) | PASS | driver-20261105-183632: 3 swipes, 12 engine lines, 0 actions |
+| In-budget direct entry pays (watch + accrue) | PASS | driver-20261105 Wave D: gate=PAY, used 0→12 s, 0 escapes (D9 regression closed) |
+| Exhausted entries escaped consistently (N taps = N escapes) | PASS | exhaustion_consistent: 3/3 TAP_HOME_TAB to Home, no allow-then-deny |
+| Filter pauses during guided capture | PASS | driver-20261105-183953: 26 engine lines / 0 actions while armed |
+| Guided capture surface-verified + analysis ("rules that match") | PASS | guide-07…12 (44 nodes, surface=home verified); driver-20261105-184245 (`ig_reels_tab · reels_tab` listed) |
+| Rule heal via export/import (no new APK) | PASS | W2 smoke: "Rules imported — 8 active", engine cache dropped, live on next event |
+| Locale-proof rules (language independent) | PASS (suite) | loader rejects text-only rules; enabled rules keyed on ids/classes; 215 tests green |
+| Whole-app Block mode + re-detection | PASS | Wave B: block 0.9 s after launch, 3/3 re-detects |
+| Nightly lock + exact-alarm boundary flip | PASS | Wave B: 0 s drift, re-armed; waveB-flip.mp4 |
+| Doze survival | PASS | Wave B B3: services bound, PID stable, ACTIVE |
+| Hub enforcement truth + Permissions 4/4 | PASS | items 11 / setup pass; banner live |
+| TikTok DM carve-out (over-block check) | UNVERIFIED (locale-gap) | dm_carveout_structural: FYP undumpable → no semantic route to inbox; 26 scan lines / 0 rule actions (no accidental firing); carve-out anchor is structural (`udm`+Button, RULES.md). Needs a DM deep-link route or one hand-run. |
+| Capture notification visibility | DEVICE QUIRK | ColorOS never renders the posted capture notification in the shade (record exists: channel=node_capture); opening the shade ends capture ("Surface left"). In-app step card is the visible guide on this device. |
+
+Fixes landed this day (all committed): D9 gate root cause + direct-engagement
+policy (6b69fc2); capture UX + heal (58f0693); locale-proof invariant (b1a5dbc);
+driver + 2 driver bug fixes (e6d7fce). Known accepted gaps: hub stale budget
+until process restart (dual cache; decisions always use live values); yt_shorts_shelf
+UNPROOFED (retired by policy); TikTok DM carve-out live check (above).
+
+Delivery: ~/Nextcloud/FreeSocial/free-social-0.2.0-e6d7fce.zip (APK + README).
