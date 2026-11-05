@@ -461,3 +461,106 @@ Reading it:
 Verdict: vendor link pruning confirmed; the id/text lookup grafts are the permanent mitigation.
 The text layer reaches content on a pruned tree (`grafted=1`), but proving `matched>0` needs a
 screen whose strings are in the rules' locale (or localized rules — a separate change).
+
+---
+
+## D8 round 3 — container anchors, stale-tree escape refire, dump seam (Wave A retry gaps)
+
+Three defects the Wave A retry left open (`docs/rules/REVERIFY.md` → *Wave A retry*), all measured
+on the Reno4 with APK `620e74e`, all fixed without schema changes.
+
+### R1 — the shelf is id-less and the text lookup cannot reach it
+
+The retry proved the surface is real (135 `uiautomator` nodes, `content-desc="Shorts"` +
+4×`"… – reproduzir Short"`) while the scan reported `4 nodes, matched=0, grafted=0` and
+`idProbe: results=2`. Reading `reverse/runtime-reno/pt-yt-home3.xml`:
+
+- header and all four cards: empty `resource-id`, class `android.view.ViewGroup`;
+- their nearest id-bearing ancestor: `com.google.android.youtube:id/results`, a scrollable
+  `RecyclerView` `[0,398][1080,2158]`, two `ViewGroup` levels above the header.
+
+So this is neither the rule (desc + class match the dump verbatim) nor the palette of graft layers —
+there simply is no id on the nodes the rule matches, and `findAccessibilityNodeInfosByText` returns
+nothing from the pruned root on this ROM. Fix (b) from the brief:
+
+1. `filter/CaptureAnchors.kt` declares `id/results` for `com.google.android.youtube`, with the dump
+   as provenance. It is appended to the capture's `viewIdLookups` in **both** the scan and the armed
+   dump; it is not a match criterion (a rule keyed on `results` would match every home feed).
+2. `NodeTreeBuilder.graft` now walks the child links of a lookup-grafted node and splices that
+   subtree (`graftSubtree`), marking every recovered node `grafted`. Children are de-duplicated
+   against the walk and earlier grafts by the existing `(viewId, bounds, text, desc)` key and count
+   against the 400-node cap.
+
+Device result (12:29): `44 nodes, 4 with viewId, matched=1, grafted=40, … idProbe … results=2` and
+`neutralising … shorts_shelf via SCROLL_PAST (ACTION_SCROLL_FORWARD Bounds(0,398,1080,2124))` — the
+rule matched the pt-PT shelf and the action framed on `results` (the scrollable ancestor), not the
+58 px header. Hands-off: the shelf moved off the top of the feed, the next scan `matched=0`, and
+YouTube stayed foreground. Children below the grafted container are intact on this vendor; had they
+not been, `grafted` would have stayed at 2 and no test would have invented an anchor.
+
+### R3 — two extra BACKs after exhaustion (stale-tree refire, not a same-scan double-fire)
+
+Log excerpt from the retry (exhaustion at the 5-min limit):
+
+```
+11:42:03.535 neutralising …/shorts_player via BACK     ← action 1 (debounce starts)
+11:42:04.006 …/shorts_player: action suppressed by throttle/quota
+11:42:04.815 neutralising …/shorts_player via BACK     ← 1.28 s later: debounce expired
+11:42:06.147 neutralising …/shorts_player via BACK     ← 1.33 s later: still on the stale tree
+```
+
+Same-scan double-fire is impossible by construction (`scan()` picks one hit through
+`RuleGate.chosen` and returns after `perform`), and the 04.006 line proves the 1200 ms debounce was
+active. The gap is between scans: `performGlobalAction(BACK)` returns before the exit animation
+ends, the navigation's accessibility events trigger scans against the **pre-navigation tree**, and
+once 1200 ms have passed each scan presses Back again on a screen the engine already left. Three
+BACKs on a surface one level from the root would have exited the app.
+
+Fix: `EscapeGuard` / `ActionArbiter` (`filter/EscapeGuard.kt`), a per-package+surface hold in front
+of the unchanged throttle:
+
+- only a **confirmed** `BACK` / `TAP_HOME_TAB` / `REDIRECT_HOME` opens the hold;
+- a later scan with the same surface still present is suppressed for a 5 s window (the observed
+  stale window was 1.3 s), so the 04.815 / 06.147 style refires cannot run;
+- the hold is released immediately by any capture that no longer shows that surface — the normal
+  exit to the home feed clears it, so a deliberate re-entry is not blocked;
+- `SCROLL_PAST` / `CLICK_VIEW_ID` stay on the 1200 ms debounce only (a shelf that is partly
+  displaced must be scrollable again), and the per-app quota is unchanged.
+
+The working single-escape behaviour ("stays out 25 s quiet, no re-entry") is untouched: after the
+one BACK the home capture has no `shorts_player` hit, so no further action exists to take.
+`EscapeGuardTest` drives `RuleGate` → `ActionArbiter` with two stale-tree scans at 1.28 s / 2.61 s
+and asserts exactly one action, plus release-on-content-change and per-surface keying.
+
+### R4 — the armed dump skipped every lookup layer
+
+`FilterService.captureArmedDump` called `NodeTreeReader.captureAll(windows, appPackage)` with no
+`viewIdLookups`/`textLookups`, while `scan()` passed both. The inspector therefore wrote the 4-node
+ghost tree (`nodesWithViewId 1`, null-id/null-text node lines) a few seconds after the scan path
+`grafted=2` on the same window. Fix: one `captureLookups(app, package)` helper feeds the same lists
+(rule ids, Home-tab ids, `CaptureAnchors`, literal texts) to both paths; the engine is asked once on
+the dump path so a dump taken before the first scan still has the loaded matcher.
+
+The dump now also reports what it recovered: `DumpDocument.grafted` (same count as the scan's
+`grafted=`) and `DumpNode.grafted` per node, alongside the existing per-window stats.
+`DumpExporterTest` builds a pruned fake tree, grafts the container, and asserts the serialized
+document contains the grafted nodes, their pt-PT `content-desc` and the container id.
+
+Two capture-timing guards were needed for the dump to actually show that content (both found on
+the device, both bounded):
+
+- **Target-window guard.** A launch's `TYPE_WINDOW_STATE_CHANGED` reaches the service while the
+  previous app's window is still `rootInActiveWindow` (Wave A A5: a `navigationBarBackground` tree
+  labelled "YouTube"). `DumpArm.readyFor(target, activePackage)` keeps the one-shot armed and the
+  capture waits for the next state change instead of consuming the arm on the transition.
+- **Ghost retry.** Even with the active package right, the target's window can still be the 3-node
+  decor tree for a few hundred milliseconds (`4 nodes, 1 with viewId, 0 grafted`). A capture that
+  `DumpArm.looksGhost(nodeCount, grafts)` (≤ 4 nodes, no grafts) is retried up to 4 × 600 ms inside
+  the 60 s arm; only then is the arm consumed and the file written. Device result: the same arm now
+  writes `9 nodes, 2 with viewId, 5 grafted`, including `id/results` and the pt-PT strings.
+
+`GraftNode.subtree` is set **only** for `CaptureAnchors` containers. Walking every grafted node's
+children was tried first and pulled the Shorts player's whole subtree into the capture, where the
+id-less shelf text made the layer-1 `yt_shorts_shelf` rule match *while the player was up*
+(`matched=2` on the player). A rule-declared id and a text hit stay single-node grafts, which keeps
+that false positive out; `CaptureAnchorGraftTest` pins both behaviours.

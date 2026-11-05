@@ -346,3 +346,301 @@ re-checked after the edits, `waveB-09-schedule-restored.png`), Wind-down/Morning
 `0 min` they were found at, `Permissions · 4 of 4`, both services bound, next schedule alarm
 `2026-11-05 22:30:00`. `adb devices` shows `192.168.50.20:37161  device`. No reboot, no
 `am force-stop`, no `settings put`, no code/gradle/git changes.
+
+## Wave A retry — pt-PT content behaviors
+
+Device: same OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, pt-PT. APK built from
+HEAD `620e74e` (sources 11:17–11:24, APK 11:25:09, `assembleDebug` UP-TO-DATE, reinstalled with
+`install -r` at 11:29). Budget at start: limit 20 min, used 116 s, `budget_date=2026-11-05`.
+No schedule lock in the test window (Thu 22:30→07:00, device clock 11:30 WET). Evidence
+`reverse/runtime-reno/waveAr-NN-*.png`, logcat `-s FilterService`.
+Scan trigger: scans are event-driven only (`FilterService.onAccessibilityEvent` → `requestScan`,
+no timer); a static YT home emitted nothing for 2 min, so each scenario's scan is produced by the
+navigation event itself, never by touching the feed.
+
+### R1 — Shorts shelf scroll-past — **FAIL, still BLOCKED-ENGINE** (`grafted=0`)
+
+* Surface verified first (`waveAr-01-shelf-before.png` + `uiautomator dump`): Shorts shelf at the
+  top of the home feed with no scrolling — header `content-desc="Shorts"` and four chips,
+  e.g. `content-desc="Goku Fought Jiren In 10x GRAVITY?!… – reproduzir Short"`,
+  `"Mac mini M6: is 32GB enough to run local AI? – reproduzir Short"` (U+2013 en dash, as the rule
+  expects). Exactly the strings `yt_shorts_shelf` matches on.
+* Waited untouched, then produced the scan with the YT home launch event (11:34:56). The service
+  still sees the ghost tree, and the graft recovers nothing:
+
+  ```
+  11-05 11:34:56.933 30243 FilterService: scan com.google.android.youtube (YOUTUBE): 4 nodes, 1 with viewId, rules=2/8, matched=0, grafted=0, windows=1 [YouTube(0)=3/1 ids], rootChildCount=2, idProbe=menu_item_0=1 app_bar_wrapper=0 results=2
+  11-05 11:34:56.933 30243 FilterService: com.google.android.youtube: 0 hit(s) but gate=NONE (budget=false, locked=false)
+  ```
+
+  No `ACTION_SCROLL_FORWARD`, no `shorts_shelf` hit, shelf unmoved — `waveAr-02-shelf-after.png`
+  (11:34, same feed, `Shorts` header + the same 2×2 grid, still `…Shell$HomeActivity`; no launcher
+  bounce because nothing fired).
+* Regression data for the report: `uiautomator dump` of the same moment = **135 nodes**, 1×
+  `content-desc="Shorts"`, 4× `content-desc="… – reproduzir Short"`, real ids
+  (`browse_fragment_layout_coordinator_layout`, `appbar_layout`, …). Service = 4 nodes.
+* **Why the graft cannot help here** (code read, no change): `NodeTreeReader.textGrafts` resolves a
+  rule's text/desc regex to literals (`RuleLookup.literalQueries("(?i)(^shorts$| - play short$|
+  – reproduzir short$)")` → `shorts`, `- play short`, `– reproduzir short`) and calls
+  `findAccessibilityNodeInfosByText` on the window root; the id-graft calls
+  `findAccessibilityNodeInfosByViewId`. On this device the **id lookup works** (`idProbe=… results=2`
+  finds 2 nodes from the same root) while the **text lookup returns nothing** — i.e. ColorOS prunes
+  the id-less subtree that the text search traverses but services the view-id registry. `yt_shorts_shelf`
+  declares **only** a `contentDescriptionRegex` (no viewId), so it has no id anchor to graft by and
+  stays invisible. This is the precise remaining defect: text-anchored rules on this vendor need a
+  different recovery path than `findAccessibilityNodeInfosByText`. The `grafted=1` noted in the D8
+  work does not reproduce on YT home.
+
+### R2 — Shorts player in budget — **PASS** (player is now seen and paid)
+
+* Reached via `am start -a android.intent.action.VIEW -d "https://www.youtube.com/shorts/"`. Surface
+  checked before judging (`waveAr-03-shorts-player.png`): vertical video, right rail
+  `Gosto/Comentários/Guardar/Partilhar/Remix`, `Subscrever` — the Shorts **player**, inside
+  `…Shell$HomeActivity`.
+* The id graft works on this surface: the scan recovers `reel_recycler`'s node
+  (`grafted=2`, 6 nodes, 2 with ids) and `yt_shorts_player` matches every 10 s:
+
+  ```
+  11-05 11:40:52.087 FilterService: scan com.google.android.youtube (YOUTUBE): 6 nodes, 2 with viewId, rules=2/8, matched=1, grafted=2, windows=1 [YouTube(0)=3/1 ids], rootChildCount=2, idProbe=menu_item_0=0 app_bar_wrapper=0 results=0
+  11-05 11:40:52.089 FilterService: com.google.android.youtube: 1 hit(s) but gate=NONE (budget=false, locked=false)
+  ```
+
+  `gate=NONE` with 1 hit is correct in-budget behaviour (`RuleGate.decide`: layer-2 surfaces stay
+  NONE until the budget is spent), and the stopwatch still charges the surface.
+* Budget measured read-only via `run-as … cat shared_prefs/settings.xml`:
+  `budget_used_seconds` **116** (11:35:40) → **212** (11:37:24) after ~100 s of playback, then
+  **254** (11:41:19) → **300** (11:42:03) during R3. Player playback is paid ~1 s/s.
+
+### R3 — budget exhaustion at the 5-min limit — **PASS with a deviation** (2 BACKs, not 1)
+
+* **Fixture deviation:** the stepper is 5-min steps and floors at **0 min**, not 5 — 15 taps on `−`
+  from 20 min landed on `0 min daily` / `0 min left today` (`waveAr-05-budget.png` is 20 min,
+  `waveAr-06-budget-5min.png` is the 5 min acceptance value). Set to exactly **5 min**
+  (`budget_limit_minutes=5`, `budget_used_seconds=219` at 11:39, 81 s left) via the Budget screen.
+* Watched the Shorts player from 11:40:49 (`waveAr-07-exhaust-start.png`); `used` 219 → 246 → 254
+  → **300** at 11:42:03. First neutralise at the moment the budget hit 0:
+
+  ```
+  11-05 11:42:03.535 FilterService: neutralising com.google.android.youtube/shorts_player via BACK
+  11-05 11:42:04.006 FilterService: com.google.android.youtube/shorts_player: action suppressed by throttle/quota
+  11-05 11:42:04.815 FilterService: neutralising com.google.android.youtube/shorts_player via BACK
+  11-05 11:42:06.147 FilterService: neutralising com.google.android.youtube/shorts_player via BACK
+  ```
+
+  Three neutralise lines: one throttle-suppressed, **two BACK actions actually performed 1.3 s
+  apart**. The brief wants exactly one. Effect is still correct: `waveAr-08-exhaust-after.png` is the
+  YT home feed (Início, no player), still in `com.google.android.youtube` (no launcher bounce).
+* **Stays out, no re-entry loop:** 25 s after the last BACK the FilterService log is quiet (no
+  further `neutralising`, no player re-scan) and `budget_used_seconds` stays 300 (the stopwatch
+  stopped). Open follow-up: the second BACK is harmless here but would exit the app on a surface
+  one level from the root.
+* Limit restored to **20** (`waveAr-09-budget-restored.png`); `budget_used_seconds` stays 300 —
+  the Budget screen has no reset control.
+
+### R4 — Inspector content capture (arm → capture) — **FAIL content / PASS expiry**
+
+* Rule inspector → YouTube chip (`waveAr-11-inspector-ytchip.png`, amber dot, `YT · shorts player`)
+  → arm with the orange `↓` FAB: `Armed — open YT · shorts player or another target app within
+  60 s` (`waveAr-12-armed.png`) → YT home (`…Shell$HomeActivity`) → back to Free Social in 12 s.
+* A new dump **was** written (`waveAr-13-inspector-captured.png`,
+  `com.google.android.youtube-20261105-114607-383.json`) but its header is the ghost tree, not
+  real content:
+
+  ```
+  "windows": [{"title": "YouTube", "className": "android.widget.FrameLayout", "layer": 0,
+               "packageName": "com.google.android.youtube", "nodes": 3, "viewIds": 1}],
+  "nodeCount": 4, "nodesWithViewId": 1, "truncated": false
+  ```
+
+  All node lines are null-id / null-text (`[0,0][1080,2400]` root + FrameLayout + 1) — **no**
+  `com.google.android.youtube:id/…`, no pt-PT strings to sample. Service log for the same capture:
+  `armed dump com.google.android.youtube/"YT · shorts player": 4 nodes (1 with viewId, 1 windows:
+  YouTube(layer 0)=3 nodes/1 ids) in 39 ms`.
+* **Cause (code read, no change):** `FilterService.captureArmedDump` calls
+  `NodeTreeReader.captureAll(windows, appPackage)` **without** `viewIdLookups`/`textLookups`, so the
+  inspector dump never runs the D8 graft layers the scan path now runs (R2 got `grafted=2` on the
+  same package moments earlier). The dump seam needs the same lookup lists as `scan()`.
+* **60 s expiry — PASS:** armed at 11:47:20, waited 66 s without switching (`waveAr-14-armed-expiry.png`):
+  dumps dir stayed at 4 files (`ls … /files/dumps | wc -l` 4 → 4), no dump written, no
+  "expired" line needed because the target app never produced a window-state event.
+
+### Wave A retry result
+
+| # | Scenario | Verdict |
+|---|----------|---------|
+| R1 | Shorts shelf scroll-past | **FAIL** — shelf on screen (135 uiautomator nodes, `Shorts` + 4× `– reproduzir Short`), service `4 nodes, matched=0, grafted=0` |
+| R2 | Shorts player pays budget | **PASS** — `matched=1, grafted=2`, used 116 → 212 over ~100 s |
+| R3 | Exhaustion at 5-min limit | **PASS with deviation** — BACK escape at used≥300, stays out; 2 BACKs executed, not 1; stepper floors at 0, steps 5 |
+| R4 | Inspector arm-capture | **FAIL content / PASS expiry** — dump written but 4-node ghost header; 60 s expiry writes nothing |
+
+Net: the D8 graft **works wherever a rule declares a viewId** (YT Shorts player: `reel_recycler`,
+`grafted=2`) and does **not** work for text/desc-anchored rules on this vendor
+(`yt_shorts_shelf` declares only `contentDescriptionRegex`; `findAccessibilityNodeInfosByText`
+returns nothing from the ghost root while `findAccessibilityNodeInfosByViewId` on the same root
+returns nodes — `idProbe=… results=2`). R1 stays BLOCKED-ENGINE for a *different, narrower* reason
+than Wave A, and R4 is a seam bug (armed dump skips the lookup layers).
+
+Final state (verified, `waveAr-15-final-hub.png`): hub on screen, `Filtering on`, three apps
+`Filtering`, `Schedule · On · 22:30–07:00`, `Permissions · 4 of 4`, both services bound
+(`dumpsys accessibility`: 2 `Service[label=…]`, Content filtering `capabilities=41`), `adb devices`
+shows `192.168.50.20:37161  device`. Budget limit restored to **20** (`budget_limit_minutes=20`)
+but `budget_used_seconds=300` — there is **no reset control**, the day resets at midnight; the hub
+and Budget screen read **`17 min left of 20`** while 300 s used implies ~15, i.e. the displayed
+remainder lags the persisted counter (noted, not chased — out of scope for this wave).
+Schedule untouched, no reboot, no `am force-stop`, no `settings put`, no code/gradle/git changes.
+
+## Wave A gaps — fixes + recheck
+
+Fixes for the three retry gaps (details in `DEFECT-DIAGNOSIS.md` → *D8 round 3*, rule provenance in
+`RULES.md` → *Capture anchors*). Device re-run on the same Reno4, same pt-PT locale, no reboot, no
+`settings put`. Final APK built 13:15 (`assembleDebug` after the tests), installed with `install -r`
+(lastUpdateTime `2026-11-05 13:15:15`, newer than HEAD `620e74e` at 11:27).
+
+Setup: `budget_used_seconds` reset to **0** in `settings.xml` (verified), then the one allowed
+`am force-stop` (the process caches prefs). That unbinds both accessibility services on ColorOS, so
+both were re-enabled **by taps** (Settings → Accessibility → Content filtering → *Permitir*;
+Whole-app blocking → *Permitir*) and `dumpsys accessibility` showed
+`Bound services:{Content filtering capabilities=41 …, Whole-app blocking …}` before any scenario.
+Hub after the reinstall: `Filtering on`, three apps `Filtering`, `Permissions · 4 of 4`.
+
+### R1 — Shorts shelf on pt-PT — **PASS** (path (b))
+
+Landing page: YT Home with the shelf on screen (`uiautomator`: `Shorts` header + 4 cards ending
+`– reproduzir Short`). Scan line and action on the 12:26 build (the final build only narrowed which
+grafts descend, `results` still does):
+
+```
+12:29:00.781 scan com.google.android.youtube: 44 nodes, 4 with viewId, rules=2/8, matched=1,
+            grafted=40, windows=1 [YouTube(0)=3/1 ids], rootChildCount=2,
+            idProbe=menu_item_0=1 app_bar_wrapper=0 results=2
+12:29:00.801 neutralising com.google.android.youtube/shorts_shelf via SCROLL_PAST
+            (ACTION_SCROLL_FORWARD Bounds(left=0, top=398, right=1080, bottom=2124))
+```
+
+`results` is the scrollable container the gesture is framed on (not the 58 px header). Hands-off:
+the shelf moved off the top of the feed, the next scans reported `matched=0`, and the app stayed
+`…Shell$HomeActivity` (`waveAg-01-before.png`, `waveAg-03-shelf-after.png`). The final build was
+re-checked at 13:21 (`56 nodes … grafted=52`, `SCROLL_PAST … ACTION_SCROLL_FORWARD`), shelf gone in
+the `uiautomator` dump (`shorts-header 0, chips 0`), no launcher bounce. A 10 s diagnostic rate
+limit hides some `scan` lines; actions are never rate-limited, so the `neutralising` lines are the
+authority.
+
+Residual (pre-existing, not one of the three gaps): when the shelf match arrives through a *text*
+graft with no captured ancestor, `SCROLL_PAST` falls back to the whole window rect
+(`Bounds(0,0,1080,2400)`) instead of `results`. It still scrolls the feed and the engine settles
+(`matched=0` after), but the frame is less precise than the id-graft path above.
+
+### R3 — budget exhaustion — **PASS** (exactly one BACK)
+
+Limit set to **5 min** on the Budget screen, `budget_used_seconds` accrued **0 → 300** while the
+Shorts player was up (12:36:31 → 12:41, ~1 s/s), so `used ≥ limit`. One settled in-budget visit,
+logcat captured continuously to a file (the tag buffer rotates fast under YouTube logging):
+
+```
+12:51:09.257 scan com.google.android.youtube: 6 nodes, 2 with viewId, rules=2/8, matched=1, grafted=2
+12:51:09.264 neutralising com.google.android.youtube/shorts_player via BACK
+12:51:11.412 neutralising com.google.android.youtube/shorts_shelf via SCROLL_PAST …   ← now on Home
+```
+
+One BACK only; the next scan 0.7 s later was suppressed by the post-escape hold, the screen was the
+YT Home feed (`results` present, `reel_recycler` absent, `waveAg-05-r3-after.png`), and the log
+stayed free of further `shorts_player` actions for the remaining ~47 s of the window. An earlier
+attempt fired its one BACK during the launch transition (12:49:55); same single-action count, but
+the player reappeared, so it is not counted as the acceptance observation. Limit restored to **20**
+via the Budget screen.
+
+### R4 — Inspector arm-capture — **PASS content** (dump now runs the lookups)
+
+Arm → YT · shorts player → launch YouTube → back. First event was skipped by the new
+target-window guard (`armed dump: waiting for com.google.android.youtube (active window is
+dev.k3vinb5.freesocial)`); a brief ghost capture was retried and the written dump is:
+
+```
+13:16:31.474 armed dump com.google.android.youtube/"YT · shorts player": 9 nodes
+             (2 with viewId, 5 grafted, 1 windows: YouTube(layer 0)=3 nodes/1 ids)
+header: {"nodeCount": 9, "nodesWithViewId": 2, "grafted": 5, "truncated": false}
+node samples:
+  com.google.android.youtube:id/results | RecyclerView | [0,290][1080,2052] | grafted=true
+  ViewGroup | content-desc "Quer fazer uma pausa?" | grafted=true
+  ViewGroup | content-desc "Um lembrete rápido para fazer uma pausa do ecrã" | grafted=true
+```
+
+Real ids, pt-PT strings and per-node `grafted` markers are in the JSON — the id/text lookup lists
+are the same ones the scan uses. (The captured screen was YouTube's break reminder, hence the pt
+strings instead of a feed; a second arm on a settled Home yields the same grafted `results` subtree
+that the 44–56-node scans show.)
+
+### Final state
+
+`budget_used_seconds=0`, `budget_limit_minutes=20`, `filtering_enabled=true`,
+`budget_date=2026-11-05` (verified by `cat shared_prefs/settings.xml`); hub on screen
+`Filtering on`, three apps `Filtering`, `Schedule · On · 22:30–07:00`, `Permissions · 4 of 4`
+(`waveAg-06-final-hub.png`); both accessibility services bound; `adb devices` shows
+`192.168.50.20:37161 device`. Caveat: the hub/Budget readouts kept `15 min left` for this process
+(the app and the service each hold an in-memory `SettingsRepository`; the persisted value is 0 and
+the display corrects on the next process start). No reboot, no `settings put`, no second
+`am force-stop`.
+
+## Wave C — Instagram + TikTok
+
+Device: same OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, **pt-PT**, 3-button nav.
+APK `479bec3` installed (no rebuild, no reinstall). Run 2026-11-05 14:17–… WET (Thursday; schedule
+`22:30–07:00`, so no lock in the window). Start budget: limit 20 min, `budget_used_seconds=0`.
+Both apps signed in. Evidence `reverse/runtime-reno/waveC-NN-*.png`, logcat `-s FilterService`,
+uiautomator dumps kept in `/tmp/opencode/waveC/` (see per-scenario XML names).
+Note: `logcat -c` precedes each scenario so the excerpt belongs to that scenario only.
+
+### C1 — IG feed reel cells — **FAIL** (rule matches, SCROLL_PAST scrolls nothing, re-fires)
+
+* Surface first: IG home feed on `InstagramMainActivity`, story tray + photo post (`SIC Notícias`,
+  carousel 2/8) and, after one user swipe, a genuine video post
+  `content-desc="antonio_vilaca_pacheco publicou um video 15 de outubro"` with
+  `com.instagram.android:id/video_container` + `video_states` at `[0,983][1080,2124]`
+  (`uiautomator`, 96 nodes; `waveC-01-ig-feed-reel-before.png`). The rule's anchor is present and
+  visibly playing, so the surface is right.
+* Scan on that surface finds it through the ID graft:
+  ```
+  14:18:46.965 scan com.instagram.android (INSTAGRAM): 8 nodes, 5 with viewId, rules=4/8,
+              matched=1, grafted=3, windows=1 [Instagram(0)=4/2 ids], rootChildCount=3
+  14:18:46.979 neutralising com.instagram.android/feed_reel_cell via SCROLL_PAST
+              (gesture dispatched, awaiting completion on Bounds(left=0, top=0, right=1080, bottom=2400))
+  14:18:47.224 gesture completed com.instagram.android/feed_reel_cell
+  ```
+* **But nothing scrolls.** The frame is the whole window `[0,0][1080,2400]`, and this device has
+  **3-button** navigation: the nav strip is `[202,2221][1234,2347]`, so a drag that starts at
+  `bottom=2400` begins *inside the system nav bar* and the app never sees it. Control test the same
+  minute: `input swipe 540 2390 540 800` → the reel cell stays at `[0,909][1080,2124]` (identical
+  before/after); `input swipe 540 1500 540 1100` → feed moves. So the geometry, not the rule, is
+  why it is inert. The nearest-scrollable-ancestor framing (D1) did not engage: the 8-node capture
+  carries no IG feed container id, so `scrollPast` fell through to the largest-ancestor rect.
+* **Repeats instead of going quiet:** 5 dispatch lines for the *same* cell in 96 s
+  (`14:18:35`, `14:18:46`, `14:19:33`, `14:19:34`, `14:20:11`), each followed by
+  `action suppressed by throttle/quota or post-escape hold` for its immediate re-scan — the 1200 ms
+  debounce is visible, but the cell never leaves, so the rule keeps trying. Photo posts above it
+  were never acted on (`matched=1` is always `feed_reel_cell`), and the app never bounced to the
+  launcher (`mCurrentFocus=com.instagram.android/…InstagramMainActivity` throughout).
+* Evidence: `waveC-01-ig-feed-reel-before.png`, `waveC-02-ig-feed-reel-after.png`,
+  `waveC-03-ig-feed-reel-after2.png`, `waveC-01-ig-reel-stuck.mp4` (18×1 fps screencap timelapse:
+  the cell does not move across the engine's dispatch).
+* Verdict: **FAIL** — matched + SCROLL_PAST dispatch proven, removal not achieved, no quiet state.
+
+### C2 — IG Reels tab escape + `selected` criterion — **PASS** (escape), **PASS** (quiet on Profile)
+
+* Tap `clips_tab` centre (`324,2141`; `content-desc="Reels"`, bounds `[216,2124][432,2158]` in the
+  dump) → Reels opens, the very next scan matches **two** rules and the escape runs 116 ms later:
+  ```
+  14:26:10.597 scan com.instagram.android (INSTAGRAM): 10 nodes, 6 with viewId, rules=4/8,
+              matched=2, grafted=6, windows=1 [Instagram(0)=4/2 ids]
+  14:26:10.713 neutralising com.instagram.android/reels_tab via TAP_HOME_TAB
+  ```
+  The `+1 s` screencap is already the **Home feed** (Home tab filled/selected,
+  `waveC-04-ig-reels-tapped-1s.png`), and 3 s later still Home
+  (`waveC-05-ig-after-reels-tap.png`). Still in `com.instagram.android` the whole time, so the
+  resolver used the **known id `feed_tab`** path, not `GLOBAL_ACTION_HOME` — if it had fallen back
+  the launcher would be focused. **Log gap:** the build prints only `via TAP_HOME_TAB`; there is no
+  line naming the resolution path (`FilterService.report`), so the target is inferred from the
+  screen, not stated.
+* **`selected` criterion:** tapped `profile_tab` (`972,2141`), dump confirms
+  `profile_tab selected="true"`, `feed_tab selected="false"`, `clips_tab selected="false"`
+  (`waveC-06-ig-profile.png`, `/tmp/opencode/waveC/wc2-profile.xml`), `logcat -c` then 7 s
+  untouched → **zero FilterService lines**. Merely showing the tab bar on Profile does not fire.
