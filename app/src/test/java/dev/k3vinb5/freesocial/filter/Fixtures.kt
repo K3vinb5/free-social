@@ -20,6 +20,8 @@ internal fun node(
     visible: Boolean = true,
     selected: Boolean = false,
     clickable: Boolean = false,
+    scrollable: Boolean = false,
+    index: Int = 0,
     children: List<NodeSnapshot> = emptyList(),
 ): NodeSnapshot = NodeSnapshot(
     viewId = viewId,
@@ -30,6 +32,8 @@ internal fun node(
     visible = visible,
     selected = selected,
     clickable = clickable,
+    scrollable = scrollable,
+    index = index,
     children = children,
 )
 
