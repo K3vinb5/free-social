@@ -216,3 +216,87 @@ target window so this class of defect is verifiable next time, and record `sched
   byte-identical between the two builds; SKIP/priority changes cannot stop accrual.
 - *Rule JSON drift in `cbaedb1`*: no — the TikTok rule is byte-identical to the pass-1 build that
   measured 80→90 s.
+
+---
+
+## D8 — ghost tree (ColorOS Reno4, Android 13)
+
+### Observed
+
+- The accessibility service receives the foreground app's window, but its root is **decor-only**.
+  Every scan line is `windows=1 [YouTube(0)=3/1 ids]`: 3–4 nodes —
+  `android:id/navigationBarBackground`, `android:id/statusBarBackground`, and an empty
+  `android:id/content` — and no `com.google.android.youtube:id/…` node at all.
+- `uiautomator dump` of the **same** window at the same time shows 136–137 nodes with real YouTube
+  view ids. So the content exists in the hierarchy; only our service's view of it is empty.
+- Own-package (`dev.k3vinb5.freesocial`) and system windows stay rich, which is what separates
+  "the OS hands us a stub" from "our capture code drops the children".
+
+### Ruled out (do not re-litigate)
+
+- *Service XML / capabilities*: the compiled service config has
+  `flagIncludeNotImportantViews|flagReportViewIds|flagRetrieveInteractiveWindows` and
+  `canRetrieveWindowContent=true`; `dumpsys accessibility` reports `capabilities=41`
+  (includes `CAN_RETRIEVE_WINDOW_CONTENT`).
+- *NodeTree walk*: `NodeTreeBuilder.snapshot` calls unfiltered `getChild(i)` for every child; there
+  is no visibility, class or depth filter before the 400-node cap (and the ghost tree has 3 nodes).
+- *Anything overriding `serviceInfo`*: no code assigns `serviceInfo` / `setServiceInfo`.
+- *Stale pre-grant binding*: re-binding at 08:45 (grant 08:01) changed nothing; the capabilities
+  bitmap already contains `CAN_RETRIEVE_WINDOW_CONTENT`.
+
+### Two remaining hypotheses
+
+- **H-OURS** — our capture path feeds the walk a stale/truncated root: `window.getRoot()` and
+  `rootInActiveWindow` disagree, or the tree we walk is not the tree
+  `findAccessibilityNodeInfosByViewId` sees (which would mean the content *is* reachable from our
+  service and the truncation happens in our input/walk).
+- **H-VENDOR** — ColorOS permanently strips foreign-app content subtrees from third-party
+  accessibility services, while the app's own windows and system windows stay rich.
+
+### Probe (one Log.i line, max 1 per package per 10 s, every `TYPE_WINDOW_STATE_CHANGED`)
+
+Fires for **every** package, including `dev.k3vinb5.freesocial` and system packages — it is
+deliberately not gated on `targetFor`. `root` is always `rootInActiveWindow`.
+
+```
+probe <pkg> rootPkg=<pkg|none> rootChildCount=<n> rootViewId=<id|none> child0Grandchildren=<n|none> idProbe=<k=v ... | n/a>
+```
+
+- `rootPkg` — `root.packageName`, so a probe whose root belongs to another window (our inspector,
+  system UI) can never be mistaken for the event package's tree.
+- `rootChildCount` — `root.childCount` (ghost tree: 3).
+- `rootViewId` — `root.viewIdResourceName` (ghost tree: `android:id/content` or similar).
+- `child0Grandchildren` — `childCount` of `root.getChild(0)`, absent when the root has no child.
+- `idProbe` — `findAccessibilityNodeInfosByViewId` result **counts** for the foreground package's
+  candidate ids. For `com.google.android.youtube`: `menu_item_0`, `app_bar_wrapper`, `results`.
+  Other packages log `n/a` (0 is a valid, meaningful count). The existing per-target `scan` line
+  carries the same `rootChildCount` / `idProbe` fields for the captured app window, so both paths
+  report.
+
+Neither line changes matching, actions or budget: diagnostics only.
+
+### What confirms which hypothesis
+
+| observed probe output | verdict |
+| --- | --- |
+| YouTube: `rootChildCount=3` **and** `idProbe menu_item_0>=1` (or `results>=1`) | **H-OURS** — the view-id lookup reaches content the raw `getChild` walk does not; our root input/walk is the truncation. |
+| YouTube: `rootChildCount=3` **and** `idProbe menu_item_0=0 app_bar_wrapper=0 results=0`, **while** `probe dev.k3vinb5.freesocial rootChildCount>=2 child0Grandchildren>=1` (own app rich) **and** system-package roots rich | **H-VENDOR** — the content is unreachable from a third-party service even by view-id lookup, while the service's own/system windows stay complete; ColorOS strips foreign content subtrees. |
+| YouTube: `rootChildCount` large (≫3) but `idProbe …=0` | neither as stated: WindowStateChanged fires before the content populates; re-probe on the next event (the 10 s window may hide it) and treat as a timing variant of H-OURS input. |
+| probe root is decor-only **for every package including our own** | vendor-independent: the service as a whole is bound to a stub root (re-open H-VENDOR with "all windows stubbed", not just foreign ones). |
+
+Minimal decisive run: open YouTube, wait ≥10 s, collect one `probe com.google.android.youtube …`
+line and one `probe dev.k3vinb5.freesocial …` line (open our own inspector to produce the latter).
+
+### Missing evidence
+
+The probe lines above, plus `dumpsys accessibility` at the same moment (to prove the binding is
+live). Any answer needs the YouTube line **and** an own-package line from the same session.
+
+### Fix direction (after the probe decides)
+
+- H-OURS: capture from the same root the view-id lookup uses and re-derive the walk input from it
+  (`rootInActiveWindow` first, `window.getRoot()` only as fallback), or walk via
+  `findAccessibilityNodeInfosByViewId`/`refresh` when the raw root is decor-only.
+- H-VENDOR: the raw accessibility tree cannot be the only signal on this device — add a
+  non-accessibility fallback (screenshot/OCR or a MediaProjection-based reader) and record the
+  vendor limitation in the acceptance notes.

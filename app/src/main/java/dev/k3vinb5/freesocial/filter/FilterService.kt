@@ -54,6 +54,9 @@ class FilterService : AccessibilityService() {
     private val warnLimiter = LogLimiter(WARN_WINDOW_MS)
     private val diagLimiter = LogLimiter(DIAG_WINDOW_MS)
 
+    /** D8: one ghost-tree probe line per package per 10 s, every package included. */
+    private val probeLimiter = LogLimiter(PROBE_WINDOW_MS)
+
     private var lastBeatElapsed = 0L
     private var scanQueued = false
     private var tickQueued = false
@@ -113,6 +116,10 @@ class FilterService : AccessibilityService() {
                 warnOnce("no package", "accessibility event without a package name")
                 return
             }
+            // D8: the ghost-tree probe runs for EVERY package — including our own
+            // (dev.k3vinb5.freesocial) and system packages — and before the engine/target gates,
+            // because "foreign content stripped but own windows rich" is the discrimination.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) safe { probeActiveRoot(pkg) }
             // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
             if (captureArmedDumpIfRequested(event, pkg)) return
             // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
@@ -194,6 +201,53 @@ class FilterService : AccessibilityService() {
         if (diagLimiter.allow(reason, SystemClock.elapsedRealtime())) Log.i(TAG, message)
     }
 
+    // --- D8 ghost-tree probe -------------------------------------------------------------
+
+    /**
+     * D8: one `probe <pkg> …` line per package per 10 s on every window-state change. `root` is
+     * always `rootInActiveWindow`; the id lookup asks the same root the walk starts from, so:
+     * `rootChildCount=3 && idProbe …>=1` = our walk/input is the truncation (H-OURS), while
+     * `rootChildCount=3 && idProbe all 0` (with our own package's root rich) = vendor stripping
+     * (H-VENDOR). Diagnostics only — nothing here feeds matching, actions or budget.
+     */
+    private fun probeActiveRoot(pkg: String) {
+        if (!probeLimiter.allow("probe:$pkg", SystemClock.elapsedRealtime())) return
+        val root = rootInActiveWindow
+        val ids = GhostTreeProbe.idsFor(pkg)
+        val line = GhostTreeProbe.format(
+            pkg,
+            rootShape(root),
+            GhostTreeProbe.idProbeText(ids, viewIdCounts(root, ids)),
+        )
+        Log.i(TAG, line)
+    }
+
+    /** The live root's shape for the probe; unreadable fields stay `-1`/null instead of throwing. */
+    private fun rootShape(root: AccessibilityNodeInfo?): GhostTreeProbe.RootShape {
+        if (root == null) return GhostTreeProbe.RootShape()
+        val first = runCatching { if (root.childCount > 0) root.getChild(0) else null }.getOrNull()
+        return GhostTreeProbe.RootShape(
+            packageName = runCatching { root.packageName?.toString() }.getOrNull(),
+            viewId = runCatching { root.viewIdResourceName }.getOrNull(),
+            childCount = runCatching { root.childCount }.getOrDefault(-1),
+            grandchildCount = first?.let { runCatching { it.childCount }.getOrNull() },
+        )
+    }
+
+    /** `findAccessibilityNodeInfosByViewId` hit counts, parallel to [ids]; 0 when unreadable. */
+    private fun viewIdCounts(root: AccessibilityNodeInfo?, ids: List<String>): List<Int> =
+        ids.map { id ->
+            if (root == null) 0
+            else runCatching { root.findAccessibilityNodeInfosByViewId(id)?.size ?: 0 }.getOrDefault(0)
+        }
+
+    /** D8: the scan-line fields, measured on the top-most captured app window root. */
+    private fun scanProbe(windows: List<WindowRoot>, appPackage: String): String {
+        val root = windows.firstOrNull()?.node
+        val ids = GhostTreeProbe.idsFor(appPackage)
+        return GhostTreeProbe.scanSuffix(rootShape(root), GhostTreeProbe.idProbeText(ids, viewIdCounts(root, ids)))
+    }
+
     // --- Scan pipeline -------------------------------------------------------------------
 
     /** Single-flight: one scan per burst, coalesced on the main looper with zero delay. */
@@ -251,7 +305,7 @@ class FilterService : AccessibilityService() {
         val elapsed = SystemClock.elapsedRealtime()
         val captured = NodeTreeReader.captureAll(windows, appPackage)
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
-        diagnose(appPackage, captured, app, deps.ruleCount, hits.size)
+        diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -286,6 +340,9 @@ class FilterService : AccessibilityService() {
      * D5(d): once per 10 s, per target package — how big the tree was and how much of it carries
      * view ids, plus how many rules matched. `nodes>0 && viewIds==0` is the H2 signature (the OS
      * stripped view ids); `nodes==0` is a capture problem; both are stated explicitly.
+     *
+     * D8: the same line carries `rootChildCount` and `idProbe`, the same root shape the ghost-tree
+     * probe reports, so the scan path and the window-state probe agree.
      */
     private fun diagnose(
         appPackage: String,
@@ -293,6 +350,7 @@ class FilterService : AccessibilityService() {
         app: AppTarget,
         rules: Int,
         hits: Int,
+        probe: String,
     ) {
         if (!diagLimiter.allow("scan:$appPackage", SystemClock.elapsedRealtime())) return
         val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
@@ -304,7 +362,7 @@ class FilterService : AccessibilityService() {
             TAG,
             "scan $appPackage (${app.name}): ${nodes.size} nodes, $withIds with viewId, " +
                 "rules=${ruleMatcher.rulesFor(app, appPackage).size}/$rules, matched=$hits, " +
-                "windows=${captured.windows.size} [$windowText]",
+                "windows=${captured.windows.size} [$windowText], $probe",
         )
         if (nodes.size <= 1) {
             warnOnce("empty tree:$appPackage", "scan saw an EMPTY $appPackage tree — capture or window access is broken")
@@ -669,6 +727,9 @@ class FilterService : AccessibilityService() {
         /** D5(c): one warning per reason per 30 s; D5(d): one scan diagnostic per package per 10 s. */
         private const val WARN_WINDOW_MS = 30_000L
         private const val DIAG_WINDOW_MS = 10_000L
+
+        /** D8: one ghost-tree probe line per package per 10 s. */
+        private const val PROBE_WINDOW_MS = 10_000L
 
         /** TikTok's global build behaves like the musically package. */
         const val PACKAGE_TIKTOK_GLOBAL = "com.ss.android.ugc.trill"
