@@ -38,7 +38,7 @@ class FilterService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var settings: SettingsRepository? = null
     private var ruleMatcher: RuleSetMatcher = RuleSetMatcher(emptyList())
-    private val throttle = ActionThrottle()
+    private val arbiter = ActionArbiter()
     private val stopwatch = SurfaceStopwatch()
 
     /**
@@ -295,6 +295,21 @@ class FilterService : AccessibilityService() {
         return GhostTreeProbe.scanSuffix(rootShape(root), GhostTreeProbe.idProbeText(ids, viewIdCounts(root, ids)))
     }
 
+    /**
+     * The lookup lists both the scan and the armed dump feed into
+     * [NodeTreeReader.captureAll]: every id and every literal text/desc the applicable rules
+     * declare, the engine's known Home-tab ids, and the container anchors ([CaptureAnchors]).
+     *
+     * D8 round 3 (R4): the armed dump used to call `captureAll` without these lists, so the
+     * inspector wrote the 4-node ghost while the scan on the same window saw grafted content.
+     */
+    private fun captureLookups(app: AppTarget?, appPackage: String): Pair<List<String>, List<String>> {
+        val ruleIds = if (app == null) emptyList() else ruleMatcher.lookupViewIds(app, appPackage)
+        val texts = if (app == null) emptyList() else ruleMatcher.lookupTexts(app, appPackage)
+        val ids = (ruleIds + HomeTabResolver.idsFor(appPackage) + CaptureAnchors.idsFor(appPackage)).distinct()
+        return ids to texts.distinct()
+    }
+
     // --- Scan pipeline -------------------------------------------------------------------
 
     /** Single-flight: one scan per burst, coalesced on the main looper with zero delay. */
@@ -352,15 +367,14 @@ class FilterService : AccessibilityService() {
         val elapsed = SystemClock.elapsedRealtime()
         // D8 layers (b)/(c): graft every id and every literal text/desc value an applicable rule
         // actually declares, so text-anchored rules survive a platform that prunes child links.
-        val lookupIds = (
-            ruleMatcher.lookupViewIds(app, appPackage) + HomeTabResolver.idsFor(appPackage)
-            ).distinct()
-        val lookupTexts = ruleMatcher.lookupTexts(app, appPackage)
+        // R1: the extra container anchors put id-less content (the Shorts shelf) back in reach.
+        val (lookupIds, lookupTexts) = captureLookups(app, appPackage)
         val captured = NodeTreeReader.captureAll(
             windows,
             appPackage,
             viewIdLookups = lookupIds,
             textLookups = lookupTexts,
+            subtreeLookups = CaptureAnchors.idsFor(appPackage),
         )
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
         diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
@@ -387,11 +401,20 @@ class FilterService : AccessibilityService() {
             warnOnce("no chosen hit", "$appPackage: gate said NEUTRALISE but no action was chosen")
             return
         }
-        if (!throttle.tryAcquire(hit.rule.surface, appPackage, elapsed)) {
-            infoOnce("throttled", "$appPackage/${hit.rule.surface}: action suppressed by throttle/quota")
+        // R3: a confirmed escape is asynchronous — scans on the pre-navigation tree must not re-fire
+        // it. The hold lifts as soon as a capture no longer shows that surface (or after 5 s).
+        val surfaceKey = hit.rule.surface
+        val surfaceStillPresent = hits.any { it.rule.surface == surfaceKey }
+        if (!arbiter.tryAcquire(surfaceKey, appPackage, elapsed, surfaceStillPresent)) {
+            infoOnce(
+                "throttled",
+                "$appPackage/$surfaceKey: action suppressed by throttle/quota or post-escape hold",
+            )
             return
         }
-        perform(hit, captured, appPackage)
+        val escapedAction = hit.rule.action in ESCAPE_ACTIONS
+        val acted = perform(hit, captured, appPackage)
+        arbiter.confirm(surfaceKey, appPackage, elapsed, escapedAction && acted)
     }
 
     /**
@@ -445,38 +468,46 @@ class FilterService : AccessibilityService() {
     // --- Actions -------------------------------------------------------------------------
 
     /**
-     * Runs the chosen action. Success is logged **after** the mechanism reported it (defect D1c):
-     * a hit used to be logged as "neutralising" *before* the dispatch, so a rejected gesture and a
-     * real removal looked identical in logcat.
+     * Runs the chosen action and reports whether its own API confirmed it. Success is logged
+     * **after** the mechanism reported it (defect D1c): a hit used to be logged as "neutralising"
+     * *before* the dispatch, so a rejected gesture and a real removal looked identical in logcat.
+     *
+     * R3: BACK / TAP_HOME_TAB / REDIRECT_HOME are escape actions that change the screen
+     * asynchronously; their confirmed result opens the post-escape hold in [ActionArbiter].
      */
-    private fun perform(hit: RuleHit, captured: CapturedTree, appPackage: String) {
+    private fun perform(hit: RuleHit, captured: CapturedTree, appPackage: String): Boolean {
         val label = "$appPackage/${hit.rule.surface}"
-        when (hit.rule.action) {
-            Action.BACK -> report(label, Action.BACK, performGlobalAction(GLOBAL_ACTION_BACK))
-            Action.REDIRECT_HOME -> report(label, Action.REDIRECT_HOME, performGlobalAction(GLOBAL_ACTION_HOME))
-            Action.SCROLL_PAST -> scrollPast(label, hit, captured)
+        return when (hit.rule.action) {
+            Action.BACK -> performGlobalAction(GLOBAL_ACTION_BACK).also { report(label, Action.BACK, it) }
+            Action.REDIRECT_HOME ->
+                performGlobalAction(GLOBAL_ACTION_HOME).also { report(label, Action.REDIRECT_HOME, it) }
+            Action.SCROLL_PAST -> {
+                scrollPast(label, hit, captured)
+                false
+            }
             // Never the matched node: that is the surface being hidden (e.g. the Reels tab).
             Action.TAP_HOME_TAB -> tapHomeTab(label, captured)
             Action.CLICK_VIEW_ID -> {
                 val targetId = hit.rule.viewIdTarget ?: run {
                     warnOnce("no viewIdTarget", "$label: CLICK_VIEW_ID rule has no viewIdTarget")
-                    return
+                    return false
                 }
                 val node = captured.firstByViewId(targetId) ?: captured.live(hit.node) ?: run {
                     warnOnce("click target missing", "$label: neither $targetId nor the matched node is readable")
-                    return
+                    return false
                 }
                 if (clickNode(node)) report(label, Action.CLICK_VIEW_ID, true)
                 else report(label, Action.CLICK_VIEW_ID, tapNode(node))
             }
-            Action.SKIP -> Unit
+            Action.SKIP -> false
         }
     }
 
     /** The only success line in the log: it is emitted once the action's own API said so. */
-    private fun report(label: String, action: Action, ok: Boolean) {
+    private fun report(label: String, action: Action, ok: Boolean): Boolean {
         if (ok) Log.i(TAG, "neutralising $label via $action")
         else Log.w(TAG, "action failed $label via $action")
+        return ok
     }
 
     /** `ACTION_CLICK` on the node or the nearest clickable ancestor (03a `Q`, ≤ 6 levels). */
@@ -505,13 +536,12 @@ class FilterService : AccessibilityService() {
      * Tap the real Home tab of [captured]'s package. The matched node is never used: it is the
      * surface being hidden. No identifiable tab → the global Home action is the last resort.
      */
-    private fun tapHomeTab(label: String, captured: CapturedTree) {
+    private fun tapHomeTab(label: String, captured: CapturedTree): Boolean {
         val tab = HomeTabResolver.homeTab(captured.root, captured.packageName)?.let(captured::live)
         if (tab != null && (clickNode(tab) || tapNode(tab))) {
-            report(label, Action.TAP_HOME_TAB, true)
-            return
+            return report(label, Action.TAP_HOME_TAB, true)
         }
-        report("$label (fallback home)", Action.TAP_HOME_TAB, performGlobalAction(GLOBAL_ACTION_HOME))
+        return report("$label (fallback home)", Action.TAP_HOME_TAB, performGlobalAction(GLOBAL_ACTION_HOME))
     }
 
     /**
@@ -720,11 +750,22 @@ class FilterService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return false
         if (appPackage !in TARGET_PACKAGES) return false
         if (!DumpArm.isArmed()) return false
+        // A launch transition can fire the target's state change while the previous app's window
+        // is still the active root (Wave A A5 / retry R4: a 4-node decor tree labelled "YouTube").
+        // Keep the one-shot armed; the next state change captures the real target window.
+        val active = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
+        if (!DumpArm.readyFor(appPackage, active)) {
+            infoOnce(
+                "dump wait",
+                "armed dump: waiting for $appPackage (active window is $active)",
+            )
+            return true
+        }
         safe { captureArmedDump(appPackage) }
         return true
     }
 
-    private fun captureArmedDump(appPackage: String) {
+    private fun captureArmedDump(appPackage: String, attempt: Int = 0) {
         val started = SystemClock.uptimeMillis()
         // D6: every window the target package owns, top-most first — a sheet/second activity
         // window must not reduce the dump to the focused ghost tree.
@@ -733,13 +774,32 @@ class FilterService : AccessibilityService() {
             Log.w(TAG, "armed dump: no readable $appPackage window")
             return
         }
+        // R4: the dump must show what the engine sees — same id/text lookups as the scan path.
+        // The matcher may not be loaded yet on this event, so ask the bootstrap once (cheap).
+        engine()
+        val (lookupIds, lookupTexts) = captureLookups(targetFor(appPackage), appPackage)
+        val captured = NodeTreeReader.captureAll(
+            windows,
+            appPackage,
+            viewIdLookups = lookupIds,
+            textLookups = lookupTexts,
+            subtreeLookups = CaptureAnchors.idsFor(appPackage),
+        )
+        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
+        // The launch transition can be captured before YouTube fills its window: retry briefly
+        // instead of consuming the one-shot and writing the 4-node decor tree (Wave A A5/R4).
+        if (DumpArm.looksGhost(nodes.size, captured.grafts) && attempt < DUMP_RETRY_MAX && DumpArm.isArmed()) {
+            handler.postDelayed(
+                { safe { captureArmedDump(appPackage, attempt + 1) } },
+                DUMP_RETRY_DELAY_MS,
+            )
+            return
+        }
         val screen = DumpArm.consume()
         if (screen == null) {
             warnOnce("dump expired", "armed dump expired before the target app opened")
             return
         }
-        val captured = NodeTreeReader.captureAll(windows, appPackage)
-        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
         val withIds = nodes.count { it.viewId != null }
         val windowText = captured.windows.joinToString("; ") { window ->
             "${window.title ?: window.className ?: "?"}(layer ${window.layer})=${window.nodes} nodes/${window.viewIds} ids"
@@ -762,12 +822,14 @@ class FilterService : AccessibilityService() {
                 captured.root,
                 windowStats = captured.windows,
                 capped = captured.capped,
+                grafted = captured.grafts,
             )
         ) {
             is DumpResult.Success -> Log.i(
                 TAG,
                 "armed dump $appPackage/\"$screen\": ${result.document.nodeCount} nodes " +
-                    "(${result.document.nodesWithViewId} with viewId, ${captured.windows.size} windows: " +
+                    "(${result.document.nodesWithViewId} with viewId, ${captured.grafts} grafted, " +
+                    "${captured.windows.size} windows: " +
                     "$windowText) in ${SystemClock.uptimeMillis() - started} ms -> ${result.file?.name}",
             )
             is DumpResult.Unavailable -> Log.w(TAG, "armed dump unavailable: ${result.reason}")
@@ -794,6 +856,13 @@ class FilterService : AccessibilityService() {
 
         /** D8: one ghost-tree probe line per package per 10 s. */
         private const val PROBE_WINDOW_MS = 10_000L
+
+        /** R3: actions that change the screen asynchronously; a confirmed one opens the post-escape hold. */
+        private val ESCAPE_ACTIONS = setOf(Action.BACK, Action.TAP_HOME_TAB, Action.REDIRECT_HOME)
+
+        /** R4: retry a ghost armed dump within the 60 s arm (4 × 600 ms covers the launch fill). */
+        private const val DUMP_RETRY_MAX = 4
+        private const val DUMP_RETRY_DELAY_MS = 600L
 
         /** TikTok's global build behaves like the musically package. */
         const val PACKAGE_TIKTOK_GLOBAL = "com.ss.android.ugc.trill"

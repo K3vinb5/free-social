@@ -131,8 +131,15 @@ class NodeTreeCapture(
     val grafts: Int = 0,
 )
 
-/** A node reached by `findAccessibilityNodeInfosByViewId` although the child links never exposed it (D8). */
-class GraftNode(val source: NodeSource, val lookupId: String)
+/**
+ * A node reached by a lookup although the child links never exposed it (D8).
+ *
+ * [subtree] is set for the container anchors declared in [CaptureAnchors]: their children are
+ * walked at capture because the matched nodes below them carry no id of their own (the YouTube
+ * Shorts shelf). A rule-declared id and a text hit stay single nodes — descending into every
+ * graft would pull the whole surface behind a lookup and cause cross-surface false positives.
+ */
+class GraftNode(val source: NodeSource, val lookupId: String, val subtree: Boolean = false)
 
 /**
  * Builds one [NodeSnapshot] tree from **all** windows of the foreground package (defect D2b).
@@ -277,6 +284,14 @@ object NodeTreeBuilder {
      * under its nearest ancestor that is already in the snapshot (parent chain matched the same
      * way); when the pruned hierarchy exposes no such ancestor it becomes a "lookup-graft" child
      * of the top-most window root (the synthetic root only when the capture has no window).
+     *
+     * D8 round 3 (R1): a lookup can return a **container** whose own children are intact below it
+     * (`results` on the pruned YouTube home) while the shelf's own nodes carry no id. A graft
+     * flagged [GraftNode.subtree] therefore walks the returned node's child links and splices the
+     * whole subtree, so text/desc anchored rules can match content that is only reachable through
+     * the container id. Children found this way are marked [NodeSnapshot.grafted] like the
+     * container itself. A plain id/text graft stays a single node.
+     *
      * Grafted nodes are appended to [NodeTreeCapture.live] at their own index, so actions still hit
      * the live node. The shared [cap] is respected and a dropped graft marks the capture capped.
      */
@@ -295,42 +310,80 @@ object NodeTreeBuilder {
         // Fallback parent: the top-most captured window root (the brief's "under the window root");
         // only a window-less capture needs the synthetic root itself.
         val windowRootIndex = base.root.children.firstOrNull()?.index
-        var added = 0
-        var capped = base.capped
+        val cappedFlag = booleanArrayOf(base.capped)
         for (graft in grafts) {
             if (live.size >= cap) {
-                capped = true
+                cappedFlag[0] = true
                 break
             }
             val key = lookupKey(graft.source)
             if (byKey.containsKey(key)) continue
-            val index = live.size
-            val snapshot = NodeSnapshot(
-                viewId = graft.source.viewId,
-                className = graft.source.className,
-                text = graft.source.text,
-                contentDescription = graft.source.contentDescription,
-                bounds = graft.source.bounds,
-                visible = graft.source.visible,
-                selected = graft.source.selected,
-                clickable = graft.source.clickable,
-                scrollable = graft.source.scrollable,
-                index = index,
-                grafted = true,
-            )
-            live += graft.source
-            byKey[key] = snapshot
             val parent = capturedAncestor(graft.source, byKey) ?: windowRootIndex
+            val snapshot =
+                graftSubtree(graft.source, live, byKey, cap, 0, cappedFlag, graft.subtree) ?: continue
             if (parent == null) underRoot += snapshot
             else underParent.getOrPut(parent) { ArrayList() } += snapshot
-            added++
         }
+        val added = live.size - base.live.size
+        val capped = cappedFlag[0]
         if (added == 0) {
             return if (capped == base.capped) base
             else NodeTreeCapture(base.root, base.live, base.windows, capped, base.grafts)
         }
         val root = base.root.copy(children = rebuild(base.root.children, underParent) + underRoot)
         return NodeTreeCapture(root, live, base.windows, capped, base.grafts + added)
+    }
+
+    /**
+     * Snapshots [source] and everything reachable below it through the live child links, appending
+     * each node to [live]/[byKey]. Nodes already present (walked or grafted earlier) are skipped,
+     * so a subtree graft never duplicates content the capture already has.
+     */
+    private fun graftSubtree(
+        source: NodeSource,
+        live: MutableList<NodeSource>,
+        byKey: MutableMap<LookupKey, NodeSnapshot>,
+        cap: Int,
+        depth: Int,
+        capped: BooleanArray,
+        descend: Boolean,
+    ): NodeSnapshot? {
+        if (live.size >= cap) {
+            capped[0] = true
+            return null
+        }
+        if (depth > MAX_DEPTH) return null
+        val key = lookupKey(source)
+        if (byKey.containsKey(key)) return null
+        val index = live.size
+        live += source
+        val children = ArrayList<NodeSnapshot>(minOf(source.childCount, 16))
+        if (descend && depth < MAX_DEPTH) {
+            for (i in 0 until source.childCount) {
+                if (live.size >= cap) {
+                    capped[0] = true
+                    break
+                }
+                val child = source.child(i) ?: continue
+                graftSubtree(child, live, byKey, cap, depth + 1, capped, descend = true)?.let(children::add)
+            }
+        }
+        val snapshot = NodeSnapshot(
+            viewId = source.viewId,
+            className = source.className,
+            text = source.text,
+            contentDescription = source.contentDescription,
+            bounds = source.bounds,
+            visible = source.visible,
+            selected = source.selected,
+            clickable = source.clickable,
+            scrollable = source.scrollable,
+            index = index,
+            children = children,
+            grafted = true,
+        )
+        byKey[key] = snapshot
+        return snapshot
     }
 
     /** Index of the nearest captured ancestor, walking the live parent chain (link-pruned → null). */
