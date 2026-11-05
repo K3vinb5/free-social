@@ -124,13 +124,15 @@ class FilterService : AccessibilityService() {
             stopBudget()
             return
         }
-        val root = activeRoot() ?: run {
+        val focused = activeRoot() ?: run {
             stopBudget()
             return
         }
-        val appPackage = root.packageName?.toString()
-        val app = appPackage?.let(::targetFor)
-        if (app == null || appPackage == null) {
+        val appPackage = focused.packageName?.toString() ?: run {
+            stopBudget()
+            return
+        }
+        val app = targetFor(appPackage) ?: run {
             stopBudget()
             return
         }
@@ -138,10 +140,17 @@ class FilterService : AccessibilityService() {
             stopBudget()
             return
         }
+        // Every window the foreground package owns: a focused sheet/overlay must not hide the
+        // surface (TikTok's FYP lives in a second application window in the observed dumps).
+        val roots = windowRoots(appPackage)
+        if (roots.isEmpty()) {
+            stopBudget()
+            return
+        }
 
         val now = ZonedDateTime.now()
         val elapsed = SystemClock.elapsedRealtime()
-        val captured = NodeTreeReader.capture(root)
+        val captured = NodeTreeReader.captureWindows(roots, appPackage)
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
@@ -161,26 +170,38 @@ class FilterService : AccessibilityService() {
         // Exactly one action per scan, most escape-like first (RuleGate.ACTION_PRIORITY).
         val hit = RuleGate.chosen(hits, exhausted, locked) ?: return
         if (!throttle.tryAcquire(hit.rule.surface, appPackage, elapsed)) return
-        Log.i(TAG, "neutralising ${appPackage}/${hit.rule.surface} via ${hit.rule.action}")
-        perform(hit, captured)
+        perform(hit, captured, appPackage)
     }
 
     // --- Actions -------------------------------------------------------------------------
 
-    private fun perform(hit: RuleHit, captured: CapturedTree) {
+    /**
+     * Runs the chosen action. Success is logged **after** the mechanism reported it (defect D1c):
+     * a hit used to be logged as "neutralising" *before* the dispatch, so a rejected gesture and a
+     * real removal looked identical in logcat.
+     */
+    private fun perform(hit: RuleHit, captured: CapturedTree, appPackage: String) {
+        val label = "$appPackage/${hit.rule.surface}"
         when (hit.rule.action) {
-            Action.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
-            Action.REDIRECT_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
-            Action.SCROLL_PAST -> scrollPast(hit.node)
+            Action.BACK -> report(label, Action.BACK, performGlobalAction(GLOBAL_ACTION_BACK))
+            Action.REDIRECT_HOME -> report(label, Action.REDIRECT_HOME, performGlobalAction(GLOBAL_ACTION_HOME))
+            Action.SCROLL_PAST -> scrollPast(label, hit, captured)
             // Never the matched node: that is the surface being hidden (e.g. the Reels tab).
-            Action.TAP_HOME_TAB -> tapHomeTab(captured)
+            Action.TAP_HOME_TAB -> tapHomeTab(label, captured)
             Action.CLICK_VIEW_ID -> {
                 val targetId = hit.rule.viewIdTarget ?: return
                 val node = captured.firstByViewId(targetId) ?: captured.live(hit.node) ?: return
-                if (!clickNode(node)) tapNode(node)
+                if (clickNode(node)) report(label, Action.CLICK_VIEW_ID, true)
+                else report(label, Action.CLICK_VIEW_ID, tapNode(node))
             }
             Action.SKIP -> Unit
         }
+    }
+
+    /** The only success line in the log: it is emitted once the action's own API said so. */
+    private fun report(label: String, action: Action, ok: Boolean) {
+        if (ok) Log.i(TAG, "neutralising $label via $action")
+        else Log.w(TAG, "action failed $label via $action")
     }
 
     /** `ACTION_CLICK` on the node or the nearest clickable ancestor (03a `Q`, ≤ 6 levels). */
@@ -209,22 +230,58 @@ class FilterService : AccessibilityService() {
      * Tap the real Home tab of [captured]'s package. The matched node is never used: it is the
      * surface being hidden. No identifiable tab → the global Home action is the last resort.
      */
-    private fun tapHomeTab(captured: CapturedTree) {
+    private fun tapHomeTab(label: String, captured: CapturedTree) {
         val tab = HomeTabResolver.homeTab(captured.root, captured.packageName)?.let(captured::live)
-        if (tab != null && (clickNode(tab) || tapNode(tab))) return
-        performGlobalAction(GLOBAL_ACTION_HOME)
+        if (tab != null && (clickNode(tab) || tapNode(tab))) {
+            report(label, Action.TAP_HOME_TAB, true)
+            return
+        }
+        report("$label (fallback home)", Action.TAP_HOME_TAB, performGlobalAction(GLOBAL_ACTION_HOME))
     }
 
-    /** In-place removal: swipe the matched cell/shelf upward out of the viewport. */
-    private fun scrollPast(node: NodeSnapshot) {
-        val swipe = ScrollPastGesture.swipePast(node.bounds) ?: return
+    /**
+     * In-place removal: `ACTION_SCROLL_FORWARD` on the matched node's nearest scrollable ancestor
+     * first, and only when that reports `false` the synthetic swipe framed on that ancestor.
+     */
+    private fun scrollPast(label: String, hit: RuleHit, captured: CapturedTree) {
+        val plan = ScrollPastGesture.plan(captured.root, hit.node.index)
+        val target = plan.frameNode?.let(captured::live)
+        val outcome = ScrollPastGesture.execute(
+            plan,
+            forward = { target != null && target.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) },
+            gesture = { plan.swipe?.let { dispatchSwipe(it, label) } ?: false },
+        )
+        when (outcome) {
+            ScrollOutcome.FORWARD_ACCEPTED ->
+                Log.i(TAG, "neutralising $label via SCROLL_PAST (ACTION_SCROLL_FORWARD ${plan.frame})")
+            ScrollOutcome.GESTURE_DISPATCHED ->
+                Log.i(TAG, "neutralising $label via SCROLL_PAST (gesture dispatched, awaiting completion on ${plan.frame})")
+            ScrollOutcome.GESTURE_REJECTED ->
+                Log.w(TAG, "action failed $label via SCROLL_PAST (gesture not dispatched)")
+            ScrollOutcome.NO_PLAN ->
+                Log.w(TAG, "action failed $label via SCROLL_PAST (${plan.reason})")
+        }
+    }
+
+    /** Dispatches the swipe and reports its asynchronous completion instead of guessing. */
+    private fun dispatchSwipe(swipe: SwipePath, label: String): Boolean {
         val path = Path().apply {
             moveTo(swipe.startX.toFloat(), swipe.startY.toFloat())
             lineTo(swipe.endX.toFloat(), swipe.endY.toFloat())
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, SWIPE_DURATION_MS)
-        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+        val callback = object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                Log.i(TAG, "gesture completed $label")
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                Log.w(TAG, "gesture failed $label (cancelled)")
+            }
+        }
+        return dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), callback, null)
     }
+
 
     // --- Short-video budget --------------------------------------------------------------
 
@@ -254,6 +311,20 @@ class FilterService : AccessibilityService() {
             .firstOrNull { it.isFocused && it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
             ?.root
         return focused ?: rootInActiveWindow
+    }
+
+    /**
+     * Every application window owned by [appPackage], topmost first — the same package can expose
+     * its surface from more than one window (TikTok's FYP behind a sheet, IG behind a dialog).
+     */
+    private fun windowRoots(appPackage: String): List<AccessibilityNodeInfo> {
+        val roots = windows.orEmpty()
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .mapNotNull { window -> window.root?.takeIf { it.packageName?.toString() == appPackage } }
+            .distinct()
+        if (roots.isNotEmpty()) return roots
+        val active = rootInActiveWindow ?: return emptyList()
+        return listOf(active).filter { it.packageName?.toString() == appPackage }
     }
 
     /** 1 s heartbeat: charge the second, and re-evaluate so an exhausted budget exits promptly. */
@@ -344,20 +415,14 @@ class FilterService : AccessibilityService() {
     private fun captureArmedDump(appPackage: String) {
         val started = SystemClock.uptimeMillis()
         // Only the event's own package: our inspector window is never a candidate.
-        val root = windows
-            .asReversed()
-            .firstOrNull { window ->
-                window.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
-                    window.root?.packageName?.toString() == appPackage
-            }
-            ?.root
-            ?: rootInActiveWindow?.takeIf { it.packageName?.toString() == appPackage }
-        if (root == null) {
+        val roots = windowRoots(appPackage)
+        if (roots.isEmpty()) {
             Log.w(TAG, "armed dump: no readable $appPackage window")
             return
         }
         val screen = DumpArm.consume() ?: return
-        val captured = NodeTreeReader.capture(root)
+        // All of the package's windows, capped at 400 and de-duplicated across windows.
+        val captured = NodeTreeReader.captureWindows(roots, appPackage)
         when (val result = DumpExporter.export(this, appPackage, screen, captured.root)) {
             is DumpResult.Success -> Log.i(
                 TAG,

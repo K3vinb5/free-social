@@ -87,11 +87,11 @@
       "surface": "playback",
       "layer": 2,
       "match": {
-        "viewId": "com.zhiliaoapp.musically:id/video_seek_bar",
-        "classNameRegex": "android\\.widget\\.LinearLayout"
+        "contentDescriptionRegex": "(?i)^for you$|like video\\.|read or add comments|share video\\.|add or remove this video from favorites",
+        "classNameRegex": "android\\.view\\.(TextureView|SurfaceView)|android\\.widget\\.VideoView"
       },
       "action": "BACK",
-      "notes": "TikTok playing video: the progress bar (id video_seek_bar, class LinearLayout) is the discriminator — player_view/video_container_area are also present on a PHOTO post (negative control 235543-tt_fyp_next2 has no video_seek_bar, 234958-tt_consent_check does; 235326 live preview has neither). Layer 2: play while the budget lasts, one Back when exhausted. TikTok ids are obfuscated and churn per release; verifiedAgainstAppVersion pins it.",
+      "notes": "TikTok playing video, anchored on chrome that is visible during playback (defect D2a). Two id-free signals, AND-combined: (1) the FYP action chrome described by TikTok always — the selected \"For You\" tab plus the right-rail buttons \"Like video. …\", \"Read or add comments…\", \"Share video. …\", \"Add or remove this video from Favorites\"; (2) a video surface rendered by TextureView/SurfaceView/VideoView, which a photo post never has (235543-tt_fyp_next2 has none, 234958-tt_consent_check has TextureView id wjv). The old anchor was id video_seek_bar, a player-control that reports isVisibleToUser=false while a video plays, so the rule could never match (234958/001928 list it but the engine filters it). The seek bar remains only an optional extra signal, never the sole one — do not re-add it as the anchor. Layer 2: play while the budget lasts, one Back when exhausted. Photo/live posts stay untracked; TikTok ids are obfuscated and churn per release, which is why no id is used.",
       "verifiedAgainstAppVersion": "TikTok 47.6.3"
     },
     {
@@ -104,7 +104,7 @@
         "classNameRegex": "android\\.widget\\.Button"
       },
       "action": "SKIP",
-      "notes": "TikTok DM carve-out: the in-thread composer button (id udm, class Button, text \"Message <name>…\") is present while a video shared in a DM plays full-screen — the exact screen where tiktok_playback would otherwise fire. SKIP wins in RuleGate. Evidence 001928-tt_dm_video_paused (player_view + video_seek_bar + \"Message Carol...\") and 001335-tt_activity_carol (chat thread with shared videos). The SocialLite strings \"Back to chat\"/\"Reply privately\" (03c f3348u0) do not occur in build 47.6.3; plain threads use composer id ui_slot_input_layout_redesign. See docs/rules/RULES.md.",
+      "notes": "TikTok DM carve-out: the in-thread composer button (id udm, class Button, text \"Message <name>…\") is present while a video shared in a DM plays full-screen — the exact screen where tiktok_playback would otherwise fire. SKIP wins in RuleGate. Evidence 001928-tt_dm_video_paused (player_view + the seek bar + \"Message Carol...\") and 001335-tt_activity_carol (chat thread with shared videos). The SocialLite strings \"Back to chat\"/\"Reply privately\" (03c f3348u0) do not occur in build 47.6.3; plain threads use composer id ui_slot_input_layout_redesign. See docs/rules/RULES.md.",
       "verifiedAgainstAppVersion": "TikTok 47.6.3"
     }
   ]

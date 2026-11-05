@@ -42,12 +42,31 @@ was using the phone mid-capture). Deleted at the end of this run.
 | `ig_dm_carve_out` | `dm_carve_out` (2) | `234329` (+ `234011`) | `id/row_thread_composer_edittext` + class `EditText` | Instagram 454.0.0.54.77 | SKIP |
 | `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` | content-desc `^Shorts$` / `- play Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
 | `yt_shorts_player` | `shorts_player` (2) | `234810` | `id/reel_recycler` + class `android.support.v7.widget.RecyclerView` | YouTube 21.43.523 | BACK |
-| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative) | `id/video_seek_bar` + class `android.widget.LinearLayout` | TikTok 47.6.3 | BACK |
+| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative) | content-desc FYP chrome (`For You`, `Like video.`, `Read or add comments`, `Share video.`, favourites) **and** class `TextureView`/`SurfaceView`/`VideoView` | TikTok 47.6.3 | BACK |
 | `tiktok_dm_carve_out` | `dm_carve_out` (2) | `001928` (DM video) + `001335` (thread) | `id/udm` + class `android.widget.Button` ("Message <name>...") | TikTok 47.6.3 | SKIP |
 
 All eight surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
 in this revision). Rules are version-stamped; a mismatch with the installed app should be surfaced
 in the UI as "rules last verified against …" (SPEC §2.5).
+
+## Anchor sweep — persistent chrome only (defect D2a)
+
+`video_seek_bar` was a player *control*, not chrome: visible only while paused/scrubbing. Every
+rule was re-checked against its dump for the same failure class — an anchor that the app hides
+while the blocked surface is up. The rule is: an anchor must be a container or chrome that exists
+for as long as the surface does, and a rule that matches **only** when invisible nodes are included
+is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
+
+| rule | anchor | persistent? |
+| --- | --- | --- |
+| `ig_feed_reel_cell` | `id/video_container` | **Yes** — the feed row's video slot itself; the diagnosis confirmed it matches *visibly* (`233205` idx 23) while the post plays. Kept. |
+| `ig_reels_tab` | `id/clips_tab` + `selected:true` | **Yes** — the bottom-nav tab never hides; `selected` is true only while the Reels screen is up (`233528` vs `233005`/`234011`), so it also cannot match on the feed. |
+| `ig_clips_viewer` | `id/clips_viewer_view_pager` | **Yes** — the viewer's own pager container, present for as long as the viewer is open (`233528`); it is a container, not a control. |
+| `ig_dm_carve_out` | `id/row_thread_composer_edittext` | **Yes** — the thread composer is thread chrome, present for the whole thread (`234329`); it is what keeps shared reels in a DM usable. |
+| `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
+| `yt_shorts_player` | `id/reel_recycler` | **Yes** — the Shorts player's pager container (`234810`), present for as long as the player is. |
+| `tiktok_playback` | FYP chrome content-descs + `TextureView`/`SurfaceView`/`VideoView` class | **Yes** — the "For You" tab and the right-rail buttons are on screen during playback, and the video surface only exists while a video plays. The old `video_seek_bar` anchor was `isVisibleToUser=false` during playback (D2a). |
+| `tiktok_dm_carve_out` | `id/udm` + class `Button` | **Yes** — the in-thread composer button is DM chrome, not a player control (`001928`, `001335`); re-verify it on every TikTok update, like every TikTok id. |
 
 ## Deliberate deviations and schema gaps
 
@@ -58,19 +77,37 @@ in the UI as "rules last verified against …" (SPEC §2.5).
    the Reels screen (false on feed/DM in `233005`, `234011`), so the rule no longer fires on the
    Home feed, profile or DM inbox. Swept the other chrome rules for the same gap:
    `ig_clips_viewer` keys on `clips_viewer_view_pager` (viewer only), `yt_shorts_player` on
-   `reel_recycler` (player only) and `tiktok_playback` on `video_seek_bar` (a playing video,
-   absent on photos in `235543`), so none needed a selected predicate.
+   `reel_recycler` (player only) and `tiktok_playback` on FYP chrome plus a video surface class
+   (playing video only, absent on photos in `235543`), so none needed a selected predicate.
 2. **RESOLVED — `TAP_HOME_TAB` tapped the matched node (defect class A).** The engine now
    resolves the foreground app's real Home tab: known per-app id (`com.instagram.android:id/feed_tab`),
    then a clickable node with content-description matching `(?i)^home$` (YouTube's Button in
    `234610-yt_home`), then `GLOBAL_ACTION_HOME` as the last resort. The matched node (e.g.
    `clips_tab`) is never clicked. Proven in `HomeTabResolverTest`.
-3. **RESOLVED — layer-1 `REDIRECT_HOME` evicted the app (defect class B).** `Action.SCROLL_PAST`
-   dispatches a bottom→top swipe over 60% of the matched node's height, so `ig_feed_reel_cell`
-   and `yt_shorts_shelf` are pushed out of view while the user stays in the app (the YT Shorts
-   player stays reachable). No shipped rule uses `REDIRECT_HOME` any more
+3. **RESOLVED (twice) — layer-1 `REDIRECT_HOME` evicted the app, then `SCROLL_PAST` swiped the
+   wrong rect (defect D1).** Layer 1 first stopped leaving the app; the replacement swipe was framed
+   on the *matched* node, so a 58 px YT shelf header became a 34 px drag (34 px moves nothing) and an
+   IG feed cell inside a 2020 px `RecyclerView` became a 566 px drag the list settled back from — 202
+   logged hits, screen unchanged. `SCROLL_PAST` now (a) resolves the matched node's **nearest
+   scrollable ancestor** (walk up the captured tree to a node that is `scrollable` or whose class is
+   a RecyclerView/ScrollView/ListView/GridView/ViewPager/NestedScroll/WebView), (b) frames the swipe
+   on that container — full width, bottom→top, two thirds of its height — and (c) falls back to the
+   largest ancestor rect when there is no scrollable one, never to a frame under 200 px. Dispatch
+   order is `ACTION_SCROLL_FORWARD` on that ancestor first (a RecyclerView honours it synchronously)
+   and the synthetic swipe only when it returns `false`. Both shipped SCROLL_PAST rules
+   (`ig_feed_reel_cell`, `yt_shorts_shelf`) therefore exercise the forward action on a live device and
+   the gesture only as fallback. No shipped rule uses `REDIRECT_HOME` any more
    (`grep -c REDIRECT_HOME rules.json` = 0); the enum value survives only as the engine's
    last-resort fallback.
+3a. **RESOLVED — success was logged before the action was dispatched (defect D1c).** The
+   "neutralising …" line used to be emitted *before* the action, so a rejected gesture and a real
+   removal were indistinguishable in logcat. It is now emitted only when the mechanism reported
+   success (`performGlobalAction`/`performAction`/`dispatchGesture` returning true); failures log
+   `action failed …`. Gestures are asynchronous: the service logs `neutralising … via SCROLL_PAST
+   (gesture dispatched, awaiting completion …)` and then
+   `gesture completed …` or `gesture failed … (cancelled)` from the `GestureResultCallback`. The
+   1200 ms per-surface debounce and the 20-per-60 s quota are unchanged — they were working as
+   designed, they were just being fed a surface that never moved.
 4. **RESOLVED — layer-1 outranked layer-2 at the action stage (defect class C loophole).**
    `RuleGate.chosen` returns exactly one hit for a scan, most-escape-like first
    (`TAP_HOME_TAB` > `BACK` > `SCROLL_PAST` > `CLICK_VIEW_ID` > `REDIRECT_HOME`), after SKIP
@@ -91,11 +128,25 @@ in the UI as "rules last verified against …" (SPEC §2.5).
    UI language at capture time was English.
 7. **`shorts_player_container` is dead.** The id listed in `03c` (`f3346s0`) does not appear in
    21.43.523; the rule uses `reel_recycler`, which does.
-8. **TikTok playback cannot key on `player_view`.** `player_view` / `video_container_area` are
-   present on photo posts too (`235543`), so they only say "feed item", not "video playing".
-   `video_seek_bar` is the discriminator. TikTok ids are obfuscated (e.g. `udm`,
-   `ui_slot_input_layout_redesign`) and churn per release — expect to re-verify on every TikTok
-   update.
+8. **RESOLVED — TikTok playback keyed on a hidden player control (defect D2a).**
+   `video_seek_bar` is *player-control chrome*: TikTok reports it with `isVisibleToUser=false` while
+   a video plays and uiautomator, which does not filter on visibility, still lists it — so the engine
+   dropped it and `tiktok_playback` could never match. The rule is re-anchored on two id-free,
+   always-visible signals: the FYP action chrome (content-desc `For You`, `Like video.`,
+   `Read or add comments`, `Share video.`, favourites) **and** a video surface class
+   (`TextureView`/`SurfaceView`/`VideoView`). The surface class is what keeps the photo negative
+   control clean: `235543-tt_fyp_next2` has the same chrome and `player_view` but no video surface.
+   The seek bar survives only as an *optional extra* signal — never the anchor, and never alone
+   (`grep -c video_seek_bar rules.json` = 1, in the notes only). No id is used at all, so an
+   obfuscation rename cannot kill the rule. See `TikTokPlaybackRuleTest`.
+8a. **Engine-wide window sweep (defect D2b).** Every tree walk aggregates **all** application
+   windows of the foreground package (`AccessibilityService.getWindows()`, already declared with
+   `flagRetrieveInteractiveWindows`), not just `rootInActiveWindow`: one scan in the filter path and
+   one in the armed rule-inspector capture. The 400-node cap is budgeted across windows in z-order
+   and a node exposed by two windows is walked once (`NodeTreeBuilder`, `NodeTreeBuilderTest`).
+   Visibility filtering is unchanged for actions — an invisible node is never clicked; if a rule can
+   only match by including invisible nodes, that rule is mis-anchored and must be re-anchored, not
+   have the visibility filter relaxed.
 9. **TikTok DM strings changed.** SocialLite's `f3348u0` = {"Back to chat", "Reply privately"}
    (English, `03c`) does not occur anywhere in 47.6.3 — a `grep` over every fresh TikTok dump
    returns nothing. The carve-out is keyed on the live DM composer `udm` instead, which is present
