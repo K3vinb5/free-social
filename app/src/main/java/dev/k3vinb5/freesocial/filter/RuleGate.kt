@@ -151,6 +151,30 @@ class RuleSetMatcher(
             it.appPackage == appPackage && SurfacePolicy.enabled(app, it.surface, toggles)
         }
 
+    /**
+     * D8 layer (b): the view ids the applicable rules actually declare — match ids and explicit
+     * click targets. Only these are worth a `findAccessibilityNodeInfosByViewId` lookup, because
+     * unknown ids cannot be enumerated.
+     */
+    fun lookupViewIds(app: AppTarget, appPackage: String): List<String> =
+        rulesFor(app, appPackage)
+            .flatMap { rule -> listOfNotNull(rule.match.viewId, rule.viewIdTarget) }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    /**
+     * D8 layer (c): the literal text / content-description values the applicable rules can be
+     * queried with, derived from their existing regexes ([RuleLookup]) — `rules.json`, [Rule] and
+     * `MatchSpec` stay unchanged. A real regex contributes nothing: it cannot be asked of
+     * `findAccessibilityNodeInfosByText`.
+     */
+    fun lookupTexts(app: AppTarget, appPackage: String): List<String> =
+        rulesFor(app, appPackage)
+            .flatMap { rule ->
+                RuleLookup.literalQueries(rule.match.textRegex, rule.match.contentDescriptionRegex)
+            }
+            .distinct()
+
     fun hits(app: AppTarget, appPackage: String, root: NodeSnapshot): List<RuleHit> {
         val nodes = NodeTree.flatten(root, NodeTree.MAX_SCAN_NODES)
         return compiled.mapNotNull { entry ->

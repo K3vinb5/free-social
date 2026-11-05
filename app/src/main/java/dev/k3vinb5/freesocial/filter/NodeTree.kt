@@ -24,7 +24,8 @@ data class Bounds(val left: Int, val top: Int, val right: Int, val bottom: Int) 
  * foreground package) so the service can map a match back to the live `AccessibilityNodeInfo` it
  * came from (see `NodeTreeReader`). [scrollable] mirrors `AccessibilityNodeInfo.isScrollable`; it
  * is what lets `SCROLL_PAST` frame its gesture on a real scroll container instead of the matched
- * (possibly tiny) node.
+ * (possibly tiny) node. [grafted] marks a node that only reachable through a view-id lookup
+ * (defect D8), so diagnostics can count how much of a tree was recovered that way.
  */
 data class NodeSnapshot(
     val viewId: String? = null,
@@ -38,6 +39,7 @@ data class NodeSnapshot(
     val scrollable: Boolean = false,
     val index: Int = 0,
     val children: List<NodeSnapshot> = emptyList(),
+    val grafted: Boolean = false,
 )
 
 /**
@@ -88,6 +90,13 @@ interface NodeSource {
     val scrollable: Boolean
     val childCount: Int
     fun child(index: Int): NodeSource?
+
+    /**
+     * Parent in the live hierarchy, or null when the framework pruned the link. Used only by the
+     * D8 graft to attach a lookup-only node under its nearest captured ancestor; never walked
+     * while capturing, so the existing capture path is unchanged.
+     */
+    fun parent(): NodeSource? = null
 }
 
 /** One window handed to the capture walk, with the metadata the dump header reports (D6). */
@@ -112,14 +121,18 @@ data class WindowStat(
 /**
  * The result of one capture: the (synthetic) root plus the live order matching [NodeSnapshot.index].
  * [windows] are per-window stats in capture order (top-most first); [capped] is true when the
- * 400-node budget cut the walk short.
+ * 400-node budget cut the walk short; [grafts] counts nodes recovered by view-id lookup (D8).
  */
 class NodeTreeCapture(
     val root: NodeSnapshot,
     val live: List<NodeSource>,
     val windows: List<WindowStat> = emptyList(),
     val capped: Boolean = false,
+    val grafts: Int = 0,
 )
+
+/** A node reached by `findAccessibilityNodeInfosByViewId` although the child links never exposed it (D8). */
+class GraftNode(val source: NodeSource, val lookupId: String)
 
 /**
  * Builds one [NodeSnapshot] tree from **all** windows of the foreground package (defect D2b).
@@ -139,6 +152,26 @@ object NodeTreeBuilder {
         val contentDescription: String?,
         val bounds: Bounds,
     )
+
+    /**
+     * D8 graft de-duplication: a live node already captured through the links has the same
+     * `(viewId, bounds)` pair. Text lookup also returns id-less nodes (YouTube's Shorts shelf
+     * header carries no resource id), so the key falls back to text/description for those —
+     * for any node *with* an id the pair is unchanged and id-graft and text-graft still dedupe
+     * against each other.
+     */
+    private data class LookupKey(
+        val viewId: String?,
+        val bounds: Bounds,
+        val text: String? = null,
+        val contentDescription: String? = null,
+    )
+
+    private fun lookupKey(source: NodeSource): LookupKey =
+        LookupKey(source.viewId, source.bounds, source.text, source.contentDescription)
+
+    private fun lookupKey(node: NodeSnapshot): LookupKey =
+        LookupKey(node.viewId, node.bounds, node.text, node.contentDescription)
 
     fun build(windows: List<NodeSource>, cap: Int = NodeTree.MAX_SCAN_NODES): NodeTreeCapture =
         buildWindows(windows.map { WindowSource(it) }, cap)
@@ -233,6 +266,104 @@ object NodeTreeBuilder {
             index = index,
             children = children,
         )
+    }
+
+    /**
+     * D8 layers (b) and (c): splices lookup-only nodes into a capture without touching the matcher.
+     *
+     * Each [GraftNode] is skipped when its live node was already walked (same `(viewId, bounds)`;
+     * id-less nodes are distinguished by text/description), so a node reachable both through the
+     * child links, the view-id lookup and the text lookup appears exactly once. A graft is linked
+     * under its nearest ancestor that is already in the snapshot (parent chain matched the same
+     * way); when the pruned hierarchy exposes no such ancestor it becomes a "lookup-graft" child
+     * of the top-most window root (the synthetic root only when the capture has no window).
+     * Grafted nodes are appended to [NodeTreeCapture.live] at their own index, so actions still hit
+     * the live node. The shared [cap] is respected and a dropped graft marks the capture capped.
+     */
+    fun graft(
+        base: NodeTreeCapture,
+        grafts: List<GraftNode>,
+        cap: Int = NodeTree.MAX_SCAN_NODES,
+    ): NodeTreeCapture {
+        if (grafts.isEmpty() || cap <= 0) return base
+        val captured = NodeTree.flatten(base.root, cap)
+        val byKey = HashMap<LookupKey, NodeSnapshot>(captured.size)
+        for (node in captured) byKey[lookupKey(node)] = node
+        val live = ArrayList<NodeSource>(base.live)
+        val underParent = HashMap<Int, MutableList<NodeSnapshot>>()
+        val underRoot = ArrayList<NodeSnapshot>()
+        // Fallback parent: the top-most captured window root (the brief's "under the window root");
+        // only a window-less capture needs the synthetic root itself.
+        val windowRootIndex = base.root.children.firstOrNull()?.index
+        var added = 0
+        var capped = base.capped
+        for (graft in grafts) {
+            if (live.size >= cap) {
+                capped = true
+                break
+            }
+            val key = lookupKey(graft.source)
+            if (byKey.containsKey(key)) continue
+            val index = live.size
+            val snapshot = NodeSnapshot(
+                viewId = graft.source.viewId,
+                className = graft.source.className,
+                text = graft.source.text,
+                contentDescription = graft.source.contentDescription,
+                bounds = graft.source.bounds,
+                visible = graft.source.visible,
+                selected = graft.source.selected,
+                clickable = graft.source.clickable,
+                scrollable = graft.source.scrollable,
+                index = index,
+                grafted = true,
+            )
+            live += graft.source
+            byKey[key] = snapshot
+            val parent = capturedAncestor(graft.source, byKey) ?: windowRootIndex
+            if (parent == null) underRoot += snapshot
+            else underParent.getOrPut(parent) { ArrayList() } += snapshot
+            added++
+        }
+        if (added == 0) {
+            return if (capped == base.capped) base
+            else NodeTreeCapture(base.root, base.live, base.windows, capped, base.grafts)
+        }
+        val root = base.root.copy(children = rebuild(base.root.children, underParent) + underRoot)
+        return NodeTreeCapture(root, live, base.windows, capped, base.grafts + added)
+    }
+
+    /** Index of the nearest captured ancestor, walking the live parent chain (link-pruned → null). */
+    private fun capturedAncestor(source: NodeSource, byKey: Map<LookupKey, NodeSnapshot>): Int? {
+        var parent = source.parent()
+        var depth = 0
+        while (parent != null && depth < MAX_DEPTH) {
+            byKey[lookupKey(parent)]?.let { return it.index }
+            parent = parent.parent()
+            depth++
+        }
+        return null
+    }
+
+    /** Returns [children] unchanged when nothing hangs below it, so untouched subtrees stay shared. */
+    private fun rebuild(
+        children: List<NodeSnapshot>,
+        underParent: Map<Int, List<NodeSnapshot>>,
+    ): List<NodeSnapshot> {
+        if (children.isEmpty()) return children
+        val out = ArrayList<NodeSnapshot>(children.size)
+        var changed = false
+        for (child in children) {
+            val rebuiltChildren = rebuild(child.children, underParent)
+            val extra = underParent[child.index].orEmpty()
+            if (rebuiltChildren !== child.children || extra.isNotEmpty()) {
+                changed = true
+                out += child.copy(children = rebuiltChildren + extra)
+            } else {
+                out += child
+            }
+        }
+        return if (changed) out else children
     }
 
     private fun union(windows: List<NodeSource>): Bounds {
