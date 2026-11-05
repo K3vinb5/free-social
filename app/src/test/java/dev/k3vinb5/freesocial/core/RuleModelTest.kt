@@ -53,6 +53,7 @@ class RuleModelTest {
         assertEquals(Action.BACK, parsed.action)
         assertEquals("com.instagram.android:id/clips_viewer_view_pager", parsed.match.viewId)
         assertNull(parsed.match.textRegex)
+        assertNull(parsed.match.selected)
         assertNull(parsed.notes)
         assertNull(parsed.verifiedAgainstAppVersion)
     }
@@ -93,6 +94,18 @@ class RuleModelTest {
     }
 
     @Test
+    fun `selected is an optional criterion on its own`() {
+        val parsed = loadRuleSet(
+            set(rule(match = """{"viewId":"com.instagram.android:id/clips_tab","selected":true}""")),
+        ).rules.single()
+        assertEquals(true, parsed.match.selected)
+        assertEquals(false, parsed.match.isEmpty)
+
+        val selectedOnly = loadRuleSet(set(rule(match = """{"selected":false}"""))).rules.single()
+        assertEquals(false, selectedOnly.match.selected)
+    }
+
+    @Test
     fun `click view id needs a target`() {
         expectError(set(rule(action = "\"CLICK_VIEW_ID\"")), "needs viewIdTarget")
     }
@@ -122,6 +135,16 @@ class RuleModelTest {
         )
         assertEquals(listOf(1, 2), set.rules.map { it.layer }.distinct().sorted())
         assertEquals(2, set.rules.count { it.action == Action.SKIP })
+
+        // No in-app surface may leave the app; in-place swipes replace the old Home redirect.
+        assertEquals(0, set.rules.count { it.action == Action.REDIRECT_HOME })
+        assertEquals(
+            setOf("feed_reel_cell", "shorts_shelf"),
+            set.rules.filter { it.action == Action.SCROLL_PAST }.map { it.surface }.toSet(),
+        )
+        assertEquals(2, set.rules.count { it.action == Action.SCROLL_PAST })
+        // The Reels tab only matches while it is actually selected (Reels screen), not on every tab bar.
+        assertEquals(true, set.rules.single { it.id == "ig_reels_tab" }.match.selected)
     }
 
     @Test

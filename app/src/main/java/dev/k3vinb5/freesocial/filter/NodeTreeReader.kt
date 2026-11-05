@@ -64,6 +64,7 @@ object NodeTreeReader {
             bounds = Bounds(rect.left, rect.top, rect.right, rect.bottom),
             visible = info.isVisibleToUser,
             selected = info.isSelected,
+            clickable = info.isClickable,
             index = index,
             children = children,
         )

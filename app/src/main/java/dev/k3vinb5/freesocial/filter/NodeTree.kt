@@ -31,6 +31,7 @@ data class NodeSnapshot(
     val bounds: Bounds = Bounds.EMPTY,
     val visible: Boolean = true,
     val selected: Boolean = false,
+    val clickable: Boolean = false,
     val index: Int = 0,
     val children: List<NodeSnapshot> = emptyList(),
 )

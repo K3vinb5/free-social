@@ -157,7 +157,8 @@ class FilterService : AccessibilityService() {
         }
 
         if (outcome != GateOutcome.NEUTRALISE) return
-        val hit = RuleGate.activeHits(hits).firstOrNull() ?: return
+        // Exactly one action per scan, most escape-like first (RuleGate.ACTION_PRIORITY).
+        val hit = RuleGate.chosen(hits, exhausted, locked) ?: return
         if (!throttle.tryAcquire(hit.rule.surface, appPackage, elapsed)) return
         Log.i(TAG, "neutralising ${appPackage}/${hit.rule.surface} via ${hit.rule.action}")
         perform(hit, captured)
@@ -169,10 +170,9 @@ class FilterService : AccessibilityService() {
         when (hit.rule.action) {
             Action.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
             Action.REDIRECT_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
-            Action.TAP_HOME_TAB -> {
-                val node = captured.live(hit.node) ?: return
-                if (!clickNode(node)) tapNode(node)
-            }
+            Action.SCROLL_PAST -> scrollPast(hit.node)
+            // Never the matched node: that is the surface being hidden (e.g. the Reels tab).
+            Action.TAP_HOME_TAB -> tapHomeTab(captured)
             Action.CLICK_VIEW_ID -> {
                 val targetId = hit.rule.viewIdTarget ?: return
                 val node = captured.firstByViewId(targetId) ?: captured.live(hit.node) ?: return
@@ -202,6 +202,27 @@ class FilterService : AccessibilityService() {
         val path = Path().apply { moveTo(rect.exactCenterX(), rect.exactCenterY()) }
         val stroke = GestureDescription.StrokeDescription(path, 0, GESTURE_STROKE_MS)
         return dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /**
+     * Tap the real Home tab of [captured]'s package. The matched node is never used: it is the
+     * surface being hidden. No identifiable tab → the global Home action is the last resort.
+     */
+    private fun tapHomeTab(captured: CapturedTree) {
+        val tab = HomeTabResolver.homeTab(captured.root, captured.packageName)?.let(captured::live)
+        if (tab != null && (clickNode(tab) || tapNode(tab))) return
+        performGlobalAction(GLOBAL_ACTION_HOME)
+    }
+
+    /** In-place removal: swipe the matched cell/shelf upward out of the viewport. */
+    private fun scrollPast(node: NodeSnapshot) {
+        val swipe = ScrollPastGesture.swipePast(node.bounds) ?: return
+        val path = Path().apply {
+            moveTo(swipe.startX.toFloat(), swipe.startY.toFloat())
+            lineTo(swipe.endX.toFloat(), swipe.endY.toFloat())
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, SWIPE_DURATION_MS)
+        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
     // --- Short-video budget --------------------------------------------------------------
@@ -330,6 +351,7 @@ class FilterService : AccessibilityService() {
         private const val TAG = "FilterService"
         private const val CLICK_ANCESTOR_DEPTH = 6
         private const val GESTURE_STROKE_MS = 60L
+        private const val SWIPE_DURATION_MS = 220L
 
         /** TikTok's global build behaves like the musically package. */
         const val PACKAGE_TIKTOK_GLOBAL = "com.ss.android.ugc.trill"

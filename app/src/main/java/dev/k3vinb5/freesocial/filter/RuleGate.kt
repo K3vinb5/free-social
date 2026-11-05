@@ -65,7 +65,7 @@ enum class GateOutcome {
     /** A carve-out matched: leave the screen alone, no neutralisation at all. */
     SKIP,
 
-    /** Run [RuleGate.activeHits]' first hit's action. */
+    /** Run [RuleGate.chosen]'s action. */
     NEUTRALISE,
 }
 
@@ -74,8 +74,25 @@ enum class GateOutcome {
  * 1. any SKIP hit wins — DM/composer carve-outs beat every neutralisation;
  * 2. layer 1 is always hidden;
  * 3. layer 2 only once the budget is spent or the nightly window is locked.
+ *
+ * Exactly one action runs per scan. When several rules are eligible the most escape-like action
+ * wins ([ACTION_PRIORITY]), so a layer-1 tab hit can never leave a layer-2 viewer playing:
+ * leaving the surface (Home tab / Back / swipe) always beats clicking and beats the app-wide
+ * Home redirect.
  */
 object RuleGate {
+    /**
+     * Most-escape-like first. SKIP is deliberately absent: it is a shield, handled by [decide] and
+     * [chosen] before any action is picked.
+     */
+    private val ACTION_PRIORITY: Map<Action, Int> = mapOf(
+        Action.TAP_HOME_TAB to 0,
+        Action.BACK to 1,
+        Action.SCROLL_PAST to 2,
+        Action.CLICK_VIEW_ID to 3,
+        Action.REDIRECT_HOME to 4,
+    )
+
     fun decide(
         hits: List<RuleHit>,
         budgetExhausted: Boolean,
@@ -83,15 +100,37 @@ object RuleGate {
     ): GateOutcome {
         if (hits.isEmpty()) return GateOutcome.NONE
         if (hits.any { it.rule.action == Action.SKIP }) return GateOutcome.SKIP
-        if (hits.any { it.rule.layer == 1 }) return GateOutcome.NEUTRALISE
-        if ((budgetExhausted || scheduleLocked) && hits.any { it.rule.layer == 2 }) return GateOutcome.NEUTRALISE
+        if (eligibleHits(hits, budgetExhausted, scheduleLocked).isNotEmpty()) return GateOutcome.NEUTRALISE
         return GateOutcome.NONE
     }
 
-    /** The hits that justify the action: layer 1 outranks layer 2, rule-asset order otherwise. */
-    fun activeHits(hits: List<RuleHit>): List<RuleHit> {
-        val layerOne = hits.filter { it.rule.layer == 1 }
-        return if (layerOne.isNotEmpty()) layerOne else hits
+    /**
+     * The single hit to execute, or null when nothing should happen. A SKIP hit shields the whole
+     * scan (the service still stops the stopwatch); layer 2 only competes once the budget is spent
+     * or the schedule is locked.
+     */
+    fun chosen(
+        hits: List<RuleHit>,
+        budgetExhausted: Boolean,
+        scheduleLocked: Boolean,
+    ): RuleHit? {
+        if (hits.any { it.rule.action == Action.SKIP }) return null
+        return eligibleHits(hits, budgetExhausted, scheduleLocked)
+            .minByOrNull { ACTION_PRIORITY.getValue(it.rule.action) }
+    }
+
+    /** Layer-1 hits plus, only when gated open, layer-2 hits. SKIP never yields an action. */
+    fun eligibleHits(
+        hits: List<RuleHit>,
+        budgetExhausted: Boolean,
+        scheduleLocked: Boolean,
+    ): List<RuleHit> = hits.filter { hit ->
+        val rule = hit.rule
+        rule.action != Action.SKIP && when (rule.layer) {
+            1 -> true
+            2 -> budgetExhausted || scheduleLocked
+            else -> false
+        }
     }
 }
 

@@ -19,6 +19,7 @@ internal fun node(
     bounds: Bounds = Bounds(0, 0, 1080, 2400),
     visible: Boolean = true,
     selected: Boolean = false,
+    clickable: Boolean = false,
     children: List<NodeSnapshot> = emptyList(),
 ): NodeSnapshot = NodeSnapshot(
     viewId = viewId,
@@ -28,6 +29,7 @@ internal fun node(
     bounds = bounds,
     visible = visible,
     selected = selected,
+    clickable = clickable,
     children = children,
 )
 
