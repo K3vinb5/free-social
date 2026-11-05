@@ -12,6 +12,8 @@ from driver import DumpError, by_id, by_text
 
 PKG = "com.instagram.android"
 CLIPS_TAB = by_id("com.instagram.android:id/clips_tab")
+# Observed home-feed tab strings only (pt-PT "Para ti"; EN "For You").
+FEED_TAB_TEXTS = ("Para ti", "For You")
 
 
 def run(d):
@@ -38,9 +40,9 @@ def run(d):
         selected = any(n.selected for n in d.find(CLIPS_TAB, nodes))
         if selected:
             d.log("REELS_REACHED: clips_tab is selected in the bottom bar")
-        elif d.find(by_text("Para ti", match="contains"), nodes):
+        elif any(d.find(by_text(v, match="contains"), nodes) for v in FEED_TAB_TEXTS):
             d.log("ESCAPE/BLOCK recorded: clips_tab not selected; screen shows the "
-                  "Home feed ('Para ti') — data, not failure")
+                  "Home feed — data, not failure")
         else:
             d.log("REELS_STATE_UNKNOWN: clips_tab not selected; see ig-reels-dump.xml")
     except DumpError as exc:

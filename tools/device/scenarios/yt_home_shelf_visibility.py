@@ -1,10 +1,12 @@
 """YouTube Home Shorts-shelf observer.
 
-Selectors keyed on (from live Reno dumps, pt-PT UI):
-  - Home anchor:  com.google.android.youtube:id/tabs_bar (only exists on Home)
-  - shelf/header: content-desc == "Shorts" (locale-independent brand string)
-  - shelf cards:  content-desc contains "reproduzir Short"
-  - scroll area:  com.google.android.youtube:id/results (scrollable feed container)
+Selectors keyed on (from live Reno dumps, pt-PT UI; string variants below are
+observed-only — EN from the rule-authoring dumps, PT from pt-yt-home3.xml; add
+new locales to the variant lists when actually observed):
+  - Home anchor:  com.google.android.youtube:id/tabs_bar (only exists on Home) — locale-proof
+  - shelf/header: content-desc == "Shorts" (brand string, unchanged in pt-PT)
+  - shelf cards:  content-desc contains "reproduzir Short" (PT) / "play Short" (EN)
+  - scroll area:  com.google.android.youtube:id/results (scrollable feed container) — locale-proof
 
 This is an observer: it only documents whether the Shorts shelf is present on
 Home and how the feed behaves after two swipes. It never taps a Short.
@@ -19,7 +21,9 @@ PKG = "com.google.android.youtube"
 HOME_TABS = by_id("com.google.android.youtube:id/tabs_bar")
 FEED = by_id("com.google.android.youtube:id/results")
 SHORTS_HEADER = by_desc("Shorts", match="exact")
-SHORTS_CARD = by_desc("reproduzir Short", match="contains")
+# Observed string variants only (see header); a missing locale means
+# SHELF_ABSENT_OR_LOCALE, never a guess.
+SHORTS_CARD_DESCS = ("reproduzir Short", "play Short")
 
 
 def _ensure_home(d):
@@ -53,18 +57,23 @@ def run(d):
     # personalised Home feed. Record that as data (with evidence), but still
     # require the driver to see a live Home feed and never leave YouTube.
     if header is not None:
-        cards = d.find(SHORTS_CARD)
-        if cards:
-            d.log(f"{len(cards)} Shorts shelf cards visible; first: {cards[0].label(70)}")
+        cards = []
+        for desc in SHORTS_CARD_DESCS:
+            cards = d.find(by_desc(desc, match="contains"))
+            if cards:
+                d.log(f"{len(cards)} Shorts shelf cards via desc variant {desc!r}; "
+                      f"first: {cards[0].label(70)}")
+                break
         d.assert_visible(SHORTS_HEADER)
         d.log("SHELF_PRESENT: YouTube Home exposes a Shorts shelf on this run")
     else:
-        d.log("SHELF_ABSENT: no Shorts header/cards after 4 look-scrolls; "
-              "recorded as observer data, not a failure")
+        d.log("SHELF_ABSENT_OR_LOCALE: no Shorts header/cards after 4 look-scrolls; "
+              "absent from the feed OR this locale's strings unobserved — data, not a failure")
         d.save_dump(
             "observation.txt",
-            "SHELF_ABSENT: no content-desc='Shorts' and no 'reproduzir Short' cards "
-            f"after 4 look-scrolls on {d.serial}\n",
+            "SHELF_ABSENT_OR_LOCALE: no content-desc='Shorts' header and no card desc "
+            f"variant matched ({', '.join(SHORTS_CARD_DESCS)}) after 4 look-scrolls on "
+            f"{d.serial}. Absent from feed OR unobserved locale strings.\n",
         )
     d.assert_visible(FEED)
     d.screencap("yt-shorts-shelf-observation")
