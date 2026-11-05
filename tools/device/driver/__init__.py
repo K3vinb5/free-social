@@ -8,6 +8,7 @@ from .device import (
     StepError,
     WallError,
 )
+from . import policy
 from .selectors import (
     Selector,
     by_class,
@@ -26,6 +27,7 @@ __all__ = [
     "Node",
     "Selector",
     "StepError",
+    "policy",
     "WallError",
     "by_class",
     "by_desc",

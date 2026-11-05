@@ -287,7 +287,7 @@ class Device:
             ).lower()
             if node.resource_id and any(w in _deaccent(node.resource_id).lower() for w in PASSWORD_FIELD_WORDS):
                 strong.append(("password-field-id", node.resource_id[:70]))
-            elif ("edittext" in (node.cls or "").lower() or "textfield" in (node.cls or "").lower()) and any(
+            elif ("edittext" in (node.class_name or "").lower() or "textfield" in (node.class_name or "").lower()) and any(
                 w in blob for w in PASSWORD_FIELD_WORDS
             ):
                 strong.append(("password-field", (node.text or node.content_desc or node.resource_id or "")[:70]))
@@ -591,7 +591,9 @@ class Device:
             name = el.get("name")
             if not name:
                 continue
-            values[name] = el.text if el.text is not None else ""
+            # Typed prefs (<int>/<long>/<boolean>) carry their value in the
+            # `value` attribute; only <string> uses element text.
+            values[name] = el.text if el.text is not None else el.get("value", "")
         self._record(f"app_settings_read {package}", f"{len(values)} keys (read-only)")
         return values
 
