@@ -250,6 +250,7 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             }
 
             SectionLabel(stringResource(R.string.inspector_dumps))
+            Caption(stringResource(R.string.inspector_dumps_housekeeping))
             if (dumps.isEmpty()) {
                 Caption(stringResource(R.string.inspector_no_dumps))
             } else {

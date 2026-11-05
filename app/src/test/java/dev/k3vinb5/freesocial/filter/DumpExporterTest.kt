@@ -81,6 +81,29 @@ class DumpExporterTest {
     }
 
     @Test
+    fun `pruning metadata comes from the dump header, not the file name`() {
+        val doc = DumpDocument(
+            appPackage = YT,
+            screen = "Home feed",
+            surface = "home",
+            surfaceVerified = true,
+            capturedAt = "2026-11-05T11:46:07+00:00",
+        )
+        val entry = DumpExporter.pruneEntry("$YT-20261105-114607-123.json", doc, fallbackMillis = 0L)
+        assertEquals(YT, entry.packageName)
+        assertEquals("home", entry.surface)
+        assertEquals(1_793_879_167_000L, entry.timestamp.toEpochMilli())
+
+        val unverified = DumpExporter.pruneEntry(
+            "$YT-broken.json",
+            doc.copy(surface = null, capturedAt = "not a timestamp"),
+            fallbackMillis = 42_000L,
+        )
+        assertEquals(null, unverified.surface)
+        assertEquals(42_000L, unverified.timestamp.toEpochMilli())
+    }
+
+    @Test
     fun `a verified capture records the surface id and an unverified one records what was seen`() {
         val tree = NodeTreeBuilder.build(
             listOf(
