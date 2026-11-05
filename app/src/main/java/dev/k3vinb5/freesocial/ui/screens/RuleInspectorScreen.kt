@@ -1,13 +1,16 @@
 package dev.k3vinb5.freesocial.ui.screens
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,9 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,56 +29,50 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.k3vinb5.freesocial.R
-import dev.k3vinb5.freesocial.filter.DumpArm
+import dev.k3vinb5.freesocial.core.Rule
+import dev.k3vinb5.freesocial.filter.CaptureOutcome
+import dev.k3vinb5.freesocial.filter.CapturePhase
+import dev.k3vinb5.freesocial.filter.CaptureSurfaces
+import dev.k3vinb5.freesocial.filter.DumpAnalysis
 import dev.k3vinb5.freesocial.filter.DumpExporter
 import dev.k3vinb5.freesocial.filter.DumpFile
+import dev.k3vinb5.freesocial.filter.GuidedCapture
+import dev.k3vinb5.freesocial.filter.RuleCatalog
+import dev.k3vinb5.freesocial.filter.RuleOverride
+import dev.k3vinb5.freesocial.filter.RuleProvenance
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.ui.components.Caption
 import dev.k3vinb5.freesocial.ui.components.ChoiceChip
 import dev.k3vinb5.freesocial.ui.components.HorizontalGap
 import dev.k3vinb5.freesocial.ui.components.InfoBanner
 import dev.k3vinb5.freesocial.ui.components.ListRow
+import dev.k3vinb5.freesocial.ui.components.PrimaryButton
+import dev.k3vinb5.freesocial.ui.components.SecondaryButton
+import dev.k3vinb5.freesocial.ui.components.SectionCard
 import dev.k3vinb5.freesocial.ui.components.SectionLabel
+import dev.k3vinb5.freesocial.ui.components.TextButton
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
 import kotlinx.coroutines.delay
 
-private const val TAG = "RuleInspector"
-
-/** One expected hierarchy in the inspector list; the target app fills it in. */
-private data class CapturedScreen(val titleRes: Int)
-
-/** The screens we expect to dump per app (SPEC §2.5 / DESIGN.md F14). */
-private fun screensFor(app: AppTarget): List<CapturedScreen> = when (app) {
-    AppTarget.INSTAGRAM -> listOf(
-        CapturedScreen(R.string.inspector_screen_ig_feed),
-        CapturedScreen(R.string.inspector_screen_ig_reels),
-    )
-    AppTarget.YOUTUBE -> listOf(
-        CapturedScreen(R.string.inspector_screen_yt_shorts),
-    )
-    AppTarget.TIKTOK -> listOf(
-        CapturedScreen(R.string.inspector_screen_tt_playback),
-    )
-}
+private const val TAG = "SurfacesRules"
+private const val PREFS = "capture_guide"
+private const val KEY_NOTIF_ASKED = "notif_requested"
 
 /**
- * F14 — rule inspector.
+ * F14 — surfaces & rules.
  *
- * Capturing another app's tree is a two-step handshake (see [DumpArm]): arm here, switch to the
- * target app, and [dev.k3vinb5.freesocial.filter.FilterService] writes the next window it sees.
- * The list shows the dumps already on disk; tapping one opens the share sheet.
+ * Plain-language, normal feature. "Capture nodes" launches the target app, guides the user with a
+ * notification (or an in-app step card when notifications are off), and records only once the
+ * surface's own markers are detected. Dumps are surface-labelled; expanding one shows exactly the
+ * enabled rules that match it. Rules can be exported, edited in any text app and imported back at
+ * runtime, so a moved anchor heals without a new APK.
  */
 @Composable
 fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
@@ -87,30 +82,112 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
     var dumps by remember { mutableStateOf(DumpExporter.list(context)) }
-    var armedScreen by remember { mutableStateOf(DumpArm.armedScreen()) }
+    var rules by remember { mutableStateOf(RuleCatalog.current(context)) }
+    var rulesSource by remember { mutableStateOf(RuleCatalog.source) }
+    var rulesError by remember { mutableStateOf(RuleCatalog.lastError) }
+    var session by remember { mutableStateOf(GuidedCapture.session) }
+    var expanded by rememberSaveable { mutableStateOf<String?>(null) }
+    var stepCard by remember { mutableStateOf<CaptureSurfaces.Surface?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
 
-    fun arm(label: String) {
-        DumpArm.arm(label)
-        armedScreen = label
+    fun refreshCatalog() {
+        rules = RuleCatalog.current(context)
+        rulesSource = RuleCatalog.source
+        rulesError = RuleCatalog.lastError
     }
 
-    // Coming back from the target app: pick up the dump the service wrote (or the dead arm).
+    val surfaces = remember(app, rules) { CaptureSurfaces.forApp(app, rules) }
+
+    fun startCapture(surface: CaptureSurfaces.Surface) {
+        GuidedCapture.start(context, app, surface.id)
+        session = GuidedCapture.session
+        if (!GuidedCapture.launchTarget(context, app)) {
+            message = context.getString(R.string.inspector_capture_launch_failed, context.getString(app.nameRes))
+            GuidedCapture.stopByUser()
+        }
+        stepCard = null
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = stepCard
+        stepCard = null
+        if (pending != null) {
+            if (granted) startCapture(pending) else stepCard = pending
+        }
+    }
+
+    fun beginCapture(surface: CaptureSurfaces.Surface) {
+        val granted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        when {
+            granted -> startCapture(surface)
+            notificationsRequested(context) -> stepCard = surface
+            else -> {
+                markNotificationsRequested(context)
+                stepCard = surface
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    // Coming back from the target app: pick up the dump / notification result.
     LifecycleResumeEffect(Unit) {
         dumps = DumpExporter.list(context)
-        armedScreen = DumpArm.armedScreen()
+        refreshCatalog()
+        session = GuidedCapture.session
         onPauseOrDispose { }
     }
 
-    // While armed, poll the flag: it auto-clears on capture, and expires after 60 s.
-    LaunchedEffect(armedScreen) {
-        if (armedScreen == null) return@LaunchedEffect
-        while (true) {
-            delay(1_000)
-            if (DumpArm.armedScreen() == null) {
-                Log.i(TAG, "dump arm expired or was consumed")
-                armedScreen = null
-                dumps = DumpExporter.list(context)
-                break
+    // While a capture runs, mirror its phase; on the finish edge reload the dump list.
+    LaunchedEffect(session?.phase) {
+        var current = session
+        while (current != null && current.phase != CapturePhase.FINISHED) {
+            delay(500)
+            current = GuidedCapture.session
+            session = current
+        }
+        dumps = DumpExporter.list(context)
+        refreshCatalog()
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            val text = RuleCatalog.exportText(context)
+            val wrote = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+            }.isSuccess
+            message = if (wrote) {
+                context.getString(R.string.inspector_exported, uri.lastPathSegment ?: uri.toString())
+            } else {
+                context.getString(R.string.inspector_import_failed)
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            message = if (text == null) {
+                context.getString(R.string.inspector_import_failed)
+            } else {
+                when (val result = RuleCatalog.applyOverride(context, text)) {
+                    is RuleCatalog.ApplyResult.Ok -> {
+                        refreshCatalog()
+                        context.getString(R.string.inspector_import_ok, result.rules.size)
+                    }
+                    is RuleCatalog.ApplyResult.Invalid ->
+                        context.getString(R.string.inspector_import_rejected, result.error)
+                    is RuleCatalog.ApplyResult.Failed ->
+                        context.getString(R.string.inspector_import_rejected, result.error)
+                }
             }
         }
     }
@@ -139,25 +216,37 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 }
             }
 
-            val armed = armedScreen
-            if (armed != null) {
+            CaptureStatus(session = session, onStop = { GuidedCapture.stopByUser() })
+
+            message?.let { text ->
                 HorizontalGap(12.dp)
-                InfoBanner(
-                    text = stringResource(R.string.inspector_armed_status, armed),
-                    color = FsColors.Primary,
-                )
+                InfoBanner(text = text, onClick = { message = null })
             }
 
             SectionLabel(stringResource(R.string.inspector_captured))
-            screensFor(app).forEach { screen ->
-                val label = stringResource(screen.titleRes)
+            surfaces.forEach { surface ->
                 ListRow(
-                    title = label,
-                    value = stringResource(R.string.inspector_dump),
-                    chevron = true,
-                    onClick = { arm(label) },
+                    title = surface.displayName,
+                    subtitle = if (surface.markers.isEmpty()) {
+                        stringResource(R.string.inspector_no_markers)
+                    } else {
+                        stringResource(R.string.inspector_markers, surface.markers.size)
+                    },
+                    value = stringResource(R.string.inspector_capture_nodes),
+                    onClick = if (surface.markers.isEmpty()) null else ({ beginCapture(surface) }),
                 )
                 Spacer(Modifier.height(8.dp))
+            }
+
+            stepCard?.let { surface ->
+                HorizontalGap(4.dp)
+                StepCard(
+                    app = app,
+                    surface = surface,
+                    onStart = { startCapture(surface) },
+                    onCancel = { stepCard = null },
+                )
+                HorizontalGap(8.dp)
             }
 
             SectionLabel(stringResource(R.string.inspector_dumps))
@@ -165,68 +254,257 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 Caption(stringResource(R.string.inspector_no_dumps))
             } else {
                 dumps.forEach { dump ->
-                    ListRow(
-                        title = dump.document.appPackage,
-                        subtitle = stringResource(
-                            R.string.inspector_dump_subtitle,
-                            dump.file.name,
-                            dump.document.capturedAt,
-                        ),
-                        value = stringResource(R.string.inspector_nodes_count, dump.nodeCount),
-                        chevron = true,
-                        onClick = { shareDump(context, dump) },
+                    val key = dump.file.name
+                    val open = expanded == key
+                    DumpRow(
+                        dump = dump,
+                        expanded = open,
+                        rules = rules,
+                        onToggle = { expanded = if (open) null else key },
+                        onShare = { shareDump(context, dump) },
                     )
                     Spacer(Modifier.height(8.dp))
                 }
             }
 
+            SectionLabel(stringResource(R.string.inspector_rules))
+            RulesSection(
+                rules = rules,
+                source = rulesSource,
+                error = rulesError,
+                overridePath = RuleCatalog.overridePath(context),
+            )
+            HorizontalGap(12.dp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryButton(
+                    text = stringResource(R.string.inspector_export),
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        // Always write the effective rules to the override path first (it is a
+                        // valid document), then let the user pick a text app to edit a copy.
+                        val text = RuleCatalog.exportText(context)
+                        val path = RuleCatalog.overrideFile(context).absolutePath
+                        runCatching { RuleCatalog.overrideFile(context).writeText(text) }
+                        message = context.getString(R.string.inspector_exported, path)
+                        exportLauncher.launch(RuleOverride.FILE_NAME)
+                    },
+                )
+                SecondaryButton(
+                    text = stringResource(R.string.inspector_import),
+                    modifier = Modifier.weight(1f),
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                )
+            }
+
             HorizontalGap(16.dp)
             Caption(stringResource(R.string.inspector_caption))
-            HorizontalGap(12.dp)
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                val armLabel = stringResource(screensFor(app).first().titleRes)
-                DumpButton(armed = armed != null, onClick = { arm(armLabel) })
-            }
             HorizontalGap(24.dp)
         }
     }
 }
 
-private fun shareDump(context: Context, dump: DumpFile) {
+/** The live capture card: phase, plain-language instruction, and an in-app Stop. */
+@Composable
+private fun CaptureStatus(session: GuidedCapture.Session?, onStop: () -> Unit) {
+    if (session == null) return
+    val text = when (session.phase) {
+        CapturePhase.WAITING -> stringResource(R.string.inspector_capture_waiting, session.surfaceName)
+        CapturePhase.RECORDING -> stringResource(R.string.inspector_capture_recording, session.surfaceName)
+        CapturePhase.FINISHED -> when (session.outcome) {
+            CaptureOutcome.COMPLETE ->
+                stringResource(R.string.inspector_capture_done, session.nodeCount ?: 0)
+            CaptureOutcome.SURFACE_LOST ->
+                stringResource(R.string.inspector_capture_done, session.nodeCount ?: 0)
+            CaptureOutcome.TIMEOUT -> stringResource(R.string.inspector_capture_timeout)
+            CaptureOutcome.CANCELLED -> stringResource(R.string.inspector_capture_cancelled)
+            CaptureOutcome.FAILED -> stringResource(R.string.inspector_capture_failed)
+            else -> stringResource(R.string.inspector_capture_cancelled)
+        }
+    }
+    val color = when {
+        session.phase == CapturePhase.FINISHED && session.outcome == CaptureOutcome.COMPLETE -> FsColors.Success
+        session.phase == CapturePhase.FINISHED -> FsColors.Warning
+        else -> FsColors.Primary
+    }
+    HorizontalGap(12.dp)
+    InfoBanner(
+        text = text,
+        color = color,
+        onClick = if (session.phase != CapturePhase.FINISHED) onStop else null,
+    )
+}
+
+/** The fallback guidance shown before launch when POST_NOTIFICATIONS is denied. */
+@Composable
+private fun StepCard(
+    app: AppTarget,
+    surface: CaptureSurfaces.Surface,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    SectionCard {
+        Text(
+            text = stringResource(
+                R.string.inspector_step_title,
+                stringResource(app.nameRes),
+                surface.displayName,
+            ),
+            color = FsColors.TextPrimary,
+        )
+        HorizontalGap(8.dp)
+        Caption(
+            stringResource(
+                R.string.inspector_step_body,
+                stringResource(app.nameRes),
+                surface.displayName,
+            ),
+        )
+        HorizontalGap(12.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton(text = stringResource(R.string.inspector_step_start), onClick = onStart)
+            TextButton(text = stringResource(R.string.action_cancel), onClick = onCancel)
+        }
+    }
+}
+
+/** One dump row; expanding it shows the enabled rules that match its exported nodes. */
+@Composable
+private fun DumpRow(
+    dump: DumpFile,
+    expanded: Boolean,
+    rules: List<Rule>,
+    onToggle: () -> Unit,
+    onShare: () -> Unit,
+) {
+    val document = dump.document
+    val surfaceLabel = when {
+        document.surfaceVerified -> CaptureSurfaces.displayName(document.surface ?: document.screen)
+        else -> stringResource(R.string.inspector_unknown_surface_empty)
+    }
+    ListRow(
+        title = surfaceLabel,
+        subtitle = stringResource(
+            R.string.inspector_dump_subtitle,
+            document.appPackage,
+            document.capturedAt,
+        ),
+        value = stringResource(R.string.inspector_nodes_count, dump.nodeCount),
+        chevron = true,
+        onClick = onToggle,
+    )
+    if (!expanded) return
+
+    val unknownText = if (document.markersSeen.isEmpty()) {
+        stringResource(R.string.inspector_unknown_surface_empty)
+    } else {
+        stringResource(R.string.inspector_unknown_surface, document.markersSeen.joinToString(", "))
+    }
+    SectionCard {
+        Text(
+            text = if (document.surfaceVerified) {
+                stringResource(R.string.inspector_verified_surface) + " · " + document.surface
+            } else {
+                unknownText
+            },
+            color = if (document.surfaceVerified) FsColors.Success else FsColors.Warning,
+        )
+        HorizontalGap(8.dp)
+        val matches = remember(document, rules) {
+            DumpAnalysis.matches(document.nodes, rules, document.appPackage)
+        }
+        Text(
+            text = stringResource(R.string.inspector_analysis),
+            color = FsColors.TextSecondary,
+        )
+        if (matches.isEmpty()) {
+            HorizontalGap(4.dp)
+            Caption(stringResource(R.string.inspector_no_rule_match))
+        } else {
+            matches.forEach { match ->
+                HorizontalGap(8.dp)
+                Text(text = "${match.rule.id} · ${match.rule.surface}", color = FsColors.TextPrimary)
+                match.anchors.forEach { anchor -> Caption(anchor) }
+            }
+        }
+        HorizontalGap(10.dp)
+        TextButton(
+            text = stringResource(R.string.inspector_dump_share),
+            onClick = onShare,
+        )
+    }
+}
+
+@Composable
+private fun RulesSection(
+    rules: List<Rule>,
+    source: RuleOverride.Source,
+    error: String?,
+    overridePath: String,
+) {
+    val sourceText = when (source) {
+        RuleOverride.Source.OVERRIDE ->
+            stringResource(R.string.inspector_rules_source_override, RuleOverride.FILE_NAME)
+        RuleOverride.Source.ASSETS -> stringResource(R.string.inspector_rules_source_assets)
+    }
+    Caption(sourceText)
+    Caption(stringResource(R.string.inspector_override_path, overridePath))
+    if (error != null) {
+        HorizontalGap(8.dp)
+        InfoBanner(text = stringResource(R.string.inspector_override_error, error))
+    }
+    rules.forEach { rule ->
+        HorizontalGap(8.dp)
+        SectionCard {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = rule.id, color = FsColors.TextPrimary)
+                    val target = AppTarget.entries.firstOrNull { it.packageName == rule.appPackage }
+                    Caption(
+                        (target?.let { stringResource(it.nameRes) } ?: rule.appPackage) +
+                            " · " + rule.surface,
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        if (rule.enabled) R.string.inspector_rule_enabled else R.string.inspector_rule_disabled,
+                    ),
+                    color = if (rule.enabled) FsColors.Success else FsColors.TextTertiary,
+                )
+            }
+            HorizontalGap(4.dp)
+            Caption(
+                RuleProvenance.versionFor(rule)?.let {
+                    stringResource(R.string.inspector_last_verified, it)
+                } ?: stringResource(R.string.inspector_not_verified),
+            )
+        }
+    }
+}
+
+private fun notificationsRequested(context: Context): Boolean =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NOTIF_ASKED, false)
+
+private fun markNotificationsRequested(context: Context) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_NOTIF_ASKED, true)
+        .apply()
+}
+
+private fun shareDump(context: Context, file: DumpFile) {
     val text = try {
-        dump.file.readText()
+        file.file.readText()
     } catch (t: Throwable) {
-        Log.w(TAG, "cannot read dump ${dump.file.name}", t)
+        Log.w(TAG, "cannot read dump ${file.file.name}", t)
         return
     }
     val chooser = Intent.createChooser(
-        DumpExporter.shareIntent(dump.document, text),
+        DumpExporter.shareIntent(file.document, text),
         context.getString(R.string.inspector_dump_share),
     )
     try {
         context.startActivity(chooser)
     } catch (_: ActivityNotFoundException) {
         // A headless dev image may have no share target; the file is still written.
-    }
-}
-
-/** The primary circular dump FAB: arms one capture, then turns green while armed. */
-@Composable
-private fun DumpButton(armed: Boolean, onClick: () -> Unit) {
-    val description = stringResource(if (armed) R.string.inspector_dump_armed else R.string.inspector_dump)
-    Box(
-        modifier = Modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(if (armed) FsColors.Success else FsColors.Primary)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = if (armed) "…" else "↓",
-            fontSize = 22.sp,
-            color = FsColors.OnPrimary,
-        )
     }
 }

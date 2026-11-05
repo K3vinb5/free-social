@@ -2,6 +2,7 @@ package dev.k3vinb5.freesocial.filter
 
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -77,5 +78,50 @@ class DumpExporterTest {
         assertTrue("the pt-PT shelf string the engine matched on", json.contains("– reproduzir Short"))
         assertTrue("the container id is in the dump", json.contains(resultsId))
         assertTrue("per-window stats stay in the header", json.contains("\"windows\""))
+    }
+
+    @Test
+    fun `a verified capture records the surface id and an unverified one records what was seen`() {
+        val tree = NodeTreeBuilder.build(
+            listOf(
+                FakeNode(
+                    viewId = "com.google.android.youtube:id/browse_fragment_layout_coordinator_layout",
+                    kids = listOf(FakeNode(contentDescription = "Início")),
+                ),
+            ),
+        ).root
+        val markers = listOf(
+            dev.k3vinb5.freesocial.core.MatchSpec(
+                viewId = "com.google.android.youtube:id/browse_fragment_layout_coordinator_layout",
+            ),
+        )
+
+        val verified = CaptureSurfaces.verify("home", markers, NodeTree.flatten(tree))
+        val ok = DumpExporter.document(
+            appPackage = YT,
+            screen = "Home feed",
+            tree = tree,
+            verdict = verified,
+        )
+        assertTrue(ok.surfaceVerified)
+        assertEquals("home", ok.surface)
+        assertEquals("home", ok.screen)
+        assertTrue(ok.markersSeen.isEmpty())
+
+        val reelsTree = NodeTreeBuilder.build(
+            listOf(FakeNode(viewId = "$IG:id/clips_viewer_view_pager")),
+        ).root
+        val unknown = CaptureSurfaces.verify("home", markers, NodeTree.flatten(reelsTree))
+        val bad = DumpExporter.document(
+            appPackage = YT,
+            screen = "Home feed",
+            tree = reelsTree,
+            verdict = unknown,
+        )
+        assertFalse(bad.surfaceVerified)
+        assertEquals(null, bad.surface)
+        assertEquals(CaptureSurfaces.UNKNOWN_SURFACE, bad.screen)
+        assertTrue(bad.markersSeen.contains("viewId=$IG:id/clips_viewer_view_pager"))
+        assertTrue(DumpExporter.encode(bad).contains("\"surfaceVerified\": false"))
     }
 }

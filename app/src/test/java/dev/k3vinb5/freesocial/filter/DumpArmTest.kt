@@ -78,4 +78,30 @@ class DumpArmTest {
         // A graft small enough to stay under the limit is real content, not a ghost.
         assertFalse(DumpArm.looksGhost(nodeCount = 4, grafts = 1))
     }
+
+    @Test
+    fun `a guided arm covers detection and recording and the service never consumes it`() {
+        DumpArm.armGuided("shorts_player", now = 1_000)
+
+        // 30 s detection + 15 s recording fit, and past the old 60 s window filtering stays paused.
+        assertTrue(DumpArm.isArmed(1_000 + 61_000))
+        assertTrue(DumpArm.isGuided(1_000 + 61_000))
+        // The service must not capture on its own: the guided session verifies the surface first.
+        assertFalse(DumpArm.readyFor(YT, YT))
+        assertFalse(DumpArm.readyFor(YT, null))
+
+        // Phase change refreshes the window.
+        DumpArm.refreshGuided(now = 70_000)
+        assertTrue(DumpArm.isArmed(70_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
+        assertFalse(DumpArm.isArmed(70_000 + DumpArm.GUIDED_EXPIRY_MS))
+    }
+
+    @Test
+    fun `cancel ends a guided arm and restores normal readiness`() {
+        DumpArm.armGuided("home", now = 0)
+        DumpArm.cancel()
+
+        assertFalse(DumpArm.isGuided(0))
+        assertTrue(DumpArm.readyFor(YT, YT))
+    }
 }
