@@ -42,6 +42,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Keep the schedule boundary alarm armed (SPEC §2.3): any settings change is
+        // followed by a resume within a second, so this is the reliable v1 wiring point.
+        dev.k3vinb5.freesocial.block.ScheduleAlarmScheduler.scheduleNow(this)
+    }
 }
 
 /**

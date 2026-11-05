@@ -136,6 +136,8 @@
     <string name="block_go_home">Go home</string>
     <string name="block_caption">Blocked by Free Social</string>
     <string name="block_app_fallback">This app</string>
+    <string name="block_reason_schedule">Sleep mode is active — go to bed.</string>
+    <string name="block_reason_app">This app is blocked by Free Social.</string>
 
     <!-- Rule inspector (F14) -->
     <string name="inspector_captured">Captured screens</string>
@@ -154,4 +156,9 @@
     <string name="filter_service_label">Content filtering</string>
     <string name="filter_service_summary">Hides reels and Shorts in Instagram, YouTube and TikTok</string>
     <string name="filter_service_description">Reads the screen of Instagram, YouTube and TikTok only to find reels, Shorts and short-video surfaces, then leaves them. Nothing leaves your phone.</string>
+
+    <!-- Block service (accessibility, opt-in) -->
+    <string name="block_service_label">Whole-app blocking</string>
+    <string name="block_service_summary">Blocks Instagram, YouTube and TikTok entirely while their mode is Block</string>
+    <string name="block_service_description">Watches which app comes to the front and shows the block screen for apps you set to Block, and during your nightly lock window. It reads package names only, never screen content.</string>
 </resources>
