@@ -90,8 +90,36 @@ interface NodeSource {
     fun child(index: Int): NodeSource?
 }
 
-/** The result of one capture: the (synthetic) root plus the live order matching [NodeSnapshot.index]. */
-class NodeTreeCapture(val root: NodeSnapshot, val live: List<NodeSource>)
+/** One window handed to the capture walk, with the metadata the dump header reports (D6). */
+data class WindowSource(
+    val node: NodeSource,
+    val title: String? = null,
+    val className: String? = null,
+    val layer: Int = 0,
+    val packageName: String? = null,
+)
+
+/** Per-window capture stats: what the armed dump writes into its JSON header (D6). */
+data class WindowStat(
+    val title: String? = null,
+    val className: String? = null,
+    val layer: Int = 0,
+    val packageName: String? = null,
+    val nodes: Int = 0,
+    val viewIds: Int = 0,
+)
+
+/**
+ * The result of one capture: the (synthetic) root plus the live order matching [NodeSnapshot.index].
+ * [windows] are per-window stats in capture order (top-most first); [capped] is true when the
+ * 400-node budget cut the walk short.
+ */
+class NodeTreeCapture(
+    val root: NodeSnapshot,
+    val live: List<NodeSource>,
+    val windows: List<WindowStat> = emptyList(),
+    val capped: Boolean = false,
+)
 
 /**
  * Builds one [NodeSnapshot] tree from **all** windows of the foreground package (defect D2b).
@@ -112,20 +140,46 @@ object NodeTreeBuilder {
         val bounds: Bounds,
     )
 
-    fun build(windows: List<NodeSource>, cap: Int = NodeTree.MAX_SCAN_NODES): NodeTreeCapture {
+    fun build(windows: List<NodeSource>, cap: Int = NodeTree.MAX_SCAN_NODES): NodeTreeCapture =
+        buildWindows(windows.map { WindowSource(it) }, cap)
+
+    /**
+     * Aggregates [windows] top-most first (higher `layer` wins; the order is stable so callers may
+     * hand in `getWindows()`'s z-order unchanged). Nodes with a null viewId are valid and kept: only
+     * the walk cap ever drops a node.
+     */
+    fun buildWindows(windows: List<WindowSource>, cap: Int = NodeTree.MAX_SCAN_NODES): NodeTreeCapture {
         if (windows.isEmpty() || cap <= 0) {
             return NodeTreeCapture(NodeSnapshot(visible = false, index = -1), emptyList())
         }
+        val ordered = windows.sortedByDescending { it.layer }
         val live = ArrayList<NodeSource>(minOf(cap, 64))
         val seen = HashSet<NodeKey>()
-        val children = ArrayList<NodeSnapshot>(windows.size)
-        for (window in windows) {
-            if (live.size >= cap) break
-            snapshot(window, live, seen, cap, 0)?.let(children::add)
+        val stats = ArrayList<WindowStat>(ordered.size)
+        val children = ArrayList<NodeSnapshot>(ordered.size)
+        val capped = booleanArrayOf(false)
+        for (window in ordered) {
+            if (live.size >= cap) {
+                capped[0] = true
+                break
+            }
+            val before = live.size
+            snapshot(window.node, live, seen, cap, 0, capped)?.let(children::add)
+            val slice = live.subList(before, live.size)
+            stats += WindowStat(
+                title = window.title,
+                className = window.className ?: window.node.className,
+                layer = window.layer,
+                packageName = window.packageName,
+                nodes = slice.size,
+                viewIds = slice.count { it.viewId != null },
+            )
         }
         return NodeTreeCapture(
-            NodeSnapshot(bounds = union(windows), visible = false, index = -1, children = children),
+            NodeSnapshot(bounds = union(ordered.map { it.node }), visible = false, index = -1, children = children),
             live,
+            stats,
+            capped[0],
         )
     }
 
@@ -135,8 +189,13 @@ object NodeTreeBuilder {
         seen: MutableSet<NodeKey>,
         cap: Int,
         depth: Int,
+        capped: BooleanArray,
     ): NodeSnapshot? {
-        if (out.size >= cap || depth > MAX_DEPTH) return null
+        if (out.size >= cap) {
+            capped[0] = true
+            return null
+        }
+        if (depth > MAX_DEPTH) return null
         val key = NodeKey(
             viewId = source.viewId,
             className = source.className,
@@ -152,9 +211,12 @@ object NodeTreeBuilder {
         val children = ArrayList<NodeSnapshot>(source.childCount)
         if (depth < MAX_DEPTH) {
             for (i in 0 until source.childCount) {
-                if (out.size >= cap) break
+                if (out.size >= cap) {
+                    capped[0] = true
+                    break
+                }
                 val child = source.child(i) ?: continue
-                snapshot(child, out, seen, cap, depth + 1)?.let(children::add)
+                snapshot(child, out, seen, cap, depth + 1, capped)?.let(children::add)
             }
         }
 

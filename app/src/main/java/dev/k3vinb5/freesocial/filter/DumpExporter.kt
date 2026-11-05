@@ -22,12 +22,27 @@ data class DumpNode(
     val clickable: Boolean = false,
 )
 
-/** The rule-inspector export (SPEC §2.5). */
+/** Per-window capture stats written into the dump header (D6). */
+@Serializable
+data class DumpWindow(
+    val title: String? = null,
+    val className: String? = null,
+    val layer: Int = 0,
+    val packageName: String? = null,
+    val nodes: Int = 0,
+    val viewIds: Int = 0,
+)
+
+/** The rule-inspector export (SPEC §2.5). Header stats make an empty/ID-stripped dump obvious. */
 @Serializable
 data class DumpDocument(
     @SerialName("package") val appPackage: String,
     val screen: String,
     val capturedAt: String,
+    val windows: List<DumpWindow> = emptyList(),
+    val nodeCount: Int = 0,
+    val nodesWithViewId: Int = 0,
+    val truncated: Boolean = false,
     val nodes: List<DumpNode> = emptyList(),
 )
 
@@ -68,10 +83,25 @@ object DumpExporter {
         screen: String,
         tree: NodeSnapshot,
         now: ZonedDateTime = ZonedDateTime.now(),
+        windowStats: List<WindowStat> = emptyList(),
+        capped: Boolean = false,
     ): DumpDocument = DumpDocument(
         appPackage = appPackage,
         screen = screen,
         capturedAt = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        windows = windowStats.map { window ->
+            DumpWindow(
+                title = window.title,
+                className = window.className,
+                layer = window.layer,
+                packageName = window.packageName,
+                nodes = window.nodes,
+                viewIds = window.viewIds,
+            )
+        },
+        nodeCount = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).size,
+        nodesWithViewId = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).count { it.viewId != null },
+        truncated = capped,
         nodes = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).map { node ->
             DumpNode(
                 viewId = node.viewId,
@@ -92,8 +122,10 @@ object DumpExporter {
         screen: String,
         tree: NodeSnapshot,
         now: ZonedDateTime = ZonedDateTime.now(),
+        windowStats: List<WindowStat> = emptyList(),
+        capped: Boolean = false,
     ): DumpResult {
-        val doc = document(appPackage, screen, tree, now)
+        val doc = document(appPackage, screen, tree, now, windowStats, capped)
         val text = json.encodeToString(DumpDocument.serializer(), doc)
         val file = try {
             writeFile(context, appPackage, text, now)
