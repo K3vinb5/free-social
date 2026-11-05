@@ -29,6 +29,22 @@ App versions captured: Instagram **454.0.0.54.77**, YouTube **21.43.523**, TikTo
 
 Secondary (earlier, still clean) evidence: `165537-ig_feed`, `170110-yt_home`, `170126-yt_shorts`.
 
+### Locale capture — Reno4 `CPH2195` (2026-11-05, pt-PT)
+
+The Reno4 test phone (`192.168.50.20:37161`, `persist.sys.locale=pt-PT`) runs the same YouTube
+21.43.523 with a Portuguese UI: every shelf card is described `"<title> – reproduzir Short"`
+(en dash **U+2013**, not a hyphen) and the shelf header is still `"Shorts"` (product name).
+
+| label | what it proves |
+| --- | --- |
+| `reverse/runtime-reno/pt-yt-home3.xml` (+ `.png`) | YT Home, Shorts shelf on screen: header `content-desc="Shorts"` `ViewGroup` `[192,443][353,509]` and four card `ViewGroup`s ending ` – reproduzir Short` (e.g. `Mac mini M6: is 32GB enough to run local AI? – reproduzir Short`). |
+| `reverse/runtime-reno/pt-yt-home.xml` | Same device, Home feed above the shelf — ordinary card `"… – reproduzir vídeo"` only, no `Short` string (negative control: `reproduzir vídeo` is not a Short). |
+| `reverse/runtime-reno/pt-yt-home2.xml` | Same device, mid-feed watch page after an accidental tap — no shelf, no Short string; not used. |
+
+The pt-PT UI string is what the dump proves; the same wording (`reproduzir Short`) is what the
+rule authors for pt-BR too, but **no pt-BR dump exists yet**, so pt-BR itself stays `UNVERIFIED`
+by dump — the branch is authored from, and cited to, the pt-PT file above.
+
 **Tainted, not used:** `2312*`, `2314*`, `2316*` (`ig_feed2` / `ig_feed2b`, killed session, human
 was using the phone mid-capture). Deleted at the end of this run.
 
@@ -40,14 +56,15 @@ was using the phone mid-capture). Deleted at the end of this run.
 | `ig_reels_tab` | `reels_tab` (1) | `233005`, `233528`, `234011` | `id/clips_tab`, content-desc `Reels`, class `FrameLayout`, `selected: true` | Instagram 454.0.0.54.77 | TAP_HOME_TAB |
 | `ig_clips_viewer` | `clips_viewer` (2) | `233528` (full tree captured while the viewer played) | `id/clips_viewer_view_pager` + class `androidx.viewpager.widget.ViewPager` | Instagram 454.0.0.54.77 | BACK |
 | `ig_dm_carve_out` | `dm_carve_out` (2) | `234329` (+ `234011`) | `id/row_thread_composer_edittext` + class `EditText` | Instagram 454.0.0.54.77 | SKIP |
-| `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` | content-desc `^Shorts$` / `- play Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
+| `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` (en-US), `pt-yt-home3` (pt-PT) | content-desc `^Shorts$` / `- play Short$` / ` – reproduzir Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
 | `yt_shorts_player` | `shorts_player` (2) | `234810` | `id/reel_recycler` + class `android.support.v7.widget.RecyclerView` | YouTube 21.43.523 | BACK |
 | `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative) | content-desc FYP chrome (`For You`, `Like video.`, `Read or add comments`, `Share video.`, favourites) **and** class `TextureView`/`SurfaceView`/`VideoView` | TikTok 47.6.3 | BACK |
 | `tiktok_dm_carve_out` | `dm_carve_out` (2) | `001928` (DM video) + `001335` (thread) | `id/udm` + class `android.widget.Button` ("Message <name>...") | TikTok 47.6.3 | SKIP |
 
 All eight surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
-in this revision). Rules are version-stamped; a mismatch with the installed app should be surfaced
-in the UI as "rules last verified against …" (SPEC §2.5).
+in this revision). Locale coverage is partial: only the YouTube shelf has a non-English dump
+(pt-PT, see *Locale variants*); IG and TikTok are EN-only. Rules are version-stamped; a mismatch
+with the installed app should be surfaced in the UI as "rules last verified against …" (SPEC §2.5).
 
 ## Anchor sweep — persistent chrome only (defect D2a)
 
@@ -63,10 +80,49 @@ is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
 | `ig_reels_tab` | `id/clips_tab` + `selected:true` | **Yes** — the bottom-nav tab never hides; `selected` is true only while the Reels screen is up (`233528` vs `233005`/`234011`), so it also cannot match on the feed. |
 | `ig_clips_viewer` | `id/clips_viewer_view_pager` | **Yes** — the viewer's own pager container, present for as long as the viewer is open (`233528`); it is a container, not a control. |
 | `ig_dm_carve_out` | `id/row_thread_composer_edittext` | **Yes** — the thread composer is thread chrome, present for the whole thread (`234329`); it is what keeps shared reels in a DM usable. |
-| `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
+| `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` / ` – reproduzir Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
 | `yt_shorts_player` | `id/reel_recycler` | **Yes** — the Shorts player's pager container (`234810`), present for as long as the player is. |
 | `tiktok_playback` | FYP chrome content-descs + `TextureView`/`SurfaceView`/`VideoView` class | **Yes** — the "For You" tab and the right-rail buttons are on screen during playback, and the video surface only exists while a video plays. The old `video_seek_bar` anchor was `isVisibleToUser=false` during playback (D2a). |
 | `tiktok_dm_carve_out` | `id/udm` + class `Button` | **Yes** — the in-thread composer button is DM chrome, not a player control (`001928`, `001335`); re-verify it on every TikTok update, like every TikTok id. |
+
+## Locale variants
+
+The engine's capture is locale-blind: only the match strings are English, so a Portuguese device
+matched nothing (`matched=0`, `grafted=1` — defect D8 round 2). The model needs **no schema
+change** for this: `contentDescriptionRegex` / `textRegex` are regexes and the matcher evaluates
+them with `containsMatchIn`, so a top-level alternation is already an "any of these strings"
+criterion. `RuleLookup.literalQueries` also already splits top-level alternation into one
+`findAccessibilityNodeInfosByText` query per branch, so every locale alternate is graftable —
+proven by `TextGraftCaptureTest` and the new `YouTubeShelfLocaleTest`.
+
+Rule: a locale string is authored **only** if it appears in a dump; otherwise the rule stays
+EN-only and is recorded here as unverified. `schemaVersion` stays 1.
+
+### `yt_shorts_shelf`
+
+| locale | string (verbatim) | dump | what it matched |
+| --- | --- | --- | --- |
+| en-US | ` - play Short` (suffix) | `234610-yt_home.xml` | shelf card `ViewGroup`, e.g. `The smartest girl in the US! - play Short` |
+| en-US | `Shorts` (whole desc) | `234610-yt_home.xml` | shelf header `ViewGroup` `[169,1380][310,1438]` |
+| pt (pt-PT device) | ` – reproduzir Short` (suffix, U+2013 en dash) | `reverse/runtime-reno/pt-yt-home3.xml` | shelf card `ViewGroup`, e.g. `Mac mini M6: is 32GB enough to run local AI? – reproduzir Short`; all four cards on screen end this way |
+| pt (pt-PT device) | `Shorts` (whole desc) | `reverse/runtime-reno/pt-yt-home3.xml` | shelf header `ViewGroup` `[192,443][353,509]` — unchanged, product name |
+
+Not authored: pt-BR as distinct from pt-PT (no pt-BR dump yet — the pt branch is cited to the
+pt-PT file), and any locale where the separator is a hyphen (`- reproduzir Short`) — never seen.
+`pt-yt-home.xml` shows the ordinary card text `… – reproduzir vídeo`, which the rule correctly
+does not match; `YouTubeShelfLocaleTest` keeps that negative.
+
+### `yt_shorts_player`
+
+No locale strings to author: the rule is keyed on `id/reel_recycler` + `RecyclerView`, which are
+identical in every locale. No text criterion, so nothing to translate.
+
+### Instagram / TikTok
+
+**Out of scope / unverified.** Every IG and TikTok rule in `tiktok_playback` that carries English
+accessibility chrome (`For You`, `Like video.`, `Reels`, …) has the same hole on a Portuguese
+device, but no pt dump exists for either app yet, so no alternate is authored. Capture their pt
+dumps first, then add branches the same way (alternation, one dump citation per string).
 
 ## Deliberate deviations and schema gaps
 
@@ -123,9 +179,12 @@ is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
    item 4 removes the observable loophole.
 6. **YouTube exposes almost no view-ids in the feed.** In 21.43.523 `reel_recycler` exists only in
    the Shorts *player*; the Home shelf and the bottom nav come through with **empty** resource-ids.
-   `yt_shorts_shelf` is therefore keyed on English accessibility text and `ViewGroup` (the nav
+   `yt_shorts_shelf` is therefore keyed on accessibility text and `ViewGroup` (the nav
    entry is a `Button`, so the class filter separates them). Locale-fragile by nature — the device
-   UI language at capture time was English.
+   UI language at capture time was English. **Locale gap partly closed**: the shelf rule now carries
+   the observed pt branch ` – reproduzir short$` alongside the EN ones (see *Locale variants*); the
+   schema needed nothing new because regex alternation plus `RuleLookup.literalQueries` already
+   express and graft alternates.
 7. **`shorts_player_container` is dead.** The id listed in `03c` (`f3346s0`) does not appear in
    21.43.523; the rule uses `reel_recycler`, which does.
 8. **RESOLVED — TikTok playback keyed on a hidden player control (defect D2a).**

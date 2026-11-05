@@ -55,8 +55,8 @@ class TextGraftCaptureTest {
         }
     }
 
-    /** The shipped YouTube shelf rule, verbatim. */
-    private val shortsDescRegex = "(?i)(^shorts$| - play short$)"
+    /** The shipped YouTube shelf rule, verbatim (EN + pt locale alternates). */
+    private val shortsDescRegex = "(?i)(^shorts$| - play short$| – reproduzir short$)"
 
     /** Ghost window: root -> [navigationBarBackground, empty android:id/content]. */
     private fun prunedWindow(): Pair<FakeNode, FakeNode> {
@@ -68,8 +68,11 @@ class TextGraftCaptureTest {
 
     @Test
     fun `literal queries are derived from the shipped text and description rules`() {
-        // YouTube Shorts shelf: two alternative descriptions, both literal.
-        assertEquals(listOf("shorts", "- play short"), RuleLookup.literalQueries(shortsDescRegex))
+        // YouTube Shorts shelf: three alternative descriptions (EN header/card + pt card), all literal.
+        assertEquals(
+            listOf("shorts", "- play short", "– reproduzir short"),
+            RuleLookup.literalQueries(shortsDescRegex),
+        )
         // TikTok playback chrome: five alternatives, two with an escaped dot.
         assertEquals(
             listOf(
@@ -117,8 +120,11 @@ class TextGraftCaptureTest {
         )
         val matcher = RuleSetMatcher(rules)
 
-        // The view-id rule contributes nothing here; the text rule contributes both branches.
-        assertEquals(listOf("shorts", "- play short"), matcher.lookupTexts(AppTarget.YOUTUBE, YT))
+        // The view-id rule contributes nothing here; the text rule contributes all three branches.
+        assertEquals(
+            listOf("shorts", "- play short", "– reproduzir short"),
+            matcher.lookupTexts(AppTarget.YOUTUBE, YT),
+        )
         // Unrelated package: nothing to look up.
         assertTrue(matcher.lookupTexts(AppTarget.INSTAGRAM, IG).isEmpty())
     }

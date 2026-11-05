@@ -61,11 +61,11 @@
       "surface": "shorts_shelf",
       "layer": 1,
       "match": {
-        "contentDescriptionRegex": "(?i)(^shorts$| - play short$)",
+        "contentDescriptionRegex": "(?i)(^shorts$| - play short$| – reproduzir short$)",
         "classNameRegex": "android\\.view\\.ViewGroup"
       },
       "action": "SCROLL_PAST",
-      "notes": "YT Shorts shelf on the Home feed. YouTube 21.43.523 exposes NO resource-ids on the shelf or the bottom nav (reel_recycler only exists in the player), so the shelf is matched on accessibility text: the shelf header ViewGroup content-desc \"Shorts\" and each shelf card ViewGroup content-desc \"<title> - play Short\" (234610-yt_home). The bottom-nav Shorts entry is a Button, excluded by classNameRegex. The action swipes the shelf out of view in place instead of leaving the app, which also keeps the layer-2 Shorts player reachable from a deep link (runtime report scenario 5). English-locale strings — see docs/rules/RULES.md.",
+      "notes": "YT Shorts shelf on the Home feed. YouTube 21.43.523 exposes NO resource-ids on the shelf or the bottom nav (reel_recycler only exists in the player), so the shelf is matched on accessibility text: the shelf header ViewGroup content-desc \"Shorts\" and each shelf card ViewGroup content-desc \"<title> - play Short\" (234610-yt_home, en-US). Locale variants are alternate branches of the same regex — EN \" - play Short\" and pt \" – reproduzir Short\" (en dash, pt-yt-home3 on the Reno4, locale pt-PT); the header stays \"Shorts\" in both. RuleLookup already splits top-level alternation into literal queries, so no schema change. The bottom-nav Shorts entry is a Button, excluded by classNameRegex. The action swipes the shelf out of view in place instead of leaving the app, which also keeps the layer-2 Shorts player reachable from a deep link (runtime report scenario 5). IG/TikTok PT variants are unauthored (no dump yet) — see docs/rules/RULES.md.",
       "verifiedAgainstAppVersion": "YouTube 21.43.523"
     },
     {
