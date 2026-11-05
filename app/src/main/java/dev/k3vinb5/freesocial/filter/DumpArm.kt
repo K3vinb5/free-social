@@ -48,6 +48,31 @@ object DumpArm {
         return label
     }
 
+    /**
+     * True when the active window belongs to [target], i.e. the capture would read the target app.
+     *
+     * A launch's `TYPE_WINDOW_STATE_CHANGED` can reach the service while the *previous* app's
+     * window is still the active root (Wave A A5 and Wave A retry R4 both captured a 4-node decor
+     * tree labelled "YouTube" because of it). The arm must stay armed in that case and be consumed
+     * by the next state change, once the target window is really up. An unreadable root
+     * (`activePackage == null`) does not block the capture — the dump then reports the ghost tree
+     * it actually saw.
+     */
+    fun readyFor(target: String, activePackage: String?): Boolean =
+        activePackage == null || activePackage == target
+
+    /**
+     * True when a capture is still the decor-only ghost tree (Wave A A5: 4 nodes, 1 view id, no
+     * grafts) even though the target window is already active. The arm is then kept and the
+     * capture retried for a short bounded window, so the inspector shows the same content the
+     * scan sees a moment later instead of the launch transition.
+     */
+    fun looksGhost(nodeCount: Int, grafts: Int): Boolean =
+        grafts == 0 && nodeCount <= GHOST_NODE_LIMIT
+
+    /** The observed ghost is 4 nodes (synthetic root + 3 decor); real YouTube content is 40+. */
+    const val GHOST_NODE_LIMIT = 4
+
     /** Disarms without capturing (expiry handling in the UI, or an explicit cancel). */
     @Synchronized
     fun cancel() {

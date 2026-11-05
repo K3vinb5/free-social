@@ -52,7 +52,9 @@ object NodeTreeReader {
      * D8 layer (b): [viewIdLookups] are queried with `findAccessibilityNodeInfosByViewId` on each
      * window root and the returned nodes are grafted into the snapshot. Only ids the rules (or the
      * engine's known ids) declare are queried — unknown ids cannot be enumerated — so this is the
-     * guaranteed fallback when the framework hands us pruned child links.
+     * guaranteed fallback when the framework hands us pruned child links. Ids in [subtreeLookups]
+     * (the [CaptureAnchors] containers, R1) additionally walk their children, because the matched
+     * nodes below them carry no id at all.
      *
      * D8 layer (c): [textLookups] are the literal text/description strings derived from the
      * applicable rules ([RuleLookup]) and queried with `findAccessibilityNodeInfosByText` on the
@@ -66,6 +68,7 @@ object NodeTreeReader {
         cap: Int = NodeTree.MAX_SCAN_NODES,
         viewIdLookups: List<String> = emptyList(),
         textLookups: List<String> = emptyList(),
+        subtreeLookups: List<String> = emptyList(),
     ): CapturedTree {
         val sources = windows.map { window ->
             WindowSource(
@@ -79,7 +82,8 @@ object NodeTreeReader {
         val built = NodeTreeBuilder.buildWindows(sources, cap)
         val grafts = if (viewIdLookups.isEmpty() && textLookups.isEmpty()) emptyList()
         else {
-            lookupGrafts(windows, viewIdLookups, cap) + textGrafts(windows, textLookups, cap)
+            lookupGrafts(windows, viewIdLookups, subtreeLookups.toSet(), cap) +
+                textGrafts(windows, textLookups, cap)
         }
         val capture = if (grafts.isEmpty()) built else NodeTreeBuilder.graft(built, grafts, cap)
         val live = capture.live.map { (it as AndroidNodeSource).info }
@@ -91,7 +95,12 @@ object NodeTreeReader {
      * window root. De-duplication (a node reachable both via links and lookup) happens in
      * [NodeTreeBuilder.graft]; the lookup itself is bounded by [cap].
      */
-    private fun lookupGrafts(windows: List<WindowRoot>, ids: List<String>, cap: Int): List<GraftNode> {
+    private fun lookupGrafts(
+        windows: List<WindowRoot>,
+        ids: List<String>,
+        subtreeIds: Set<String>,
+        cap: Int,
+    ): List<GraftNode> {
         val out = ArrayList<GraftNode>()
         for (window in windows) {
             for (id in ids) {
@@ -104,7 +113,7 @@ object NodeTreeReader {
                     if (out.size >= cap) return out
                     val expected = window.packageName
                     if (expected != null && info.packageName?.toString() != expected) continue
-                    out += GraftNode(AndroidNodeSource(info), id)
+                    out += GraftNode(AndroidNodeSource(info), id, subtree = id in subtreeIds)
                 }
             }
         }

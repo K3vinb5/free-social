@@ -58,4 +58,24 @@ class DumpArmTest {
         DumpArm.cancel()
         assertFalse(DumpArm.isArmed(5_000))
     }
+
+    @Test
+    fun `a launch transition keeps the arm armed until the target window is active`() {
+        // The event says YouTube, but the active root is still Free Social: capturing would write
+        // that app's decor tree labelled "YT · shorts player" (Wave A retry R4).
+        assertFalse(DumpArm.readyFor(YT, "dev.k3vinb5.freesocial"))
+        assertTrue(DumpArm.readyFor(YT, YT))
+        // An unreadable root must not block: the dump reports the ghost tree it actually saw.
+        assertTrue(DumpArm.readyFor(YT, null))
+    }
+
+    @Test
+    fun `a decor-only capture is recognised as a ghost and retried`() {
+        // Wave A A5 / retry R4: 4 nodes, 1 view id, no grafts, labelled as the target app.
+        assertTrue(DumpArm.looksGhost(nodeCount = 4, grafts = 0))
+        // The scan path on the same window a moment later: real content.
+        assertFalse(DumpArm.looksGhost(nodeCount = 44, grafts = 40))
+        // A graft small enough to stay under the limit is real content, not a ghost.
+        assertFalse(DumpArm.looksGhost(nodeCount = 4, grafts = 1))
+    }
 }

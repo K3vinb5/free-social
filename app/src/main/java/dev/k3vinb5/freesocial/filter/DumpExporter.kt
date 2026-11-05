@@ -20,6 +20,8 @@ data class DumpNode(
     val bounds: String = "",
     val visible: Boolean = false,
     val clickable: Boolean = false,
+    /** D8: true when the node was reached by a lookup graft, not by the child walk. */
+    val grafted: Boolean = false,
 )
 
 /** Per-window capture stats written into the dump header (D6). */
@@ -42,6 +44,8 @@ data class DumpDocument(
     val windows: List<DumpWindow> = emptyList(),
     val nodeCount: Int = 0,
     val nodesWithViewId: Int = 0,
+    /** D8: nodes recovered by the id/text lookup grafts (same number as the scan's `grafted=`). */
+    val grafted: Int = 0,
     val truncated: Boolean = false,
     val nodes: List<DumpNode> = emptyList(),
 )
@@ -85,6 +89,7 @@ object DumpExporter {
         now: ZonedDateTime = ZonedDateTime.now(),
         windowStats: List<WindowStat> = emptyList(),
         capped: Boolean = false,
+        grafted: Int = 0,
     ): DumpDocument = DumpDocument(
         appPackage = appPackage,
         screen = screen,
@@ -101,6 +106,7 @@ object DumpExporter {
         },
         nodeCount = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).size,
         nodesWithViewId = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).count { it.viewId != null },
+        grafted = grafted,
         truncated = capped,
         nodes = NodeTree.flatten(tree, NodeTree.MAX_SCAN_NODES).map { node ->
             DumpNode(
@@ -111,9 +117,13 @@ object DumpExporter {
                 bounds = boundsText(node.bounds),
                 visible = node.visible,
                 clickable = node.clickable,
+                grafted = node.grafted,
             )
         },
     )
+
+    /** The exact JSON text written to disk / shown in the inspector (pure serialization). */
+    fun encode(document: DumpDocument): String = json.encodeToString(DumpDocument.serializer(), document)
 
     /** Writes [tree] to the dumps directory; the file is null when the write failed. */
     fun export(
@@ -124,9 +134,10 @@ object DumpExporter {
         now: ZonedDateTime = ZonedDateTime.now(),
         windowStats: List<WindowStat> = emptyList(),
         capped: Boolean = false,
+        grafted: Int = 0,
     ): DumpResult {
-        val doc = document(appPackage, screen, tree, now, windowStats, capped)
-        val text = json.encodeToString(DumpDocument.serializer(), doc)
+        val doc = document(appPackage, screen, tree, now, windowStats, capped, grafted)
+        val text = encode(doc)
         val file = try {
             writeFile(context, appPackage, text, now)
         } catch (t: Throwable) {
