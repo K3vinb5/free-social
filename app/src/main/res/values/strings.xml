@@ -150,6 +150,7 @@
     <string name="inspector_markers">%1$d surface markers</string>
     <string name="inspector_no_markers">No markers — import rules for this app first</string>
     <string name="inspector_dumps">Saved dumps</string>
+    <string name="inspector_dumps_housekeeping">Old captures are removed automatically (keeps the newest 25 per surface, 14 days)</string>
     <string name="inspector_no_dumps">No dumps yet. Tap “Capture nodes” above; the app opens the right screen for you.</string>
     <string name="inspector_nodes_count">%1$d nodes</string>
     <string name="inspector_dump_subtitle">%1$s · %2$s</string>

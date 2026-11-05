@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import java.io.File
+import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.serialization.SerialName
@@ -156,14 +157,54 @@ object DumpExporter {
             Log.w(TAG, "could not write dump for $appPackage", t)
             null
         }
+        if (file != null) prune(context, keeping = file.name)
         return DumpResult.Success(file, doc, text)
     }
 
-    /** Dumps already written by [FilterService]'s armed capture, newest first. */
+    /** Dumps already written by [FilterService]'s armed capture, newest first, after housekeeping. */
     fun list(context: Context): List<DumpFile> {
         val dir = dumpDir(context)
         val files = dir.listFiles { file -> file.isFile && file.name.endsWith(".json") } ?: return emptyList()
-        return files.mapNotNull(::read).sortedByDescending { it.document.capturedAt }
+        val dumps = files.mapNotNull(::read)
+        val deleted = deletePruned(dir, dumps, keeping = null)
+        return dumps
+            .filterNot { it.file.name in deleted }
+            .sortedByDescending { it.document.capturedAt }
+    }
+
+    /**
+     * Applies [DumpPruner] to the dumps directory, never deleting [keeping] (the file being
+     * written). Housekeeping is best-effort: an IO failure is logged and capture carries on.
+     */
+    fun prune(context: Context, keeping: String? = null) {
+        try {
+            val dir = dumpDir(context)
+            val dumps = dir.listFiles { file -> file.isFile && file.name.endsWith(".json") }
+                .orEmpty()
+                .mapNotNull(::read)
+            deletePruned(dir, dumps, keeping)
+        } catch (t: Throwable) {
+            Log.w(TAG, "could not prune old dumps", t)
+        }
+    }
+
+    /** Maps one dump's header to the pruner's input; a bad `capturedAt` falls back to file time. */
+    internal fun pruneEntry(fileName: String, document: DumpDocument, fallbackMillis: Long): DumpPruner.Entry {
+        val timestamp = runCatching { ZonedDateTime.parse(document.capturedAt).toInstant() }
+            .getOrElse { Instant.ofEpochMilli(fallbackMillis) }
+        return DumpPruner.Entry(fileName, document.appPackage, document.surface, timestamp)
+    }
+
+    /** Deletes the names [DumpPruner] selects; returns the names actually removed. */
+    private fun deletePruned(dir: File, dumps: List<DumpFile>, keeping: String?): Set<String> = try {
+        val entries = dumps.map { pruneEntry(it.file.name, it.document, it.file.lastModified()) }
+        val doomed = DumpPruner.select(entries, Instant.now(), keeping).toSet()
+        val deleted = doomed.filter { File(dir, it).delete() }.toSet()
+        if (deleted.isNotEmpty()) Log.i(TAG, "pruned ${deleted.size} old dumps")
+        deleted
+    } catch (t: Throwable) {
+        Log.w(TAG, "could not prune old dumps", t)
+        emptySet()
     }
 
     /** Parses one dump file; a half-written or foreign file is skipped, never thrown. */
