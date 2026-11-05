@@ -564,3 +564,71 @@ children was tried first and pulled the Shorts player's whole subtree into the c
 id-less shelf text made the layer-1 `yt_shorts_shelf` rule match *while the player was up*
 (`matched=2` on the player). A rule-declared id and a text hit stay single-node grafts, which keeps
 that false positive out; `CaptureAnchorGraftTest` pins both behaviours.
+
+## D9 — in-budget Reels entry escaped, then allow/deny alternation
+
+### Observed (user, 2026-11-05)
+
+Opening Instagram Reels escaped even though the daily budget still had time left. After exhaustion
+the opposite symptom appeared: *"click a reel → goes back, click again → allows, scroll → goes back
+again, on and on."* Both contradict the direct-engagement policy: while the allowance lasts the
+surface must PAY with no action; once exhausted every entry must escape identically.
+
+### Root cause — (c) the gate treated viewer entry chrome as an always-on layer-1 surface
+
+Wave C started with `budget_used_seconds=0`, `budget_limit_minutes=20` (`REVERIFY.md` Wave C
+header). On the Reels screen the capture matched two rules — the viewer and the selected tab:
+
+```
+14:26:10.597 scan com.instagram.android (INSTAGRAM): 10 nodes, 6 with viewId, rules=4/8,
+             matched=2, grafted=6, windows=1 [Instagram(0)=4/2 ids]
+14:26:10.713 neutralising com.instagram.android/reels_tab via TAP_HOME_TAB
+```
+
+`rules.json` declared `ig_reels_tab` as `"layer": 1` (always hidden), and
+`RuleGate.eligibleHits` treated layer 1 as unconditionally eligible (`1 -> true`, `RuleGate.kt:130`
+at HEAD `479bec3`). So the in-budget viewer matched `ig_clips_viewer` (layer 2 → NONE) **and**
+`ig_reels_tab` (layer 1 → ESCAPE); the layer-1 tab rule won and escaped the viewer with budget to
+spare. This is the root cause, not the feed-cell rule: those same C2 scans show `matched=2` for
+`reels_tab` + `clips_viewer` and no `feed_reel_cell` hit.
+
+### Why the other hypotheses do not explain the in-budget escape
+
+- **(a) feed-cell rule matching viewer nodes.** `ig_feed_reel_cell` keys on
+  `video_container`, which the 233528 viewer dump does not contain (recorded in that rule's notes),
+  and C2's hits are the viewer + tab, not the feed rule. The real false-positive precedent — the D8
+  round-3 text/subtree graft pulling the Shorts shelf into the player (`matched=2`) — was already
+  fixed by single-node grafts (`CaptureAnchorGraftTest`) before Wave C; it is a separate capture
+  bug, not D9.
+- **(b) EscapeGuard alternation.** This explains the *second* symptom, not the in-budget escape.
+  `EscapeGuard.suppressed` (`EscapeGuard.kt:33-40` at `479bec3`) released a hold when
+  `!surfaceStillPresent` **or** after 5 s, while `ActionArbiter.confirm` recorded only a confirmed
+  escape. The R3 log is the same mechanism on YouTube:
+
+  ```
+  11:42:03.535 neutralising …/shorts_player via BACK
+  11:42:04.006 …/shorts_player: action suppressed by throttle/quota
+  11:42:04.815 neutralising …/shorts_player via BACK
+  11:42:06.147 neutralising …/shorts_player via BACK
+  ```
+
+  A time-bounded hold is an allow window: the next deliberate entry inside/after it can be
+  permitted. It must be removed even though it does not cause the in-budget escape.
+
+### Fix (policy 2026-11-05)
+
+- `SurfaceClassifier` replaces `layer` for the verdict: `DIRECT` (IG `clips_viewer`/`reels_tab`,
+  YT `shorts_player`, TikTok `playback`) PAYS while the budget lasts and ESCAPES when it is gone;
+  `PASSIVE` (`feed_reel_cell`, `shorts_shelf`) and `UNKNOWN` never produce an action.
+  `RuleSetMatcher` also scopes a capture to one surface identity, so a feed rule cannot match inside
+  a viewer tree and vice versa.
+- The two passive rules are `enabled=false` in `rules.json` (loader rejects an enabled
+  `SCROLL_PAST`); their notes keep the evidence.
+- `ActionArbiter` has no time window. It suppresses only repeats for the same still-visible
+  surface episode (the asynchronous BACK's stale tree); a capture without the surface ends the
+  episode and the next entry escapes immediately (N entries → N escapes). The 1200 ms debounce only
+  spaces retries within one episode.
+- `DumpArm.isArmed()` pauses every action (and the stopwatch) for the duration of an inspector
+  capture; consume/expiry restores enforcement automatically.
+
+Tests: `DirectEngagementPolicyTest`, `RuleGateTest`, `ActionArbiterTest`, `RuleModelTest`.
