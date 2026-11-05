@@ -37,6 +37,29 @@ class SettingsRepositoryTest {
         }
     }
 
+    /** Same store, but notifies observers like SharedPreferences does, so cross-instance
+     *  propagation can be tested without Android. */
+    private class NotifyingPrefs : PrefsStore {
+        private val values = mutableMapOf<String, Any>()
+        private val listeners = mutableListOf<() -> Unit>()
+
+        private fun notifyListeners() = listeners.toList().forEach { it() }
+
+        override fun getBoolean(key: String, default: Boolean) = values[key] as? Boolean ?: default
+        override fun putBoolean(key: String, value: Boolean) { values[key] = value; notifyListeners() }
+        override fun getInt(key: String, default: Int) = values[key] as? Int ?: default
+        override fun putInt(key: String, value: Int) { values[key] = value; notifyListeners() }
+        override fun getLong(key: String, default: Long) = values[key] as? Long ?: default
+        override fun putLong(key: String, value: Long) { values[key] = value; notifyListeners() }
+        override fun getString(key: String) = values[key] as? String
+        override fun putString(key: String, value: String) { values[key] = value; notifyListeners() }
+
+        override fun observe(onChange: () -> Unit): AutoCloseable {
+            listeners += onChange
+            return AutoCloseable { listeners -= onChange }
+        }
+    }
+
     private val zone = ZoneId.of("Europe/Amsterdam")
 
     /** Wed 4 Nov 2026, 12:00 local. */
@@ -183,5 +206,58 @@ class SettingsRepositoryTest {
         assertEquals("07:00", SettingsRepository.formatClock(420))
         assertEquals("00:00", SettingsRepository.formatClock(1440))
         assertEquals("23:00", SettingsRepository.formatClock(-60))
+    }
+
+    // --- D10/D11: cross-instance propagation (UI writes must reach the engine) ------------
+
+    @Test
+    fun `same-process writes keep a second instance in lock-step`() {
+        val store = NotifyingPrefs()
+        val ui = SettingsRepository(store)
+        val engine = SettingsRepository(store) // e.g. FilterService's instance at connect
+
+        assertEquals(AppMode.FILTER, engine.modeFor(AppTarget.INSTAGRAM))
+
+        ui.setMode(AppTarget.INSTAGRAM, AppMode.ALLOW)
+        assertEquals(AppMode.ALLOW, engine.modeFor(AppTarget.INSTAGRAM))
+
+        ui.setMode(AppTarget.INSTAGRAM, AppMode.BLOCK)
+        assertEquals(AppMode.BLOCK, engine.modeFor(AppTarget.INSTAGRAM))
+
+        ui.setSurfaceEnabled(AppTarget.YOUTUBE, "hide_shorts_shelf", false)
+        assertFalse(engine.surfaceEnabled(AppTarget.YOUTUBE, "hide_shorts_shelf"))
+
+        ui.updateFiltering(false)
+        assertFalse(engine.filteringEnabled)
+
+        ui.updateScheduleEnabled(false)
+        assertFalse(engine.scheduleEnabled)
+        assertFalse(engine.isLocked(noon(hour = 23)))
+    }
+
+    @Test
+    fun `budget limit written by one instance is seen by another`() {
+        val store = NotifyingPrefs()
+        val ui = SettingsRepository(store)
+        val engine = SettingsRepository(store)
+        val now = noon()
+
+        assertEquals(20, engine.remainingMinutesCeil(now))
+        ui.updateBudgetLimit(0)
+        assertEquals(0, engine.remainingMinutesCeil(now))
+        assertEquals(0, engine.budgetLimitMinutes)
+    }
+
+    @Test
+    fun `budget usage written by the engine is seen by the hub instance`() {
+        val store = NotifyingPrefs()
+        val ui = SettingsRepository(store)
+        val engine = SettingsRepository(store)
+        val now = noon()
+
+        engine.recordBudgetSeconds(20 * 60 - 60, now)
+        assertEquals(1, ui.remainingMinutesCeil(now))
+        engine.recordBudgetSeconds(60, now)
+        assertEquals(0, ui.remainingMinutesCeil(now))
     }
 }

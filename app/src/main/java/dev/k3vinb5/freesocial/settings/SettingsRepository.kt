@@ -110,6 +110,12 @@ interface PrefsStore {
     fun putLong(key: String, value: Long)
     fun getString(key: String): String?
     fun putString(key: String, value: String)
+
+    /**
+     * Calls [onChange] after any write to this store (same process only — a `run-as` or another
+     * process' write is never observed). Returns a handle that unregisters the callback.
+     */
+    fun observe(onChange: () -> Unit): AutoCloseable = AutoCloseable {}
 }
 
 private class SharedPrefsStore(private val prefs: SharedPreferences) : PrefsStore {
@@ -121,6 +127,13 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : PrefsStor
     override fun putLong(key: String, value: Long) = prefs.edit().putLong(key, value).apply()
     override fun getString(key: String): String? = prefs.getString(key, null)
     override fun putString(key: String, value: String) = prefs.edit().putString(key, value).apply()
+
+    // SharedPreferences keeps listeners weakly, so the caller must hold the returned handle.
+    override fun observe(onChange: () -> Unit): AutoCloseable {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> onChange() }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return AutoCloseable { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 }
 
 /** The nightly lock window as wall-clock minutes from midnight ("22:00–07:30"). */
@@ -194,28 +207,61 @@ class SettingsRepository(private val store: PrefsStore) {
     )
         private set
 
-    private val modes = mutableStateMapOf<AppTarget, AppMode>().apply {
-        AppTarget.entries.forEach { put(it, AppMode.fromStorage(store.getString(modeKey(it)))) }
+    private val modes = mutableStateMapOf<AppTarget, AppMode>()
+    private val surfaceStates = mutableStateMapOf<String, Boolean>()
+    private val days = mutableStateMapOf<Int, DaySchedule>()
+
+    /**
+     * D10/D11: every consumer of this repository (UI, `FilterService`, `BlockService`, the schedule
+     * alarm) owns its own instance, so a write anywhere must refresh everywhere. A same-process
+     * preference change re-reads [reload]; external `run-as` writes are not observable this way.
+     * The handle is held so SharedPreferences' weak listener registry cannot drop the callback.
+     * [writeDepth] keeps a multi-key write (see [recordBudgetSeconds]) from being observed halfway.
+     */
+    private var writeDepth = 0
+
+    @Suppress("unused")
+    private val storeObserver: AutoCloseable = store.observe { if (writeDepth == 0) reload() }
+
+    init {
+        reload()
     }
 
-    private val surfaceStates = mutableStateMapOf<String, Boolean>().apply {
-        AppTarget.entries.forEach { app ->
-            app.surfaces.forEach { surface ->
-                put(surfaceKey(app, surface.key), store.getBoolean(surfaceKey(app, surface.key), surface.default))
-            }
+    private inline fun batch(block: () -> Unit) {
+        writeDepth++
+        try {
+            block()
+        } finally {
+            writeDepth--
         }
     }
 
-    private val days = mutableStateMapOf<Int, DaySchedule>().apply {
+    /** Re-reads every persisted field into the observable state. Never writes back to the store. */
+    fun reload() {
+        filteringEnabled = store.getBoolean(KEY_FILTERING, true)
+        budgetLimitMinutes = store.getInt(KEY_BUDGET_LIMIT, ShortVideoBudget.DEFAULT_LIMIT_MINUTES)
+            .coerceIn(MIN_BUDGET, MAX_BUDGET)
+        budgetUsedSeconds = store.getLong(KEY_BUDGET_USED, 0L)
+        budgetDate = store.getString(KEY_BUDGET_DATE)
+        firstRunCompleted = store.getBoolean(KEY_FIRST_RUN, false)
+        scheduleEnabled = store.getBoolean(KEY_SCHEDULE_ENABLED, true)
+        windDownMinutes = store.getInt(KEY_WIND_DOWN, ScheduleState.DEFAULT_WIND_DOWN_MINUTES)
+            .coerceIn(0, MAX_MINUTES)
+        morningLockMinutes = store.getInt(KEY_MORNING_LOCK, ScheduleState.DEFAULT_MORNING_LOCK_MINUTES)
+            .coerceIn(0, MAX_MINUTES)
+        AppTarget.entries.forEach { app ->
+            modes[app] = AppMode.fromStorage(store.getString(modeKey(app)))
+            app.surfaces.forEach { surface ->
+                surfaceStates[surfaceKey(app, surface.key)] =
+                    store.getBoolean(surfaceKey(app, surface.key), surface.default)
+            }
+        }
         for (weekday in 1..7) {
-            put(
-                weekday,
-                DaySchedule(
-                    bedtimeMinutes = store.getInt(bedtimeKey(weekday), ScheduleState.DEFAULT_BEDTIME_MINUTES)
-                        .coerceIn(0, 24 * 60 - 1),
-                    wakeMinutes = store.getInt(wakeKey(weekday), ScheduleState.DEFAULT_WAKE_MINUTES)
-                        .coerceIn(0, 24 * 60 - 1),
-                ),
+            days[weekday] = DaySchedule(
+                bedtimeMinutes = store.getInt(bedtimeKey(weekday), ScheduleState.DEFAULT_BEDTIME_MINUTES)
+                    .coerceIn(0, 24 * 60 - 1),
+                wakeMinutes = store.getInt(wakeKey(weekday), ScheduleState.DEFAULT_WAKE_MINUTES)
+                    .coerceIn(0, 24 * 60 - 1),
             )
         }
     }
@@ -271,13 +317,17 @@ class SettingsRepository(private val store: PrefsStore) {
     fun recordBudgetSeconds(seconds: Long, now: ZonedDateTime) {
         if (seconds <= 0) return
         val today = now.toLocalDate().toString()
-        if (budgetDate != today) {
-            budgetDate = today
-            budgetUsedSeconds = 0L
+        val base = if (budgetDate == today) budgetUsedSeconds else 0L
+        val next = base + seconds
+        // Two keys, one logical value: pause the observer so no reload reads the half-written
+        // pair, and write the counter before the date so an intermediate reader cannot attribute
+        // today's seconds to yesterday.
+        batch {
+            store.putLong(KEY_BUDGET_USED, next)
+            store.putString(KEY_BUDGET_DATE, today)
         }
-        budgetUsedSeconds += seconds
-        store.putString(KEY_BUDGET_DATE, today)
-        store.putLong(KEY_BUDGET_USED, budgetUsedSeconds)
+        budgetUsedSeconds = next
+        budgetDate = today
     }
 
     /** Remaining allowance in whole minutes, using [ShortVideoBudget]'s rounding semantics. */
