@@ -12,6 +12,9 @@
     <!-- Hub (F6) -->
     <string name="hub_status_on">Filtering on</string>
     <string name="hub_status_off">Filtering off</string>
+    <string name="hub_status_paused">Service off — Filtering paused</string>
+    <string name="hub_banner_service_off">The filter service is off — nothing is being filtered. Enable it in Permissions.</string>
+    <string name="chip_filter_paused">Filter · paused</string>
     <string name="hub_master_title">Filtering</string>
     <string name="hub_master_subtitle">All three apps · short-video surfaces</string>
     <string name="hub_apps_section">Apps</string>
@@ -147,6 +150,12 @@
     <string name="inspector_screen_yt_shorts">YT · shorts player</string>
     <string name="inspector_screen_tt_playback">TT · playback</string>
     <string name="inspector_dump">Dump screen</string>
+    <string name="inspector_dumps">Saved dumps</string>
+    <string name="inspector_no_dumps">No dumps yet. Arm a capture, then switch to Instagram, YouTube or TikTok.</string>
+    <string name="inspector_armed_status">Armed — open %1$s or another target app within 60 s. The next screen is captured automatically.</string>
+    <string name="inspector_dump_armed">Capture armed — switch app</string>
+    <string name="inspector_nodes_count">%1$d nodes</string>
+    <string name="inspector_dump_subtitle">%1$s · %2$s</string>
     <string name="inspector_dump_saved">Dump saved: %1$s</string>
     <string name="inspector_dump_share">Share dump</string>
     <string name="inspector_dump_unavailable">Turn on content filtering, then open the app you want to capture.</string>

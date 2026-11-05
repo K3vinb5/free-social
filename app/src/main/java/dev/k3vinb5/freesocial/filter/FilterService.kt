@@ -90,6 +90,7 @@ class FilterService : AccessibilityService() {
                 if (stopwatch.activeSurface != null) requestScan()
                 return
             }
+            if (captureArmedDumpIfRequested(event, pkg)) return
             if (!interactive()) {
                 stopBudget()
                 return
@@ -325,18 +326,46 @@ class FilterService : AccessibilityService() {
     // --- Rule inspector seam -------------------------------------------------------------
 
     /**
-     * Best window to dump: a target app's window if one is still alive, otherwise whatever is
-     * focused (which is usually our own inspector on its own screen).
+     * ARMED-DUMP seam (SPEC §2.5, acceptance item 8): the inspector arms one capture, the user
+     * switches to a target app, and this method writes that app's tree. Before this, dumps only
+     * ever saw our own focused inspector window.
+     *
+     * Returns true when the event belonged to an armed capture (handled, regardless of outcome).
+     * Never throws: the whole path runs under [safe].
      */
-    fun captureForDump(): CapturedTree? {
-        val active = rootInActiveWindow
-        val target = windows
+    private fun captureArmedDumpIfRequested(event: AccessibilityEvent, appPackage: String): Boolean {
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return false
+        if (appPackage !in TARGET_PACKAGES) return false
+        if (!DumpArm.isArmed()) return false
+        safe { captureArmedDump(appPackage) }
+        return true
+    }
+
+    private fun captureArmedDump(appPackage: String) {
+        val started = SystemClock.uptimeMillis()
+        // Only the event's own package: our inspector window is never a candidate.
+        val root = windows
             .asReversed()
             .firstOrNull { window ->
-                window.root?.packageName?.toString()?.let(TARGET_PACKAGES::contains) == true
+                window.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
+                    window.root?.packageName?.toString() == appPackage
             }
             ?.root
-        return (target ?: active)?.let { NodeTreeReader.capture(it) }
+            ?: rootInActiveWindow?.takeIf { it.packageName?.toString() == appPackage }
+        if (root == null) {
+            Log.w(TAG, "armed dump: no readable $appPackage window")
+            return
+        }
+        val screen = DumpArm.consume() ?: return
+        val captured = NodeTreeReader.capture(root)
+        when (val result = DumpExporter.export(this, appPackage, screen, captured.root)) {
+            is DumpResult.Success -> Log.i(
+                TAG,
+                "armed dump $appPackage/\"$screen\": ${result.document.nodes.size} nodes in " +
+                    "${SystemClock.uptimeMillis() - started} ms -> ${result.file?.name}",
+            )
+            is DumpResult.Unavailable -> Log.w(TAG, "armed dump unavailable: ${result.reason}")
+        }
     }
 
     private inline fun safe(block: () -> Unit): Boolean = try {

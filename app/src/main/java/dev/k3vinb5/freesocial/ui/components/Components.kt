@@ -454,12 +454,16 @@ fun InfoBanner(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = FsColors.Warning,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(CardShape)
             .background(color.copy(alpha = 0.12f))
+            .then(
+                if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
     ) {
