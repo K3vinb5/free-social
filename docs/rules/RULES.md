@@ -222,3 +222,44 @@ dumps first, then add branches the same way (alternation, one dump citation per 
    cannot pick one and `TAP_HOME_TAB` would fall back to `GLOBAL_ACTION_HOME` (leaving the app).
    No shipped TikTok rule uses `TAP_HOME_TAB`, so this is latent; re-capture the nav XML before
    adding one.
+
+## Capture anchors — container id graft (D8 round 3, R1)
+
+Provenance: `reverse/runtime-reno/pt-yt-home3.xml` (Reno4 `CPH2195`, pt-PT, 135 nodes; a fresh
+`uiautomator dump` of the same YouTube Home where the service saw the 4-node ghost). The dump shows
+the shelf's own nodes carry **no** `resource-id`:
+
+| node | id | class | bounds | content-desc |
+| --- | --- | --- | --- | --- |
+| shelf header | *(none)* | `android.view.ViewGroup` | `[192,443][353,509]` | `Shorts` |
+| card 1 | *(none)* | `android.view.ViewGroup` | `[36,554][529,1293]` | `… – reproduzir Short` |
+| card 2–4 | *(none)* | `android.view.ViewGroup` | `[551,554][1044,1293]`, `[36,1314][529,2053]`, `[551,1314][1044,2053]` | `… – reproduzir Short` |
+| **nearest id-bearing ancestor** | `com.google.android.youtube:id/results` | `android.support.v7.widget.RecyclerView` | `[0,398][1080,2158]`, `scrollable="true"` | — |
+
+Two id-less `ViewGroup` levels separate the header/cards from `results`. The Wave A retry measured
+`idProbe: results=2` on the pruned root while `findAccessibilityNodeInfosByText` returned nothing,
+so the fix is (b): `CaptureAnchors` declares `id/results` for YouTube, the capture grafts that id
+and **walks the recovered node's children** (`NodeTreeBuilder.graft` subtree), and the unchanged
+`yt_shorts_shelf` desc rule then matches the shelf. `rules.json`, `Rule` and `MatchSpec` are
+unchanged: the anchor is an engine-side capture hint, never a match criterion (keying the rule on
+`results` would fire on every YouTube home feed, with or without a shelf).
+
+Device confirm (Reno4, 2026-11-05 12:29, same install as the tests below):
+
+```
+scan com.google.android.youtube (YOUTUBE): 44 nodes, 4 with viewId, rules=2/8, matched=1, grafted=40,
+    windows=1 [YouTube(0)=3/1 ids], rootChildCount=2, idProbe=menu_item_0=1 app_bar_wrapper=0 results=2
+neutralising com.google.android.youtube/shorts_shelf via SCROLL_PAST
+    (ACTION_SCROLL_FORWARD Bounds(left=0, top=398, right=1080, bottom=2124))
+```
+
+`grafted=40…68` are the children recovered below `results`; the action frames on `results` itself
+(the nearest scrollable ancestor), not on the 58 px header. Proven by `CaptureAnchorGraftTest`.
+
+13. **RESOLVED (R1) — id-less shelf unreachable through the text lookup.** On the ColorOS ghost
+   tree the text graft returns nothing (`findAccessibilityNodeInfosByText` does not reach the
+   pruned id-less subtree) even though the id lookup works. The shelf is now reached through the
+   container id above, whose child links *are* intact (`grafted=40+`, `matched=1`). The rule keeps
+   its desc+class criteria; the container id lives in `filter/CaptureAnchors.kt` with this dump as
+   its provenance. Any future rule on a platform that prunes id-less subtrees needs the same test:
+   does the rule's subtree have an id-bearing ancestor in a real dump?
