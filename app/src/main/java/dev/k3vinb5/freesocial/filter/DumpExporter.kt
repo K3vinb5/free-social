@@ -19,6 +19,7 @@ data class DumpNode(
     val contentDescription: String? = null,
     val bounds: String = "",
     val visible: Boolean = false,
+    val selected: Boolean = false,
     val clickable: Boolean = false,
     /** D8: true when the node was reached by a lookup graft, not by the child walk. */
     val grafted: Boolean = false,
@@ -40,6 +41,11 @@ data class DumpWindow(
 data class DumpDocument(
     @SerialName("package") val appPackage: String,
     val screen: String,
+    /** Verified surface slug, or null when the markers did not match (surface-verified capture). */
+    val surface: String? = null,
+    val surfaceVerified: Boolean = false,
+    /** What was on screen when verification failed (bounded viewId/text/desc lines). */
+    val markersSeen: List<String> = emptyList(),
     val capturedAt: String,
     val windows: List<DumpWindow> = emptyList(),
     val nodeCount: Int = 0,
@@ -90,9 +96,13 @@ object DumpExporter {
         windowStats: List<WindowStat> = emptyList(),
         capped: Boolean = false,
         grafted: Int = 0,
+        verdict: CaptureSurfaces.Verdict? = null,
     ): DumpDocument = DumpDocument(
         appPackage = appPackage,
-        screen = screen,
+        screen = verdict?.label ?: screen,
+        surface = verdict?.takeIf { it.verified }?.surface,
+        surfaceVerified = verdict?.verified == true,
+        markersSeen = verdict?.seen.orEmpty(),
         capturedAt = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         windows = windowStats.map { window ->
             DumpWindow(
@@ -116,6 +126,7 @@ object DumpExporter {
                 contentDescription = node.contentDescription,
                 bounds = boundsText(node.bounds),
                 visible = node.visible,
+                selected = node.selected,
                 clickable = node.clickable,
                 grafted = node.grafted,
             )
@@ -135,8 +146,9 @@ object DumpExporter {
         windowStats: List<WindowStat> = emptyList(),
         capped: Boolean = false,
         grafted: Int = 0,
+        verdict: CaptureSurfaces.Verdict? = null,
     ): DumpResult {
-        val doc = document(appPackage, screen, tree, now, windowStats, capped, grafted)
+        val doc = document(appPackage, screen, tree, now, windowStats, capped, grafted, verdict)
         val text = encode(doc)
         val file = try {
             writeFile(context, appPackage, text, now)

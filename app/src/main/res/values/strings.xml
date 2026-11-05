@@ -26,8 +26,8 @@
     <string name="hub_permissions_row">Permissions</string>
     <string name="hub_permissions_value">%1$d of 4</string>
     <string name="hub_caption">Rules verified · IG 454 · YT 21.43 · TT 47.6</string>
-    <string name="hub_rule_inspector">Rule inspector</string>
-    <string name="hub_rule_inspector_dev">Dev</string>
+    <string name="hub_rule_inspector">Surfaces &amp; rules</string>
+    <string name="hub_rule_inspector_dev">See and heal the rules each capture uses</string>
     <string name="schedule_on">On</string>
     <string name="schedule_off">Off</string>
 
@@ -84,8 +84,8 @@
 
     <!-- Permissions / inspector stubs -->
     <string name="permissions_title">Permissions</string>
-    <string name="inspector_title">Rule inspector</string>
-    <string name="inspector_caption">Dump a screen after an app update, then patch rules.json.</string>
+    <string name="inspector_title">Surfaces &amp; rules</string>
+    <string name="inspector_caption">Capture a screen to see the nodes the app uses, then export the rules to your own file if an app update moved them.</string>
 
     <!-- Onboarding wizard (F1–F5) -->
     <string name="onboarding_step">%1$d/5</string>
@@ -143,24 +143,63 @@
     <string name="block_reason_schedule">Sleep mode is active — go to bed.</string>
     <string name="block_reason_app">This app is blocked by Free Social.</string>
 
-    <!-- Rule inspector (F14) -->
-    <string name="inspector_captured">Captured screens</string>
+    <!-- Surfaces & rules (F14) -->
+    <string name="inspector_captured">Screens to capture</string>
     <string name="inspector_nodes">— nodes</string>
-    <string name="inspector_screen_ig_feed">IG · home feed</string>
-    <string name="inspector_screen_ig_reels">IG · reels viewer</string>
-    <string name="inspector_screen_yt_shorts">YT · shorts player</string>
-    <string name="inspector_screen_tt_playback">TT · playback</string>
-    <string name="inspector_dump">Dump screen</string>
+    <string name="inspector_capture_nodes">Capture nodes</string>
+    <string name="inspector_markers">%1$d surface markers</string>
+    <string name="inspector_no_markers">No markers — import rules for this app first</string>
     <string name="inspector_dumps">Saved dumps</string>
-    <string name="inspector_no_dumps">No dumps yet. Arm a capture, then switch to Instagram, YouTube or TikTok.</string>
-    <string name="inspector_armed_status">Armed — open %1$s or another target app within 60 s. The next screen is captured automatically.</string>
-    <string name="inspector_dump_armed">Capture armed — switch app</string>
+    <string name="inspector_no_dumps">No dumps yet. Tap “Capture nodes” above; the app opens the right screen for you.</string>
     <string name="inspector_nodes_count">%1$d nodes</string>
     <string name="inspector_dump_subtitle">%1$s · %2$s</string>
     <string name="inspector_dump_saved">Dump saved: %1$s</string>
     <string name="inspector_dump_share">Share dump</string>
     <string name="inspector_dump_unavailable">Turn on content filtering, then open the app you want to capture.</string>
     <string name="inspector_dump_failed">Could not write the dump file.</string>
+    <string name="inspector_unknown_surface">Unknown surface — seen: %1$s</string>
+    <string name="inspector_unknown_surface_empty">Unknown surface — no surface marker matched</string>
+    <string name="inspector_verified_surface">Surface verified</string>
+    <string name="inspector_analysis">Rules that match this dump</string>
+    <string name="inspector_no_rule_match">No enabled rule matches this dump.</string>
+    <string name="inspector_rules">Rules in use</string>
+    <string name="inspector_rules_source_assets">Built-in rules</string>
+    <string name="inspector_rules_source_override">Your override (%1$s)</string>
+    <string name="inspector_override_path">Override file: %1$s</string>
+    <string name="inspector_export">Export rules</string>
+    <string name="inspector_import">Import rules</string>
+    <string name="inspector_exported">Rules exported to %1$s</string>
+    <string name="inspector_export_shared">Rules ready — pick a text app to edit them, then Import to apply.</string>
+    <string name="inspector_import_ok">Rules imported — %1$d active</string>
+    <string name="inspector_import_rejected">Rules rejected — the current rules stay active: %1$s</string>
+    <string name="inspector_import_failed">Could not read the selected file.</string>
+    <string name="inspector_override_error">Override not applied: %1$s</string>
+    <string name="inspector_rule_enabled">Enabled</string>
+    <string name="inspector_rule_disabled">Disabled</string>
+    <string name="inspector_last_verified">Last verified against %1$s</string>
+    <string name="inspector_not_verified">Not verified yet</string>
+    <string name="inspector_capture_waiting">Looking for %1$s — open the app and navigate there (30 s).</string>
+    <string name="inspector_capture_recording">Recording %1$s — about 15 s left, it stops by itself.</string>
+    <string name="inspector_capture_done">Capture complete — %1$d nodes.</string>
+    <string name="inspector_capture_timeout">Surface not detected — capture cancelled.</string>
+    <string name="inspector_capture_cancelled">Capture cancelled.</string>
+    <string name="inspector_capture_failed">Capture failed — no readable window was found.</string>
+    <string name="inspector_capture_launch_failed">Could not launch %1$s.</string>
+    <string name="inspector_step_title">Capture %1$s · %2$s</string>
+    <string name="inspector_step_body">Open %1$s and go to %2$s. Scroll or use the screen for about 15 seconds. The capture starts when that screen is recognised and stops by itself, then the dump appears here. Notifications are off, so progress stays in this app.</string>
+    <string name="inspector_step_start">Open app and capture</string>
+
+    <!-- Guided capture notifications -->
+    <string name="capture_notif_channel_name">Node capture</string>
+    <string name="capture_notif_channel_description">Progress and the Stop action for a guided node capture</string>
+    <string name="capture_notif_recording">Recording %1$s %2$s — scroll/do the thing ~15 s (auto-stops)</string>
+    <string name="capture_notif_detected">Recording %1$s — about %2$d s left (auto-stops)</string>
+    <string name="capture_notif_stop">Stop now</string>
+    <string name="capture_notif_complete">Capture complete — %1$d nodes</string>
+    <string name="capture_notif_surface_lost">Surface left — capture stopped at %1$d nodes</string>
+    <string name="capture_notif_not_detected">Surface not detected — navigate to %1$s; capture cancelled</string>
+    <string name="capture_notif_cancelled">Capture cancelled — no dump was written</string>
+    <string name="capture_notif_failed">Capture failed — no readable window</string>
 
     <!-- Filter service (accessibility) -->
     <string name="filter_service_label">Content filtering</string>

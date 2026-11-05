@@ -14,15 +14,43 @@ object DumpArm {
     /** An armed capture older than this is dead — the user did not open a target app in time. */
     const val EXPIRY_MS = 60_000L
 
+    /**
+     * A guided capture owns the arm for the whole flow: up to 30 s of surface detection plus 15 s
+     * of recording, with the notification and launch transition in between. It must never expire
+     * while the recording is still running, or filtering would resume mid-capture.
+     */
+    const val GUIDED_EXPIRY_MS = 120_000L
+
     private var armedAt: Long = 0L
     private var screen: String? = null
+    private var guided: Boolean = false
 
     /** Arms one capture labelled [screen] (the inspector's screen name for the dump document). */
     @Synchronized
     fun arm(screen: String, now: Long = System.currentTimeMillis()) {
         armedAt = now
         this.screen = screen
+        guided = false
     }
+
+    /**
+     * Arms a guided capture: filtering stays paused through detection + recording, and the service
+     * leaves the actual dump to [GuidedCapture] (see [readyFor]).
+     */
+    @Synchronized
+    fun armGuided(screen: String, now: Long = System.currentTimeMillis()) {
+        armedAt = now
+        this.screen = screen
+        guided = true
+    }
+
+    /** Extends a guided arm across a phase change (detection -> recording). */
+    @Synchronized
+    fun refreshGuided(now: Long = System.currentTimeMillis()) {
+        if (guided && screen != null) armedAt = now
+    }
+
+    fun isGuided(now: Long = System.currentTimeMillis()): Boolean = guided && isArmed(now)
 
     /** The armed screen label, or null when nothing is armed / the arm has expired. */
     @Synchronized
@@ -59,7 +87,7 @@ object DumpArm {
      * it actually saw.
      */
     fun readyFor(target: String, activePackage: String?): Boolean =
-        activePackage == null || activePackage == target
+        if (guided) false else activePackage == null || activePackage == target
 
     /**
      * True when a capture is still the decor-only ghost tree (Wave A A5: 4 nodes, 1 view id, no
@@ -79,10 +107,12 @@ object DumpArm {
         clear()
     }
 
-    private fun expired(now: Long): Boolean = now - armedAt >= EXPIRY_MS
+    private fun expired(now: Long): Boolean =
+        now - armedAt >= if (guided) GUIDED_EXPIRY_MS else EXPIRY_MS
 
     private fun clear() {
         armedAt = 0L
         screen = null
+        guided = false
     }
 }

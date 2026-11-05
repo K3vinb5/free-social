@@ -7,6 +7,17 @@
     <!-- Install-granted (sideloaded app): lets ScheduleAlarmScheduler use
          setExactAndAllowWhileIdle for schedule boundary flips (SPEC §2.3). -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Guided node capture: progress and "Stop now" live in a notification. Denial is handled
+         in-app (step card); the capture itself still works. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Guided capture launches the target app for the user (package visibility, API 30+). -->
+    <queries>
+        <package android:name="com.instagram.android" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.ss.android.ugc.trill" />
+    </queries>
 
     <application
         android:label="@string/app_name"
@@ -57,6 +68,10 @@
 
         <receiver
             android:name=".block.ScheduleAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".filter.CaptureStopReceiver"
             android:exported="false" />
     </application>
 
