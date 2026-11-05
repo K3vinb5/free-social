@@ -12,6 +12,8 @@ class CapturedTree internal constructor(
     val root: NodeSnapshot,
     val packageName: String?,
     private val liveNodes: List<AccessibilityNodeInfo>,
+    val windows: List<WindowStat> = emptyList(),
+    val capped: Boolean = false,
 ) {
     fun live(node: NodeSnapshot): AccessibilityNodeInfo? =
         node.index.takeIf { it in liveNodes.indices }?.let { liveNodes[it] }
@@ -38,13 +40,40 @@ object NodeTreeReader {
         roots: List<AccessibilityNodeInfo>,
         packageName: String? = roots.firstOrNull()?.packageName?.toString(),
         cap: Int = NodeTree.MAX_SCAN_NODES,
+    ): CapturedTree = captureAll(roots.map { WindowRoot(it, packageName = packageName) }, packageName, cap)
+
+    /**
+     * D6: captures every window of the target package with the metadata the armed dump reports in
+     * its header. [WindowRoot]s are aggregated top-most first by [NodeTreeBuilder.buildWindows].
+     */
+    fun captureAll(
+        windows: List<WindowRoot>,
+        packageName: String? = windows.firstOrNull()?.packageName,
+        cap: Int = NodeTree.MAX_SCAN_NODES,
     ): CapturedTree {
-        val sources = roots.map(::AndroidNodeSource)
-        val built = NodeTreeBuilder.build(sources, cap)
+        val sources = windows.map { window ->
+            WindowSource(
+                node = AndroidNodeSource(window.node),
+                title = window.title,
+                className = window.className ?: window.node.className?.toString(),
+                layer = window.layer,
+                packageName = window.packageName,
+            )
+        }
+        val built = NodeTreeBuilder.buildWindows(sources, cap)
         val live = built.live.map { (it as AndroidNodeSource).info }
-        return CapturedTree(built.root, packageName, live)
+        return CapturedTree(built.root, packageName, live, built.windows, built.capped)
     }
 }
+
+/** One live application window of the target package, with its title/class/layer for the dump header. */
+class WindowRoot(
+    val node: AccessibilityNodeInfo,
+    val title: String? = null,
+    val className: String? = null,
+    val layer: Int = 0,
+    val packageName: String? = null,
+)
 
 /** [NodeSource] over one live accessibility node; [bounds] is read on each access. */
 private class AndroidNodeSource(val info: AccessibilityNodeInfo) : NodeSource {

@@ -10,12 +10,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.filter.EngineHealth
 import dev.k3vinb5.freesocial.settings.AppMode
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.settings.SettingsRepository
@@ -35,6 +40,9 @@ import java.time.ZonedDateTime
 /** What the hub's top pill is allowed to claim, given the master switch and the live service state. */
 internal enum class HubEnforcement { ON, PAUSED, OFF }
 
+/** Which persistent banner the hub shows, if any (SPEC §2.4). */
+internal enum class HubBanner { NONE, SERVICE_OFF, ENGINE_STALE }
+
 /**
  * The pill/banner decision, pure so the truth table is testable without Android (SPEC §2.4:
  * the pill reflects LIVE enforcement, not just the master switch).
@@ -47,6 +55,22 @@ internal fun hubEnforcement(masterEnabled: Boolean, serviceEnabled: Boolean): Hu
 
 /** A degraded state must show the persistent banner: master on but nothing is being filtered. */
 internal fun hubEnforcementDegraded(state: HubEnforcement): Boolean = state == HubEnforcement.PAUSED
+
+/**
+ * D7: the banner decision. Master off means the user turned filtering off, so no banner. A disabled
+ * service wins over a dead engine (the fix is the same Permissions screen). Master + service on but
+ * no recent heartbeat is the silent-death case this banner exists for.
+ */
+internal fun hubBanner(
+    masterEnabled: Boolean,
+    serviceEnabled: Boolean,
+    engineStale: Boolean,
+): HubBanner = when {
+    !masterEnabled -> HubBanner.NONE
+    !serviceEnabled -> HubBanner.SERVICE_OFF
+    engineStale -> HubBanner.ENGINE_STALE
+    else -> HubBanner.NONE
+}
 
 /** F6 — settings home. */
 @Composable
@@ -62,8 +86,10 @@ fun SettingsHubScreen(
 ) {
     // Permission grants happen in system screens; re-read them whenever we come back.
     val context = LocalContext.current
+    var engineStale by remember { mutableStateOf(EngineHealth.isStale(context)) }
     LifecycleResumeEffect(settings) {
         settings.refreshPermissions(context)
+        engineStale = EngineHealth.isStale(context)
         onPauseOrDispose { }
     }
 
@@ -108,10 +134,21 @@ fun SettingsHubScreen(
                 )
             }
 
-            if (hubEnforcementDegraded(enforcement)) {
+            val banner = hubBanner(
+                masterEnabled = settings.filteringEnabled,
+                serviceEnabled = settings.permissionStatus.filterService,
+                engineStale = engineStale,
+            )
+            if (banner != HubBanner.NONE) {
                 HorizontalGap(12.dp)
                 InfoBanner(
-                    text = stringResource(R.string.hub_banner_service_off),
+                    text = stringResource(
+                        when (banner) {
+                            HubBanner.SERVICE_OFF -> R.string.hub_banner_service_off
+                            HubBanner.ENGINE_STALE -> R.string.hub_banner_engine_stale
+                            HubBanner.NONE -> R.string.hub_banner_service_off
+                        },
+                    ),
                     onClick = onOpenPermissions,
                 )
             }

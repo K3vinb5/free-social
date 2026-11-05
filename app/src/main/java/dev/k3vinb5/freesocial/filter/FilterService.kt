@@ -41,9 +41,30 @@ class FilterService : AccessibilityService() {
     private val throttle = ActionThrottle()
     private val stopwatch = SurfaceStopwatch()
 
+    /**
+     * D5: connect-time init is retried lazily on every event (at most every 5 s). A race or a throw
+     * during `onServiceConnected` can no longer leave the engine permanently dead and silent.
+     */
+    private val bootstrap = EngineBootstrap(
+        load = ::loadEngine,
+        clock = { SystemClock.elapsedRealtime() },
+    )
+
+    /** D5(c): one warning per reason per 30 s; scan diagnostics once per 10 s (D5(d)). */
+    private val warnLimiter = LogLimiter(WARN_WINDOW_MS)
+    private val diagLimiter = LogLimiter(DIAG_WINDOW_MS)
+
+    private var lastBeatElapsed = 0L
     private var scanQueued = false
     private var tickQueued = false
     private var receiverRegistered = false
+
+    /** The engine's two dependencies, loaded together so a half-initialised engine is impossible. */
+    private class EngineDeps(
+        val settings: SettingsRepository,
+        val matcher: RuleSetMatcher,
+        val ruleCount: Int,
+    )
 
     private val toggles = SurfaceToggleReader { app, key ->
         settings?.surfaceEnabled(app, key) ?: true
@@ -69,34 +90,64 @@ class FilterService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        try {
-            val repo = SettingsRepository.from(this)
-            settings = repo
-            ruleMatcher = RuleSetMatcher(RuleCatalog.load(this), toggles)
-            registerScreenReceiver()
-            requestScan()
-        } catch (t: Throwable) {
-            Log.w(TAG, "onServiceConnected failed", t)
+        val deps = engine(force = true)
+        if (deps == null) {
+            val error = bootstrap.lastError
+            Log.e(TAG, "init failed — filtering is DOWN and will retry on events", error)
+            return
         }
+        beat(force = true)
+        safe { registerScreenReceiver() }
+        Log.i(TAG, "connected, rules=${deps.ruleCount}, targets=${TARGET_PACKAGES.joinToString(",")}")
+        if (deps.ruleCount == 0) Log.w(TAG, "catalog empty — no rules loaded, nothing can match")
+        requestScan()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         try {
-            if (event == null) return
-            val pkg = event.packageName?.toString() ?: return
+            if (event == null) {
+                warnOnce("null event", "accessibility event was null")
+                return
+            }
+            val pkg = event.packageName?.toString() ?: run {
+                warnOnce("no package", "accessibility event without a package name")
+                return
+            }
+            // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
+            if (captureArmedDumpIfRequested(event, pkg)) return
+            // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
+            // is only written once the engine is actually initialised, so a dead engine stays dead
+            // in the hub too.
+            val deps = engine()
+            if (deps == null) {
+                warnOnce(
+                    "repo null",
+                    "engine unavailable for $pkg (${bootstrap.lastError ?: "init failed"}) — " +
+                        "retrying every ${EngineBootstrap.RETRY_AFTER_MS / 1000}s",
+                )
+                stopBudget()
+                return
+            }
+            beat()
+            if (!receiverRegistered) safe { registerScreenReceiver() }
             val app = targetFor(pkg)
             if (app == null) {
                 // Foreign package: only worth a re-check if we currently believe a surface is up.
                 if (stopwatch.activeSurface != null) requestScan()
                 return
             }
-            if (captureArmedDumpIfRequested(event, pkg)) return
             if (!interactive()) {
+                warnOnce("not interactive", "ignoring $pkg: screen off or keyguard locked")
                 stopBudget()
                 return
             }
-            val repo = settings
-            if (repo == null || !repo.filteringEnabled || repo.modeFor(app) != AppMode.FILTER) {
+            if (deps.ruleCount == 0) {
+                warnOnce("catalog empty", "rules.json loaded 0 rules — nothing can match")
+                stopBudget()
+                return
+            }
+            if (!deps.settings.filteringEnabled || deps.settings.modeFor(app) != AppMode.FILTER) {
+                infoOnce("filtering off", "$pkg is not filtered (master off or monitor mode)")
                 stopBudget()
                 return
             }
@@ -104,6 +155,43 @@ class FilterService : AccessibilityService() {
         } catch (t: Throwable) {
             Log.w(TAG, "onAccessibilityEvent failed", t)
         }
+    }
+
+    /** Loads both dependencies together; throws/returns null so [EngineBootstrap] records the failure. */
+    private fun loadEngine(): EngineDeps {
+        val repo = SettingsRepository.from(this)
+        val rules = RuleCatalog.load(this)
+        if (rules.isEmpty()) error("rule catalog is empty")
+        return EngineDeps(repo, RuleSetMatcher(rules, toggles), rules.size)
+    }
+
+    /**
+     * Current dependencies, lazily (re)initialised. The fields other methods read are only set
+     * after a successful load, so they are either both valid or both untouched.
+     */
+    private fun engine(force: Boolean = false): EngineDeps? {
+        val deps = if (force) bootstrap.attempt(force = true) else bootstrap.current()
+        if (deps == null) return null
+        settings = deps.settings
+        ruleMatcher = deps.matcher
+        return deps
+    }
+
+    /** D7 heartbeat, at most once per 60 s of event activity; connect forces one. */
+    private fun beat(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && lastBeatElapsed != 0L && now - lastBeatElapsed < EngineHealth.BEAT_INTERVAL_MS) return
+        lastBeatElapsed = now
+        runCatching { EngineHealth.recordBeat(this) }
+            .onFailure { Log.w(TAG, "could not write engine heartbeat", it) }
+    }
+
+    private fun warnOnce(reason: String, message: String) {
+        if (warnLimiter.allow(reason, SystemClock.elapsedRealtime())) Log.w(TAG, message)
+    }
+
+    private fun infoOnce(reason: String, message: String) {
+        if (diagLimiter.allow(reason, SystemClock.elapsedRealtime())) Log.i(TAG, message)
     }
 
     // --- Scan pipeline -------------------------------------------------------------------
@@ -119,39 +207,51 @@ class FilterService : AccessibilityService() {
     }
 
     private fun scan() {
-        val repo = settings ?: return
+        val deps = engine() ?: run {
+            warnOnce("repo null", "scan skipped: engine unavailable (${bootstrap.lastError ?: "init failed"})")
+            stopBudget()
+            return
+        }
+        val repo = deps.settings
         if (!repo.filteringEnabled) {
+            infoOnce("filtering off", "scan skipped: master switch is off")
             stopBudget()
             return
         }
         val focused = activeRoot() ?: run {
+            infoOnce("no root", "scan skipped: no active window")
             stopBudget()
             return
         }
         val appPackage = focused.packageName?.toString() ?: run {
+            warnOnce("no package", "scan skipped: active window has no package name")
             stopBudget()
             return
         }
         val app = targetFor(appPackage) ?: run {
+            infoOnce("not a target", "$appPackage is not a filtered app")
             stopBudget()
             return
         }
         if (repo.modeFor(app) != AppMode.FILTER) {
+            infoOnce("mode not filter", "$appPackage is in monitor mode")
             stopBudget()
             return
         }
         // Every window the foreground package owns: a focused sheet/overlay must not hide the
         // surface (TikTok's FYP lives in a second application window in the observed dumps).
-        val roots = windowRoots(appPackage)
-        if (roots.isEmpty()) {
+        val windows = appWindows(appPackage)
+        if (windows.isEmpty()) {
+            warnOnce("no windows", "scan skipped: no readable $appPackage window")
             stopBudget()
             return
         }
 
         val now = ZonedDateTime.now()
         val elapsed = SystemClock.elapsedRealtime()
-        val captured = NodeTreeReader.captureWindows(roots, appPackage)
+        val captured = NodeTreeReader.captureAll(windows, appPackage)
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
+        diagnose(appPackage, captured, app, deps.ruleCount, hits.size)
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -166,11 +266,58 @@ class FilterService : AccessibilityService() {
             else -> stopBudget()
         }
 
-        if (outcome != GateOutcome.NEUTRALISE) return
+        if (outcome != GateOutcome.NEUTRALISE) {
+            infoOnce("gate blocked", "$appPackage: ${hits.size} hit(s) but gate=$outcome (budget=$exhausted, locked=$locked)")
+            return
+        }
         // Exactly one action per scan, most escape-like first (RuleGate.ACTION_PRIORITY).
-        val hit = RuleGate.chosen(hits, exhausted, locked) ?: return
-        if (!throttle.tryAcquire(hit.rule.surface, appPackage, elapsed)) return
+        val hit = RuleGate.chosen(hits, exhausted, locked) ?: run {
+            warnOnce("no chosen hit", "$appPackage: gate said NEUTRALISE but no action was chosen")
+            return
+        }
+        if (!throttle.tryAcquire(hit.rule.surface, appPackage, elapsed)) {
+            infoOnce("throttled", "$appPackage/${hit.rule.surface}: action suppressed by throttle/quota")
+            return
+        }
         perform(hit, captured, appPackage)
+    }
+
+    /**
+     * D5(d): once per 10 s, per target package — how big the tree was and how much of it carries
+     * view ids, plus how many rules matched. `nodes>0 && viewIds==0` is the H2 signature (the OS
+     * stripped view ids); `nodes==0` is a capture problem; both are stated explicitly.
+     */
+    private fun diagnose(
+        appPackage: String,
+        captured: CapturedTree,
+        app: AppTarget,
+        rules: Int,
+        hits: Int,
+    ) {
+        if (!diagLimiter.allow("scan:$appPackage", SystemClock.elapsedRealtime())) return
+        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
+        val withIds = nodes.count { it.viewId != null }
+        val windowText = captured.windows.joinToString("; ") { window ->
+            "${window.title ?: window.className ?: "?"}(${window.layer})=${window.nodes}/${window.viewIds} ids"
+        }
+        Log.i(
+            TAG,
+            "scan $appPackage (${app.name}): ${nodes.size} nodes, $withIds with viewId, " +
+                "rules=${ruleMatcher.rulesFor(app, appPackage).size}/$rules, matched=$hits, " +
+                "windows=${captured.windows.size} [$windowText]",
+        )
+        if (nodes.size <= 1) {
+            warnOnce("empty tree:$appPackage", "scan saw an EMPTY $appPackage tree — capture or window access is broken")
+        } else if (withIds == 0) {
+            warnOnce(
+                "no view ids:$appPackage",
+                "$appPackage tree has 0 view ids — rules keyed on viewId cannot match " +
+                    "(H2: FLAG_REPORT_VIEW_IDS / allow restricted settings)",
+            )
+        }
+        if (captured.capped) {
+            warnOnce("capped:$appPackage", "capture hit the ${NodeTree.MAX_SCAN_NODES}-node cap for $appPackage — tree truncated")
+        }
     }
 
     // --- Actions -------------------------------------------------------------------------
@@ -189,8 +336,14 @@ class FilterService : AccessibilityService() {
             // Never the matched node: that is the surface being hidden (e.g. the Reels tab).
             Action.TAP_HOME_TAB -> tapHomeTab(label, captured)
             Action.CLICK_VIEW_ID -> {
-                val targetId = hit.rule.viewIdTarget ?: return
-                val node = captured.firstByViewId(targetId) ?: captured.live(hit.node) ?: return
+                val targetId = hit.rule.viewIdTarget ?: run {
+                    warnOnce("no viewIdTarget", "$label: CLICK_VIEW_ID rule has no viewIdTarget")
+                    return
+                }
+                val node = captured.firstByViewId(targetId) ?: captured.live(hit.node) ?: run {
+                    warnOnce("click target missing", "$label: neither $targetId nor the matched node is readable")
+                    return
+                }
                 if (clickNode(node)) report(label, Action.CLICK_VIEW_ID, true)
                 else report(label, Action.CLICK_VIEW_ID, tapNode(node))
             }
@@ -317,14 +470,42 @@ class FilterService : AccessibilityService() {
      * Every application window owned by [appPackage], topmost first — the same package can expose
      * its surface from more than one window (TikTok's FYP behind a sheet, IG behind a dialog).
      */
-    private fun windowRoots(appPackage: String): List<AccessibilityNodeInfo> {
-        val roots = windows.orEmpty()
+    private fun appWindows(appPackage: String): List<WindowRoot> {
+        // D6: every application window of the package, with its title/class/layer for the dump
+        // header. Ordering is the builder's job (top-most layer first).
+        val fromWindows = windows.orEmpty()
             .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-            .mapNotNull { window -> window.root?.takeIf { it.packageName?.toString() == appPackage } }
-            .distinct()
-        if (roots.isNotEmpty()) return roots
-        val active = rootInActiveWindow ?: return emptyList()
-        return listOf(active).filter { it.packageName?.toString() == appPackage }
+            .mapNotNull { window ->
+                val root = try {
+                    window.root
+                } catch (t: Throwable) {
+                    warnOnce("window root:$appPackage", "could not read a $appPackage window root: $t")
+                    null
+                }
+                if (root == null) return@mapNotNull null
+                if (root.packageName?.toString() != appPackage) return@mapNotNull null
+                WindowRoot(
+                    node = root,
+                    title = window.title?.toString(),
+                    className = root.className?.toString(),
+                    layer = window.layer,
+                    packageName = appPackage,
+                )
+            }
+        if (fromWindows.isNotEmpty()) return fromWindows
+        val active = rootInActiveWindow
+        if (active == null) {
+            warnOnce("no root", "no readable active window for $appPackage")
+            return emptyList()
+        }
+        if (active.packageName?.toString() != appPackage) return emptyList()
+        return listOf(
+            WindowRoot(
+                node = active,
+                className = active.className?.toString(),
+                packageName = appPackage,
+            ),
+        )
     }
 
     /** 1 s heartbeat: charge the second, and re-evaluate so an exhausted budget exits promptly. */
@@ -334,15 +515,23 @@ class FilterService : AccessibilityService() {
             return
         }
         val seconds = stopwatch.tick(SystemClock.elapsedRealtime())
-        if (seconds > 0) settings?.recordBudgetSeconds(seconds, ZonedDateTime.now())
+        if (seconds > 0) recordSeconds(seconds)
         if (stopwatch.activeSurface != null) requestScan()
     }
 
     private fun stopBudget() {
         val seconds = stopwatch.leave(SystemClock.elapsedRealtime())
-        if (seconds > 0) settings?.recordBudgetSeconds(seconds, ZonedDateTime.now())
+        if (seconds > 0) recordSeconds(seconds)
         handler.removeCallbacks(budgetTick)
         tickQueued = false
+    }
+
+    private fun recordSeconds(seconds: Long) {
+        val repo = settings ?: run {
+            warnOnce("repo null", "dropping $seconds s of budget: settings unavailable")
+            return
+        }
+        repo.recordBudgetSeconds(seconds, ZonedDateTime.now())
     }
 
     // --- Lifecycle -----------------------------------------------------------------------
@@ -389,8 +578,9 @@ class FilterService : AccessibilityService() {
     }
 
     private fun interactive(): Boolean {
-        val power = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
-        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager ?: return true
+        val power = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (power == null || keyguard == null) return true
         return power.isInteractive && !keyguard.isKeyguardLocked
     }
 
@@ -414,20 +604,49 @@ class FilterService : AccessibilityService() {
 
     private fun captureArmedDump(appPackage: String) {
         val started = SystemClock.uptimeMillis()
-        // Only the event's own package: our inspector window is never a candidate.
-        val roots = windowRoots(appPackage)
-        if (roots.isEmpty()) {
+        // D6: every window the target package owns, top-most first — a sheet/second activity
+        // window must not reduce the dump to the focused ghost tree.
+        val windows = appWindows(appPackage)
+        if (windows.isEmpty()) {
             Log.w(TAG, "armed dump: no readable $appPackage window")
             return
         }
-        val screen = DumpArm.consume() ?: return
-        // All of the package's windows, capped at 400 and de-duplicated across windows.
-        val captured = NodeTreeReader.captureWindows(roots, appPackage)
-        when (val result = DumpExporter.export(this, appPackage, screen, captured.root)) {
+        val screen = DumpArm.consume()
+        if (screen == null) {
+            warnOnce("dump expired", "armed dump expired before the target app opened")
+            return
+        }
+        val captured = NodeTreeReader.captureAll(windows, appPackage)
+        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
+        val withIds = nodes.count { it.viewId != null }
+        val windowText = captured.windows.joinToString("; ") { window ->
+            "${window.title ?: window.className ?: "?"}(layer ${window.layer})=${window.nodes} nodes/${window.viewIds} ids"
+        }
+        if (captured.capped) {
+            Log.w(TAG, "armed dump: ${NodeTree.MAX_SCAN_NODES}-node cap reached — $appPackage tree truncated")
+        }
+        if (withIds == 0) {
+            Log.w(
+                TAG,
+                "armed dump $appPackage: 0/${nodes.size} nodes carry a viewId — " +
+                    "rules keyed on viewId cannot match (FLAG_REPORT_VIEW_IDS / restricted settings)",
+            )
+        }
+        when (
+            val result = DumpExporter.export(
+                this,
+                appPackage,
+                screen,
+                captured.root,
+                windowStats = captured.windows,
+                capped = captured.capped,
+            )
+        ) {
             is DumpResult.Success -> Log.i(
                 TAG,
-                "armed dump $appPackage/\"$screen\": ${result.document.nodes.size} nodes in " +
-                    "${SystemClock.uptimeMillis() - started} ms -> ${result.file?.name}",
+                "armed dump $appPackage/\"$screen\": ${result.document.nodeCount} nodes " +
+                    "(${result.document.nodesWithViewId} with viewId, ${captured.windows.size} windows: " +
+                    "$windowText) in ${SystemClock.uptimeMillis() - started} ms -> ${result.file?.name}",
             )
             is DumpResult.Unavailable -> Log.w(TAG, "armed dump unavailable: ${result.reason}")
         }
@@ -446,6 +665,10 @@ class FilterService : AccessibilityService() {
         private const val CLICK_ANCESTOR_DEPTH = 6
         private const val GESTURE_STROKE_MS = 60L
         private const val SWIPE_DURATION_MS = 220L
+
+        /** D5(c): one warning per reason per 30 s; D5(d): one scan diagnostic per package per 10 s. */
+        private const val WARN_WINDOW_MS = 30_000L
+        private const val DIAG_WINDOW_MS = 10_000L
 
         /** TikTok's global build behaves like the musically package. */
         const val PACKAGE_TIKTOK_GLOBAL = "com.ss.android.ugc.trill"

@@ -26,6 +26,22 @@ class HubEnforcementTest {
     }
 
     @Test
+    fun `banner decision covers service off and a dead engine`() {
+        // Master off: the user chose this, no banner.
+        assertEquals(HubBanner.NONE, hubBanner(masterEnabled = false, serviceEnabled = false, engineStale = true))
+        assertEquals(HubBanner.NONE, hubBanner(masterEnabled = false, serviceEnabled = true, engineStale = false))
+
+        // A disabled service wins over a dead engine: same Permissions fix, more specific cause.
+        assertEquals(HubBanner.SERVICE_OFF, hubBanner(masterEnabled = true, serviceEnabled = false, engineStale = true))
+
+        // D7: master on, service enabled, no heartbeat for 2 min → engine banner.
+        assertEquals(HubBanner.ENGINE_STALE, hubBanner(masterEnabled = true, serviceEnabled = true, engineStale = true))
+
+        // Healthy: no banner.
+        assertEquals(HubBanner.NONE, hubBanner(masterEnabled = true, serviceEnabled = true, engineStale = false))
+    }
+
+    @Test
     fun `master off is off and shows no banner`() {
         val state = hubEnforcement(masterEnabled = false, serviceEnabled = false)
         assertEquals(HubEnforcement.OFF, state)

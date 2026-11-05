@@ -14,6 +14,7 @@
     <string name="hub_status_off">Filtering off</string>
     <string name="hub_status_paused">Service off — Filtering paused</string>
     <string name="hub_banner_service_off">The filter service is off — nothing is being filtered. Enable it in Permissions.</string>
+    <string name="hub_banner_engine_stale">The filter engine stopped reporting — nothing is being filtered. Open Permissions and restart the filter service.</string>
     <string name="chip_filter_paused">Filter · paused</string>
     <string name="hub_master_title">Filtering</string>
     <string name="hub_master_subtitle">All three apps · short-video surfaces</string>
