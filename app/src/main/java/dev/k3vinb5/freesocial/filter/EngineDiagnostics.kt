@@ -75,3 +75,58 @@ class LogLimiter(private val windowMs: Long) {
         lastByReason.clear()
     }
 }
+
+/**
+ * D8 — ghost-tree probe formatting.
+ *
+ * The ColorOS defect hands the service a decor-only root (3 nodes) while `uiautomator` sees the
+ * full content tree. This keeps the *formatting and candidate selection* pure and JVM-testable;
+ * every live read (`rootInActiveWindow`, `getChild`, `findAccessibilityNodeInfosByViewId`) stays in
+ * FilterService. The `probe ` prefix is the grep anchor and is always present.
+ */
+object GhostTreeProbe {
+    const val YOUTUBE_PACKAGE = "com.google.android.youtube"
+
+    /** Candidate view ids that exist in a real YouTube tree but never in the decor-only root. */
+    val YOUTUBE_VIEW_IDS: List<String> = listOf(
+        "$YOUTUBE_PACKAGE:id/menu_item_0",
+        "$YOUTUBE_PACKAGE:id/app_bar_wrapper",
+        "$YOUTUBE_PACKAGE:id/results",
+    )
+
+    /** Shape of the live root; `childCount == -1` and nulls mean "not readable". */
+    data class RootShape(
+        val packageName: String? = null,
+        val viewId: String? = null,
+        val childCount: Int = -1,
+        val grandchildCount: Int? = null,
+    )
+
+    /** The ids worth probing for [packageName]: the YouTube trio, or nothing for other packages. */
+    fun idsFor(packageName: String?): List<String> =
+        if (packageName == YOUTUBE_PACKAGE) YOUTUBE_VIEW_IDS else emptyList()
+
+    /** `menu_item_0` for `com.google.android.youtube:id/menu_item_0`. */
+    fun shortId(viewId: String): String = viewId.substringAfterLast('/')
+
+    /** `menu_item_0=0 app_bar_wrapper=1 results=0`; `n/a` when there is nothing to probe. */
+    fun idProbeText(ids: List<String>, counts: List<Int>): String {
+        if (ids.isEmpty()) return "n/a"
+        return ids.indices.joinToString(" ") { i ->
+            "${shortId(ids[i])}=${counts.getOrElse(i) { 0 }}"
+        }
+    }
+
+    /**
+     * The whole probe line body. `rootChildCount=3` is the ghost-tree signature; the `idProbe`
+     * counts say whether `findAccessibilityNodeInfosByViewId` can still reach the content.
+     */
+    fun format(pkg: String, shape: RootShape, idProbe: String): String =
+        "probe $pkg rootPkg=${shape.packageName ?: "none"} rootChildCount=${shape.childCount} " +
+            "rootViewId=${shape.viewId ?: "none"} " +
+            "child0Grandchildren=${shape.grandchildCount ?: "none"} idProbe=$idProbe"
+
+    /** The same root shape and counts appended to the per-target `scan` line (D5(d)). */
+    fun scanSuffix(shape: RootShape, idProbe: String): String =
+        "rootChildCount=${shape.childCount}, idProbe=$idProbe"
+}
