@@ -19,6 +19,7 @@ data class DumpNode(
     val contentDescription: String? = null,
     val bounds: String = "",
     val visible: Boolean = false,
+    val clickable: Boolean = false,
 )
 
 /** The rule-inspector export (SPEC §2.5). */
@@ -28,6 +29,13 @@ data class DumpDocument(
     val screen: String,
     val capturedAt: String,
     val nodes: List<DumpNode> = emptyList(),
+)
+
+/** One file already on disk, as shown in the inspector list. */
+data class DumpFile(
+    val file: File,
+    val document: DumpDocument,
+    val nodeCount: Int,
 )
 
 sealed interface DumpResult {
@@ -72,6 +80,7 @@ object DumpExporter {
                 contentDescription = node.contentDescription,
                 bounds = boundsText(node.bounds),
                 visible = node.visible,
+                clickable = node.clickable,
             )
         },
     )
@@ -95,14 +104,20 @@ object DumpExporter {
         return DumpResult.Success(file, doc, text)
     }
 
-    /** Dumps the best window the running service can see (a target app if one is up). */
-    fun dumpCurrent(context: Context, screen: String): DumpResult {
-        val service = FilterService.instance
-            ?: return DumpResult.Unavailable("filter service not connected")
-        val captured = service.captureForDump()
-            ?: return DumpResult.Unavailable("no readable window")
-        val appPackage = captured.packageName ?: return DumpResult.Unavailable("window has no package")
-        return export(context, appPackage, screen, captured.root)
+    /** Dumps already written by [FilterService]'s armed capture, newest first. */
+    fun list(context: Context): List<DumpFile> {
+        val dir = dumpDir(context)
+        val files = dir.listFiles { file -> file.isFile && file.name.endsWith(".json") } ?: return emptyList()
+        return files.mapNotNull(::read).sortedByDescending { it.document.capturedAt }
+    }
+
+    /** Parses one dump file; a half-written or foreign file is skipped, never thrown. */
+    fun read(file: File): DumpFile? = try {
+        val document = json.decodeFromString(DumpDocument.serializer(), file.readText())
+        DumpFile(file, document, document.nodes.size)
+    } catch (t: Throwable) {
+        Log.w(TAG, "unreadable dump ${file.name}", t)
+        null
     }
 
     fun shareIntent(document: DumpDocument, jsonText: String): Intent =
@@ -114,12 +129,17 @@ object DumpExporter {
     /** `[l,t][r,b]`, the bounds format `uiautomator dump` emits. */
     fun boundsText(bounds: Bounds): String = "[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]"
 
-    private fun writeFile(context: Context, appPackage: String, text: String, now: ZonedDateTime): File {
+    private fun dumpDir(context: Context): File {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
         val dir = File(base, DIR_NAME)
         if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory) {
             error("cannot create $dir")
         }
+        return dir
+    }
+
+    private fun writeFile(context: Context, appPackage: String, text: String, now: ZonedDateTime): File {
+        val dir = dumpDir(context)
         val file = File(dir, "$appPackage-${now.format(STAMP)}.json")
         file.writeText(text)
         return file

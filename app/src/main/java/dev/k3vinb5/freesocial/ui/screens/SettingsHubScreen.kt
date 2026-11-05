@@ -16,10 +16,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.settings.AppMode
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.components.Caption
 import dev.k3vinb5.freesocial.ui.components.HorizontalGap
+import dev.k3vinb5.freesocial.ui.components.InfoBanner
 import dev.k3vinb5.freesocial.ui.components.ListRow
 import dev.k3vinb5.freesocial.ui.components.SectionCard
 import dev.k3vinb5.freesocial.ui.components.SectionLabel
@@ -29,6 +31,22 @@ import dev.k3vinb5.freesocial.ui.components.SwitchRow
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
 import java.time.ZonedDateTime
+
+/** What the hub's top pill is allowed to claim, given the master switch and the live service state. */
+internal enum class HubEnforcement { ON, PAUSED, OFF }
+
+/**
+ * The pill/banner decision, pure so the truth table is testable without Android (SPEC §2.4:
+ * the pill reflects LIVE enforcement, not just the master switch).
+ */
+internal fun hubEnforcement(masterEnabled: Boolean, serviceEnabled: Boolean): HubEnforcement = when {
+    !masterEnabled -> HubEnforcement.OFF
+    serviceEnabled -> HubEnforcement.ON
+    else -> HubEnforcement.PAUSED
+}
+
+/** A degraded state must show the persistent banner: master on but nothing is being filtered. */
+internal fun hubEnforcementDegraded(state: HubEnforcement): Boolean = state == HubEnforcement.PAUSED
 
 /** F6 — settings home. */
 @Composable
@@ -49,6 +67,17 @@ fun SettingsHubScreen(
         onPauseOrDispose { }
     }
 
+    // Live truth: the master switch alone does not mean anything is actually filtered.
+    val enforcement = hubEnforcement(
+        masterEnabled = settings.filteringEnabled,
+        serviceEnabled = settings.permissionStatus.filterService,
+    )
+    val pill = when (enforcement) {
+        HubEnforcement.ON -> R.string.hub_status_on to FsColors.Success
+        HubEnforcement.PAUSED -> R.string.hub_status_paused to FsColors.Warning
+        HubEnforcement.OFF -> R.string.hub_status_off to FsColors.TextTertiary
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -58,10 +87,8 @@ fun SettingsHubScreen(
             title = stringResource(R.string.app_name),
             actions = {
                 StatusPill(
-                    text = stringResource(
-                        if (settings.filteringEnabled) R.string.hub_status_on else R.string.hub_status_off,
-                    ),
-                    color = if (settings.filteringEnabled) FsColors.Success else FsColors.TextTertiary,
+                    text = stringResource(pill.first),
+                    color = pill.second,
                 )
             },
         )
@@ -81,6 +108,14 @@ fun SettingsHubScreen(
                 )
             }
 
+            if (hubEnforcementDegraded(enforcement)) {
+                HorizontalGap(12.dp)
+                InfoBanner(
+                    text = stringResource(R.string.hub_banner_service_off),
+                    onClick = onOpenPermissions,
+                )
+            }
+
             SectionLabel(stringResource(R.string.hub_apps_section))
 
             AppTarget.entries.forEach { app ->
@@ -88,7 +123,18 @@ fun SettingsHubScreen(
                     title = stringResource(app.nameRes),
                     chevron = true,
                     onClick = { onOpenApp(app) },
-                    trailing = { StateChip(settings.modeFor(app)) },
+                    trailing = {
+                        val mode = settings.modeFor(app)
+                        if (enforcement != HubEnforcement.ON && mode == AppMode.FILTER) {
+                            // Configured to filter, but enforcement is not running right now.
+                            StatusPill(
+                                text = stringResource(R.string.chip_filter_paused),
+                                color = FsColors.Warning,
+                            )
+                        } else {
+                            StateChip(mode)
+                        }
+                    },
                 )
                 Spacer(Modifier.height(8.dp))
             }
