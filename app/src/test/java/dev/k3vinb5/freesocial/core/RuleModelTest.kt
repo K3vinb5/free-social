@@ -1,6 +1,7 @@
 package dev.k3vinb5.freesocial.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -102,19 +103,47 @@ class RuleModelTest {
     }
 
     @Test
-    fun `shipped asset parses with 8 unverified placeholder rules`() {
+    fun `shipped asset covers the eight filter surfaces`() {
         val asset = java.io.File("src/main/assets/rules.json").readText()
         val set = loadRuleSet(asset)
         assertEquals(8, set.rules.size)
-        for (rule in set.rules) {
-            assertEquals("UNVERIFIED placeholder — replace from device dumps", rule.notes)
-            assertNull(rule.verifiedAgainstAppVersion)
-            assertTrue(rule.layer == 1 || rule.layer == 2)
-        }
         assertEquals(
-            listOf("com.instagram.android", "com.google.android.youtube", "com.zhiliaoapp.musically"),
-            set.rules.map { it.appPackage }.distinct(),
+            setOf(
+                "com.instagram.android" to "feed_reel_cell",
+                "com.instagram.android" to "reels_tab",
+                "com.instagram.android" to "clips_viewer",
+                "com.instagram.android" to "dm_carve_out",
+                "com.google.android.youtube" to "shorts_shelf",
+                "com.google.android.youtube" to "shorts_player",
+                "com.zhiliaoapp.musically" to "playback",
+                "com.zhiliaoapp.musically" to "dm_carve_out",
+            ),
+            set.rules.map { it.appPackage to it.surface }.toSet(),
         )
-        assertTrue(set.rules.any { it.surface == "dm_carve_out" && it.action == Action.SKIP })
+        assertEquals(listOf(1, 2), set.rules.map { it.layer }.distinct().sorted())
+        assertEquals(2, set.rules.count { it.action == Action.SKIP })
+    }
+
+    @Test
+    fun `shipped rules are version-stamped or name their missing evidence`() {
+        val asset = java.io.File("src/main/assets/rules.json").readText()
+        val set = loadRuleSet(asset)
+        for (rule in set.rules) {
+            val notes = rule.notes ?: ""
+            assertTrue("rule '${rule.id}' has no notes", notes.length > 40)
+            assertFalse("rule '${rule.id}' still says placeholder", notes.contains("placeholder", ignoreCase = true))
+            val version = rule.verifiedAgainstAppVersion
+            if (version == null) {
+                assertTrue(
+                    "unverified rule '${rule.id}' must name its missing evidence",
+                    notes.contains("UNVERIFIED"),
+                )
+            } else {
+                assertTrue(
+                    "rule '${rule.id}' has an unexpected version '$version'",
+                    version.matches(Regex("(Instagram|YouTube|TikTok) \\d[\\w.]*")),
+                )
+            }
+        }
     }
 }

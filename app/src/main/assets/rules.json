@@ -7,11 +7,12 @@
       "surface": "feed_reel_cell",
       "layer": 1,
       "match": {
-        "classNameRegex": "(?i).*(clips|reel).*"
+        "viewId": "com.instagram.android:id/video_container",
+        "classNameRegex": "android\\.view\\.ViewGroup"
       },
       "action": "REDIRECT_HOME",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "IG feed reel/video cell: the video slot of a feed row (id video_container, class android.view.ViewGroup). Layer 1 (always hidden): removes the thumb-stopping entry point. Evidence: 233205-ig_feed_scroll3 (+233157) show the id on a playing feed video while the bottom nav is present; 233005-ig_home (photo-only feed) and 233528-ig_reels_tab (clips viewer) do not contain the id, so it does not fire on photos or on the viewer. Action gap: Action has no swipe-past, so the engine leaves the app (REDIRECT_HOME); see docs/rules/RULES.md.",
+      "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
       "id": "ig_reels_tab",
@@ -19,11 +20,13 @@
       "surface": "reels_tab",
       "layer": 1,
       "match": {
-        "textRegex": "(?i)^reels?(,.*)?$"
+        "viewId": "com.instagram.android:id/clips_tab",
+        "contentDescriptionRegex": "(?i)^reels$",
+        "classNameRegex": "android\\.widget\\.FrameLayout"
       },
       "action": "TAP_HOME_TAB",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "IG Reels bottom-nav tab (id clips_tab, content-desc \"Reels\", class FrameLayout) — verified selected=true only on the Reels screen (233528) and selected=false on feed/DM (233005, 234011). SCHEMA GAP: MatchSpec has no selected-state criterion, so the rule matches the tab node on every IG screen that shows the tab bar and performs an idempotent Home-tab tap; the DM screen is shielded by ig_dm_carve_out (SKIP wins in RuleGate). Documented in docs/rules/RULES.md.",
+      "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
       "id": "ig_clips_viewer",
@@ -31,23 +34,25 @@
       "surface": "clips_viewer",
       "layer": 2,
       "match": {
-        "viewId": "com.instagram.android:id/clips_viewer_view_pager"
+        "viewId": "com.instagram.android:id/clips_viewer_view_pager",
+        "classNameRegex": "androidx\\.viewpager\\.widget\\.ViewPager"
       },
       "action": "BACK",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "IG Reels/clips viewer (id clips_viewer_view_pager, class androidx.viewpager.widget.ViewPager; siblings clips_viewer_container / clips_viewer_video_layout also present). Layer 2 = the budget gate itself: RuleGate only neutralises layer 2 when the budget is exhausted or the nightly window is locked, which is exactly the analysis rule e-5 (never hijack the viewer during grace). Evidence 233528-ig_reels_tab (full tree captured while the viewer played).",
+      "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
-      "id": "ig_deep_link_open",
+      "id": "ig_dm_carve_out",
       "appPackage": "com.instagram.android",
-      "surface": "deep_link_open",
+      "surface": "dm_carve_out",
       "layer": 2,
       "match": {
-        "classNameRegex": "com\\.instagram\\.android\\.activity\\.(ClipsUrlHandlerActivity|MediaUrlHandlerActivity)"
+        "viewId": "com.instagram.android:id/row_thread_composer_edittext",
+        "classNameRegex": "android\\.widget\\.EditText"
       },
-      "action": "BACK",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "action": "SKIP",
+      "notes": "IG DM carve-out: an open DM thread keeps its composer (id row_thread_composer_edittext, class EditText, hint \"Message…\"). SKIP outranks every neutralisation in RuleGate, so shared reels playing inside a thread are left alone. Evidence 234329-ig_dm_thread: thread with two shared reels on screen plus composer and direct_thread_* chrome; inbox bar direct_inbox_action_bar seen in 234011 (screenshot black: IG Direct is FLAG_SECURE).",
+      "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {
       "id": "yt_shorts_shelf",
@@ -55,11 +60,12 @@
       "surface": "shorts_shelf",
       "layer": 1,
       "match": {
-        "viewId": "com.google.android.youtube:id/reel_recycler"
+        "contentDescriptionRegex": "(?i)(^shorts$| - play short$)",
+        "classNameRegex": "android\\.view\\.ViewGroup"
       },
       "action": "REDIRECT_HOME",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "YT Shorts shelf on the Home feed. YouTube 21.43.523 exposes NO resource-ids on the shelf or the bottom nav (reel_recycler only exists in the player), so the shelf is matched on accessibility text: the shelf header ViewGroup content-desc \"Shorts\" and each shelf card ViewGroup content-desc \"<title> - play Short\" (234610-yt_home). The bottom-nav Shorts entry is a Button, excluded by classNameRegex. English-locale strings — see docs/rules/RULES.md.",
+      "verifiedAgainstAppVersion": "YouTube 21.43.523"
     },
     {
       "id": "yt_shorts_player",
@@ -67,11 +73,12 @@
       "surface": "shorts_player",
       "layer": 2,
       "match": {
-        "viewId": "com.google.android.youtube:id/shorts_player_container"
+        "viewId": "com.google.android.youtube:id/reel_recycler",
+        "classNameRegex": "android\\.support\\.v7\\.widget\\.RecyclerView"
       },
       "action": "BACK",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "YT Shorts player (id reel_recycler, class android.support.v7.widget.RecyclerView; reel_player_page_container and reel_watch_fragment_root are siblings). Layer 2: plays while the budget lasts, Back once exhausted/locked. Evidence 234810-yt_shorts_player, captured while a Short played. NOTE: the shorts_player_container id used by SocialLite 03c does not exist in 21.43.523 — do not key on it.",
+      "verifiedAgainstAppVersion": "YouTube 21.43.523"
     },
     {
       "id": "tiktok_playback",
@@ -79,11 +86,12 @@
       "surface": "playback",
       "layer": 2,
       "match": {
-        "classNameRegex": "(?i).*(video|player).*"
+        "viewId": "com.zhiliaoapp.musically:id/video_seek_bar",
+        "classNameRegex": "android\\.widget\\.LinearLayout"
       },
       "action": "BACK",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "TikTok playing video: the progress bar (id video_seek_bar, class LinearLayout) is the discriminator — player_view/video_container_area are also present on a PHOTO post (negative control 235543-tt_fyp_next2 has no video_seek_bar, 234958-tt_consent_check does; 235326 live preview has neither). Layer 2: play while the budget lasts, one Back when exhausted. TikTok ids are obfuscated and churn per release; verifiedAgainstAppVersion pins it.",
+      "verifiedAgainstAppVersion": "TikTok 47.6.3"
     },
     {
       "id": "tiktok_dm_carve_out",
@@ -91,11 +99,12 @@
       "surface": "dm_carve_out",
       "layer": 2,
       "match": {
-        "textRegex": "(?i)^(back to chat|reply privately)$"
+        "viewId": "com.zhiliaoapp.musically:id/udm",
+        "classNameRegex": "android\\.widget\\.Button"
       },
       "action": "SKIP",
-      "notes": "UNVERIFIED placeholder — replace from device dumps",
-      "verifiedAgainstAppVersion": null
+      "notes": "TikTok DM carve-out: the in-thread composer button (id udm, class Button, text \"Message <name>…\") is present while a video shared in a DM plays full-screen — the exact screen where tiktok_playback would otherwise fire. SKIP wins in RuleGate. Evidence 001928-tt_dm_video_paused (player_view + video_seek_bar + \"Message Carol...\") and 001335-tt_activity_carol (chat thread with shared videos). The SocialLite strings \"Back to chat\"/\"Reply privately\" (03c f3348u0) do not occur in build 47.6.3; plain threads use composer id ui_slot_input_layout_redesign. See docs/rules/RULES.md.",
+      "verifiedAgainstAppVersion": "TikTok 47.6.3"
     }
   ]
 }
