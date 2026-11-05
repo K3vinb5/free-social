@@ -30,6 +30,11 @@ class ActionThrottle(
 
     fun actionsInWindow(appPackage: String): Int = actionStampsByPackage[appPackage]?.size ?: 0
 
+    /** Clears one surface's debounce stamp — a genuine re-entry must not inherit it. */
+    fun reset(surfaceKey: String) {
+        lastActionBySurface.remove(surfaceKey)
+    }
+
     fun reset() {
         lastActionBySurface.clear()
         actionStampsByPackage.clear()

@@ -56,12 +56,26 @@ class RuleModelTest {
         assertNull(parsed.match.selected)
         assertNull(parsed.notes)
         assertNull(parsed.verifiedAgainstAppVersion)
+        assertTrue(parsed.enabled)
+    }
+
+    @Test
+    fun `enabled defaults true and a disabled rule still parses`() {
+        val disabled = rule(action = "\"SCROLL_PAST\"", extra = ""","enabled":false""")
+        assertFalse(loadRuleSet(set(disabled)).rules.single().enabled)
+        // The default is on, so an enabled SCROLL_PAST is a policy violation, not a silent pass.
+        expectError(set(rule(action = "\"SCROLL_PAST\"")), "SCROLL_PAST is retired")
     }
 
     @Test
     fun `all action variants survive the round trip`() {
         for (action in Action.entries) {
-            val extra = if (action == Action.CLICK_VIEW_ID) ""","viewIdTarget":"com.instagram.android:id/tab_home"""" else ""
+            val extra = when (action) {
+                Action.CLICK_VIEW_ID -> ""","viewIdTarget":"com.instagram.android:id/tab_home""""
+                // SCROLL_PAST is retired for enabled rules; it must still parse for the archive.
+                Action.SCROLL_PAST -> ""","enabled":false"""
+                else -> ""
+            }
             val parsed = loadRuleSet(set(rule(action = "\"${action.name}\"", extra = extra))).rules.single()
             assertEquals(action, parsed.action)
         }
@@ -136,13 +150,21 @@ class RuleModelTest {
         assertEquals(listOf(1, 2), set.rules.map { it.layer }.distinct().sorted())
         assertEquals(2, set.rules.count { it.action == Action.SKIP })
 
-        // No in-app surface may leave the app; in-place swipes replace the old Home redirect.
-        assertEquals(0, set.rules.count { it.action == Action.REDIRECT_HOME })
+        // DIRECT-ENGAGEMENT policy: the two passive rules stay as documentation but never act.
+        assertEquals(2, set.rules.count { it.action == Action.SCROLL_PAST })
         assertEquals(
+            setOf("feed_reel_cell", "shorts_shelf"),
+            set.rules.filter { !it.enabled }.map { it.surface }.toSet(),
+        )
+        assertEquals(
+            "passive rules must be retired, nothing else",
             setOf("feed_reel_cell", "shorts_shelf"),
             set.rules.filter { it.action == Action.SCROLL_PAST }.map { it.surface }.toSet(),
         )
-        assertEquals(2, set.rules.count { it.action == Action.SCROLL_PAST })
+        assertEquals(0, set.rules.count { it.enabled && it.action == Action.SCROLL_PAST })
+        assertEquals(6, set.rules.count { it.enabled })
+        // No in-app surface may leave the app.
+        assertEquals(0, set.rules.count { it.action == Action.REDIRECT_HOME })
         // The Reels tab only matches while it is actually selected (Reels screen), not on every tab bar.
         assertEquals(true, set.rules.single { it.id == "ig_reels_tab" }.match.selected)
     }

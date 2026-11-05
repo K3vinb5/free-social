@@ -378,6 +378,17 @@ class FilterService : AccessibilityService() {
         )
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
         diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
+        // Policy 5: while the rule inspector has a capture armed/active the engine touches nothing
+        // (no escapes, no scroll, no taps), so the user can navigate freely. DumpArm clears itself
+        // when the capture completes or the 60 s arm expires, which restores enforcement.
+        if (DumpArm.isArmed()) {
+            infoOnce("dump armed", "$appPackage: interaction paused while a rule-inspector capture is armed")
+            stopBudget()
+            return
+        }
+        // Episode tracking uses every surface the capture shows, before any gating: a surface that
+        // disappeared ends its escape episode, so a re-entry is always a fresh, deterministic entry.
+        arbiter.observe(hits.map { "$appPackage/${it.rule.surface}" }.toSet())
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -388,33 +399,30 @@ class FilterService : AccessibilityService() {
         }
         when {
             outcome == GateOutcome.SKIP -> stopBudget()
-            countingHit != null && !(exhausted || locked) -> trackBudget(countingHit.rule.surface, appPackage, repo, now)
+            outcome == GateOutcome.PAY && countingHit != null ->
+                trackBudget(countingHit.rule.surface, appPackage, repo, now)
             else -> stopBudget()
         }
 
-        if (outcome != GateOutcome.NEUTRALISE) {
+        if (outcome != GateOutcome.ESCAPE) {
             infoOnce("gate blocked", "$appPackage: ${hits.size} hit(s) but gate=$outcome (budget=$exhausted, locked=$locked)")
             return
         }
         // Exactly one action per scan, most escape-like first (RuleGate.ACTION_PRIORITY).
         val hit = RuleGate.chosen(hits, exhausted, locked) ?: run {
-            warnOnce("no chosen hit", "$appPackage: gate said NEUTRALISE but no action was chosen")
+            warnOnce("no chosen hit", "$appPackage: gate said ESCAPE but no action was chosen")
             return
         }
         // R3: a confirmed escape is asynchronous — scans on the pre-navigation tree must not re-fire
-        // it. The hold lifts as soon as a capture no longer shows that surface (or after 5 s).
+        // that same surface episode. A re-entry (surface gone from a later capture) is never blocked.
         val surfaceKey = hit.rule.surface
-        val surfaceStillPresent = hits.any { it.rule.surface == surfaceKey }
-        if (!arbiter.tryAcquire(surfaceKey, appPackage, elapsed, surfaceStillPresent)) {
-            infoOnce(
-                "throttled",
-                "$appPackage/$surfaceKey: action suppressed by throttle/quota or post-escape hold",
-            )
+        if (!arbiter.tryAcquire(surfaceKey, appPackage, elapsed)) {
+            infoOnce("throttled", "$appPackage/$surfaceKey: duplicate action for the current surface episode")
             return
         }
         val escapedAction = hit.rule.action in ESCAPE_ACTIONS
         val acted = perform(hit, captured, appPackage)
-        arbiter.confirm(surfaceKey, appPackage, elapsed, escapedAction && acted)
+        arbiter.confirm(surfaceKey, appPackage, escapedAction, acted)
     }
 
     /**
@@ -473,7 +481,8 @@ class FilterService : AccessibilityService() {
      * *before* the dispatch, so a rejected gesture and a real removal looked identical in logcat.
      *
      * R3: BACK / TAP_HOME_TAB / REDIRECT_HOME are escape actions that change the screen
-     * asynchronously; their confirmed result opens the post-escape hold in [ActionArbiter].
+     * asynchronously; their confirmed result starts a content-based escape episode in
+     * [ActionArbiter] (no time window).
      */
     private fun perform(hit: RuleHit, captured: CapturedTree, appPackage: String): Boolean {
         val label = "$appPackage/${hit.rule.surface}"
@@ -857,7 +866,7 @@ class FilterService : AccessibilityService() {
         /** D8: one ghost-tree probe line per package per 10 s. */
         private const val PROBE_WINDOW_MS = 10_000L
 
-        /** R3: actions that change the screen asynchronously; a confirmed one opens the post-escape hold. */
+        /** R3: actions that change the screen asynchronously; a confirmed one starts an escape episode. */
         private val ESCAPE_ACTIONS = setOf(Action.BACK, Action.TAP_HOME_TAB, Action.REDIRECT_HOME)
 
         /** R4: retry a ghost armed dump within the 60 s arm (4 × 600 ms covers the launch fill). */

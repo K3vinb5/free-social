@@ -60,22 +60,42 @@ Neutralisation actions: global Back; gesture tap on the safe Home tab (with
 `performAction` fallback); targeted click (e.g. Instagram's DM tab as "get me out");
 a WindowManager overlay; `disableSelf()`. Screenshots are declared but unused.
 
+**Direct-engagement policy (2026-11-05, authoritative):**
+
+1. **Passive surfaces are never touched.** Feed reel cells, Shorts shelves and anything
+   the user is merely scrolling past get no action at all — no scroll, no redirect, no
+   tap. Auto-scrolling the target app's page was actively harmful and is retired.
+2. **Direct engagement only.** The engine acts solely when the user deliberately enters a
+   short-video surface: the IG Reels viewer/tab, the YT Shorts player, TikTok playback.
+   While the daily budget lasts the surface *pays* (stopwatch) and is left alone; once
+   exhausted every entry is escaped consistently, including immediate re-entries.
+3. **No allow-then-deny.** The outcome per entry is deterministic: there is no
+   post-escape suppression window. The 1200 ms action debounce only absorbs event storms
+   within one surface episode and never turns an escape into an allow.
+4. **Exact surface classification.** A capture has one surface identity; rules scoped to
+   a feed cannot match inside the viewer/player and vice versa. `SurfaceClassifier`
+   (`DIRECT` / `PASSIVE` / `UNKNOWN`) drives the verdict instead of the JSON `layer`.
+5. **Inspector captures pause enforcement.** While a rule-inspector capture is armed the
+   engine performs no action on any package (and the stopwatch stops), so the user can
+   navigate freely; consuming or expiring the capture restores enforcement.
+
 v1 rule set — Instagram, YouTube, TikTok only (full tables incl. deferred apps in
 `03b`/`03c`):
 
-| App | Rule | Match | Action | Layer |
+| App | Rule | Match | Action | Policy |
 | --- | --- | --- | --- | --- |
-| Instagram | Reel cells in feed | player/dwell heuristics (`g6.b`, `t5`) | neutralise | 1 |
-| Instagram | Reels tab | selected bottom-nav "Reels" tab detection (`x`/`y`/`p`/`z`) | hide/redirect | 1 |
-| Instagram | Reels viewer (clips) | `clips_viewer_*` ids | play while budget lasts; exit when exhausted | 2 |
-| Instagram | Deep-link open | `ClipsUrlHandlerActivity`/`MediaUrlHandlerActivity` RESUMED | grace window while budget lasts | 2 |
-| YouTube | Shorts shelf | `reel_recycler` id | neutralise | 1 |
-| YouTube | Shorts player | `shorts_player_container` id | play while budget lasts; Back when exhausted | 2 |
-| TikTok | Any playing video | armed + playing ≥ 1 s (`e7`) | play while budget lasts; one Back when exhausted | 2 |
+| Instagram | Reel cells in feed | `video_container` | **none** (retired) | passive |
+| Instagram | Reels tab | selected bottom-nav "Reels" tab detection (`x`/`y`/`p`/`z`) | pay / Home tab when exhausted | direct |
+| Instagram | Reels viewer (clips) | `clips_viewer_*` ids | pay while budget lasts; exit when exhausted | direct |
+| Instagram | Deep-link open | `ClipsUrlHandlerActivity`/`MediaUrlHandlerActivity` RESUMED | lands in the viewer: pay / exit per budget | direct |
+| YouTube | Shorts shelf | `Shorts` + "play Short" text | **none** (retired) | passive |
+| YouTube | Shorts player | `reel_recycler` id | pay while budget lasts; Back when exhausted | direct |
+| TikTok | Any playing video | FYP chrome + TextureView/`SurfaceView` | pay while budget lasts; one Back when exhausted | direct |
 | TikTok | DM carve-out | "Back to chat"/"Reply privately" (8-locale text) | skip | — |
 
-Layers (see §2.2): **1** = always hidden (passive discovery), **2** = budget-governed
-(intentional consumption).
+Retired rules stay in `rules.json` with `enabled=false` and their evidence in `notes`; the
+loader rejects an enabled `SCROLL_PAST`, so the policy is enforced in code, not just data.
+
 
 Brittleness (inherent, surface it in our UI): exact view-ids, locale string gates,
 pure-geometry layout tests — all **fail open**, silently letting content through after a
@@ -87,17 +107,20 @@ verified against version X" note.
 Name: **Short-video budget** (UI copy: "Reels & Shorts budget"). One combined daily
 allowance across Instagram + YouTube + TikTok — *not* a per-app limit.
 
-- **What counts:** actual time in a short-video surface — IG clips viewer, YT Shorts
-  player, TikTok playback. The FilterService already identifies these surfaces; a
-  stopwatch ticks while such a surface is on screen. One counter: `{date, seconds}` in
-  prefs, reset at local midnight. Config: minutes per day (default 20), live "X min left
+- **What counts:** actual time in a direct short-video surface — IG clips viewer (and the
+  Reels tab), YT Shorts player, TikTok playback. The FilterService already identifies these
+  surfaces; a stopwatch ticks while such a surface is on screen. One counter: `{date, seconds}`
+  in prefs, reset at local midnight. Config: minutes per day (default 20), live "X min left
   today" in settings.
-- **While the budget lasts:** layer-2 surfaces play normally (deep links and the
-  Reels/Shorts tabs work). Passive discovery (layer 1: feed cells, Shorts shelf) stays
-  hidden regardless — you choose to watch, the feed never feeds you.
-- **When it runs out:** filtering goes absolute — viewers exit, players back out, tabs
-  redirect; deep-link grace windows close. Until the midnight reset.
-- **During the schedule window (§2.4):** budget is treated as exhausted.
+- **While the budget lasts:** every direct surface plays normally and pays the stopwatch.
+  Passive feed cells and Shorts shelves are never touched (they are not hidden or scrolled
+  either — the feed is left exactly as found).
+- **When it runs out:** filtering goes absolute — every entry to a direct surface is escaped
+  consistently (viewers Back out, the Reels tab goes Home, players Back out), including
+  immediate re-entries, with no allow window. Until the midnight reset.
+- **During the schedule window (§2.3):** budget is treated as exhausted.
+- **While a rule-inspector capture is armed:** no package is acted on and the stopwatch stops;
+  consuming or expiring the capture restores enforcement automatically.
 
 This replaces per-app screen-time limits with what the user actually asked for: *access
 to all filtered content combined, for a configured amount of time daily*.
@@ -109,7 +132,7 @@ One model: per-weekday **bedtime** and **wake** (minutes from midnight), optiona
 locked N minutes *after* wake). The window wraps overnight (22:30→07:00 with 30 min
 wind-down and morning-lock = locked 22:00–07:30).
 
-- Effect while active: budget treated as exhausted (all layer-2 surfaces filtered out)
+- Effect while active: budget treated as exhausted (all direct surfaces escaped)
   and Block-mode apps get the block screen. Independent axis: it applies even when the
   master switch is off (as in the original).
 - Mechanism: compute the window at every decision (timezone/DST-safe); one
@@ -171,8 +194,9 @@ v318, you have v322". We never need SocialLite again: it is not the source of ru
 ## 4. Architecture (clone)
 
 - **`FilterService`** (primary) — single-flight scan on the six event types, debounce/
-  caps/quota as in the original; rule sets from a JSON asset; layer-1/layer-2 logic per
-  §2.1–2.2; owns the budget stopwatch and the schedule predicate.
+  caps/quota as in the original; rule sets from a JSON asset; direct-engagement
+  classification (`SurfaceClassifier`) per §2.1–2.2; owns the budget stopwatch and the
+  schedule predicate; pauses all actions while an inspector capture is armed.
 - **`BlockService`** (opt-in) — `typeWindowStateChanged` → gate tree → `BlockActivity`
   (`singleInstance`, `excludeFromRecents`, empty taskAffinity, `NEW_TASK|CLEAR_TASK`);
   500 ms per-package dedupe.
@@ -202,14 +226,15 @@ v318, you have v322". We never need SocialLite again: it is not the source of ru
   a Play Store system image covers development + rule authoring; a physical phone with
   logged-in IG/YT/TikTok remains the best final-acceptance target because TikTok/Play
   Integrity may refuse to run on AVDs):
-  1. IG in Filter mode: feed reel cells + Reels tab hidden; opening a reel via deep link
-     plays and ticks the budget.
-  2. YT Shorts shelf hidden; Shorts player plays within budget, Back-ed when exhausted.
-  3. TikTok playback counts against the same budget; after exhaustion, playing videos get
-     backed out; DMs still usable.
+  1. IG in Filter mode: the feed is untouched (reel cells left in place); opening a reel
+     via the Reels tab or a deep link plays and ticks the budget while it lasts.
+  2. YT Shorts shelf untouched; Shorts player plays within budget, Back-ed when exhausted.
+  3. TikTok playback counts against the same budget; after exhaustion every playback entry is
+     backed out, including immediate re-entries (no allow window); DMs still usable.
   4. Budget: set 1 min → consumption across all three apps stops at 1 min total.
-  5. Schedule: window now+2 min → all short-video filtered out at the boundary, returns at
+  5. Schedule: window now+2 min → all direct surfaces filtered out at the boundary, returns at
      wake (exact alarm).
   6. Opt-in Block mode on one app → block screen, back goes home, re-open re-blocks.
   7. Disable the accessibility service → settings shows the failure banner.
-  8. Rule inspector dumps a live node tree for IG/YT/TikTok screens.
+  8. Rule inspector dumps a live node tree for IG/YT/TikTok screens, and enforcement pauses for
+     the duration of an armed capture.

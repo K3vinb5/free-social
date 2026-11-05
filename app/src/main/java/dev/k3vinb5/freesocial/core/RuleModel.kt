@@ -19,6 +19,8 @@ data class RuleSet(
  * One content-filtering rule.
  *
  * [layer] 1 = always hidden (passive discovery), 2 = budget-governed (intentional consumption).
+ * [enabled] false retires a rule without deleting its documentation: the engine never compiles or
+ * matches it. Retired rules are kept in the asset so the policy history stays next to the evidence.
  * [viewIdTarget] is only meaningful for [Action.CLICK_VIEW_ID].
  */
 @Serializable
@@ -32,6 +34,7 @@ data class Rule(
     val viewIdTarget: String? = null,
     val notes: String? = null,
     val verifiedAgainstAppVersion: String? = null,
+    val enabled: Boolean = true,
 )
 
 /**
@@ -59,7 +62,10 @@ enum class Action {
     BACK,
     TAP_HOME_TAB,
     CLICK_VIEW_ID,
-    /** Swipe the matched cell/shelf out of view, staying inside the foreground app. */
+    /**
+     * Retired passive action: swipe the matched cell/shelf out of view. No enabled rule may use it
+     * (the loader rejects it); kept only so archived rules still parse with `enabled=false`.
+     */
     SCROLL_PAST,
     /**
      * Engine fallback only: leave the app when no in-app escape is possible. No shipped rule uses
@@ -104,6 +110,12 @@ private fun validate(set: RuleSet) {
         rule.match.classNameRegex?.let { requireRegex(rule.id, "classNameRegex", it) }
         if (rule.action == Action.CLICK_VIEW_ID && rule.viewIdTarget.isNullOrBlank()) {
             throw RuleSetException("rule '${rule.id}': CLICK_VIEW_ID needs viewIdTarget")
+        }
+        if (rule.enabled && rule.action == Action.SCROLL_PAST) {
+            throw RuleSetException(
+                "rule '${rule.id}': SCROLL_PAST is retired — passive surfaces are never touched; " +
+                    "set enabled=false to keep the rule as documentation",
+            )
         }
         if (!seen.add(rule.appPackage to rule.surface)) {
             throw RuleSetException("duplicate rule for ${rule.appPackage} / ${rule.surface}")
