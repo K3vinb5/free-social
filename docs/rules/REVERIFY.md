@@ -801,3 +801,9 @@ until process restart (dual cache; decisions always use live values); yt_shorts_
 UNPROOFED (retired by policy); TikTok DM carve-out live check (above).
 
 Delivery: ~/Nextcloud/FreeSocial/free-social-0.2.0-e6d7fce.zip (APK + README).
+
+### Addendum (2026-11-05 evening, D10 finding): the `exhaustion_consistent` PASS above
+was PARTLY ARTIFACTUAL — uiautomator dumps cause an accessibility rebind, which
+reloaded settings mid-test and made fixture writes appear live. True behavior at the
+time was the stale-snapshot defect (D10). After the settings-propagation fix the
+scenario must be re-run WITHOUT relying on dump-triggered rebinds (dump after asserts).
