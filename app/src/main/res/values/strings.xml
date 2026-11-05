@@ -145,4 +145,13 @@
     <string name="inspector_screen_yt_shorts">YT · shorts player</string>
     <string name="inspector_screen_tt_playback">TT · playback</string>
     <string name="inspector_dump">Dump screen</string>
+    <string name="inspector_dump_saved">Dump saved: %1$s</string>
+    <string name="inspector_dump_share">Share dump</string>
+    <string name="inspector_dump_unavailable">Turn on content filtering, then open the app you want to capture.</string>
+    <string name="inspector_dump_failed">Could not write the dump file.</string>
+
+    <!-- Filter service (accessibility) -->
+    <string name="filter_service_label">Content filtering</string>
+    <string name="filter_service_summary">Hides reels and Shorts in Instagram, YouTube and TikTok</string>
+    <string name="filter_service_description">Reads the screen of Instagram, YouTube and TikTok only to find reels, Shorts and short-video surfaces, then leaves them. Nothing leaves your phone.</string>
 </resources>

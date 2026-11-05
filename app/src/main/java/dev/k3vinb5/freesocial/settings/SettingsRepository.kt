@@ -386,8 +386,8 @@ class SettingsRepository(private val store: PrefsStore) {
         const val KEY_MORNING_LOCK = "morning_lock_minutes"
 
         /** Accessibility component class names the services are (or will be) declared with. */
-        const val FILTER_SERVICE_CLASS = "dev.k3vinb5.freesocial.service.FilterService"
-        const val BLOCK_SERVICE_CLASS = "dev.k3vinb5.freesocial.service.BlockService"
+        const val FILTER_SERVICE_CLASS = "dev.k3vinb5.freesocial.filter.FilterService"
+        const val BLOCK_SERVICE_CLASS = "dev.k3vinb5.freesocial.block.BlockService"
 
         /**
          * True when [enabledServices] — the raw `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`
@@ -423,13 +423,11 @@ class SettingsRepository(private val store: PrefsStore) {
             )
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
             return PermissionStatus(
-                // TODO(FilterService): match FILTER_SERVICE_CLASS only once the service is declared.
-                // Until then accept any accessibility service of our package for the filter step.
                 filterService = accessibilityServiceEnabled(
                     enabledServices,
                     context.packageName,
                     FILTER_SERVICE_CLASS,
-                ) || accessibilityServiceEnabled(enabledServices, context.packageName),
+                ),
                 blockService = accessibilityServiceEnabled(
                     enabledServices,
                     context.packageName,
