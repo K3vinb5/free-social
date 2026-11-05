@@ -23,6 +23,7 @@ import dev.k3vinb5.freesocial.core.ShortVideoBudget
 import dev.k3vinb5.freesocial.settings.AppMode
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.settings.SettingsRepository
+import dev.k3vinb5.freesocial.ui.ContentFlash
 import java.time.ZonedDateTime
 
 /**
@@ -40,6 +41,9 @@ class FilterService : AccessibilityService() {
     private var ruleMatcher: RuleSetMatcher = RuleSetMatcher(emptyList())
     private val arbiter = ActionArbiter()
     private val stopwatch = SurfaceStopwatch()
+
+    /** 2026-11-05: one flash per escape episode per package, never a stack of them. */
+    private val flashPolicy = FlashPolicy()
 
     /**
      * D5: connect-time init is retried lazily on every event (at most every 5 s). A race or a throw
@@ -423,6 +427,26 @@ class FilterService : AccessibilityService() {
         val escapedAction = hit.rule.action in ESCAPE_ACTIONS
         val acted = perform(hit, captured, appPackage)
         arbiter.confirm(surfaceKey, appPackage, escapedAction, acted)
+        // FLASH (2026-11-05): only a confirmed escape action flashes. Passive surfaces never reach
+        // ESCAPE, an in-budget PAY returns above, the duplicate/throttled repeat returned already,
+        // an armed capture returns before the gate, and BlockService's app blocking never comes here.
+        if (acted && escapedAction) safe { flashEscape(appPackage, exhausted, locked) }
+    }
+
+    /**
+     * Shows the 2.2 s "Free Social blocked this" flash after a real escape — the one place in the
+     * engine that launches it. Rate-limited per package so rapid follow-up escapes of the same
+     * episode cannot stack; the intent is `NEW_TASK` only, so the navigation the escape just
+     * produced (feed/Home) is never cleared. Failures are swallowed: a flash is never load-bearing.
+     */
+    private fun flashEscape(appPackage: String, budgetExhausted: Boolean, scheduleLocked: Boolean) {
+        if (!flashPolicy.shouldFlash(appPackage, SystemClock.elapsedRealtime())) {
+            infoOnce("flash throttled", "$appPackage: escape flash suppressed (one per ${FlashPolicy.WINDOW_MS} ms)")
+            return
+        }
+        val reason = ContentFlash.reasonFor(budgetExhausted, scheduleLocked)
+        startActivity(ContentFlash.intent(this, reason))
+        Log.i(TAG, "escape flash $appPackage reason=$reason")
     }
 
     /**
