@@ -58,22 +58,61 @@ class GhostTreeProbeTest {
         assertEquals(
             "probe com.google.android.youtube rootPkg=com.google.android.youtube " +
                 "rootChildCount=3 rootViewId=android:id/content child0Grandchildren=0 " +
-                "idProbe=menu_item_0=0 app_bar_wrapper=0 results=0",
+                "idProbe=menu_item_0=0 app_bar_wrapper=0 results=0 " +
+                "eventSourceChildCount=none refreshChildCount=none",
             line,
         )
+    }
+
+    @Test
+    fun `probe carries the event-source and post-refresh child counts`() {
+        // Rich event.source + pruned root: the capture should walk the event subtree (future fix).
+        val richEvent = GhostTreeProbe.format(
+            "com.google.android.youtube",
+            GhostTreeProbe.RootShape(
+                packageName = "com.google.android.youtube",
+                childCount = 2,
+                eventSourceChildCount = 12,
+                refreshChildCount = 2,
+            ),
+            "n/a",
+        )
+        assertTrue(richEvent, richEvent.contains("rootChildCount=2"))
+        assertTrue(richEvent, richEvent.contains("eventSourceChildCount=12"))
+        assertTrue(richEvent, richEvent.contains("refreshChildCount=2"))
+
+        // Rich post-refresh root: the window snapshot was stale, refresh() at capture fixes it.
+        val stale = GhostTreeProbe.format(
+            "com.google.android.youtube",
+            GhostTreeProbe.RootShape(childCount = 2, refreshChildCount = 9),
+            "n/a",
+        )
+        assertTrue(stale, stale.contains("eventSourceChildCount=none"))
+        assertTrue(stale, stale.contains("refreshChildCount=9"))
+
+        // Both pruned: vendor link pruning — the lookup grafts are the permanent mitigation.
+        val pruned = GhostTreeProbe.format(
+            "com.google.android.youtube",
+            GhostTreeProbe.RootShape(childCount = 2, eventSourceChildCount = 2, refreshChildCount = 2),
+            "menu_item_0=1",
+        )
+        assertTrue(pruned, pruned.contains("eventSourceChildCount=2"))
+        assertTrue(pruned, pruned.contains("refreshChildCount=2"))
     }
 
     @Test
     fun `unreadable root still produces a parsable line`() {
         assertEquals(
             "probe com.instagram.android rootPkg=none rootChildCount=-1 " +
-                "rootViewId=none child0Grandchildren=none idProbe=n/a",
+                "rootViewId=none child0Grandchildren=none idProbe=n/a " +
+                "eventSourceChildCount=none refreshChildCount=none",
             GhostTreeProbe.format("com.instagram.android", GhostTreeProbe.RootShape(), "n/a"),
         )
         // A root with no child(0) is distinct from a child(0) with zero grandchildren.
         assertEquals(
             "probe dev.k3vinb5.freesocial rootPkg=dev.k3vinb5.freesocial rootChildCount=1 " +
-                "rootViewId=android:id/content child0Grandchildren=none idProbe=n/a",
+                "rootViewId=android:id/content child0Grandchildren=none idProbe=n/a " +
+                "eventSourceChildCount=none refreshChildCount=none",
             GhostTreeProbe.format(
                 "dev.k3vinb5.freesocial",
                 GhostTreeProbe.RootShape(

@@ -100,6 +100,10 @@ object GhostTreeProbe {
         val viewId: String? = null,
         val childCount: Int = -1,
         val grandchildCount: Int? = null,
+        /** D8 layer (d): childCount of `event.source` — the tree the framework hands us per event. */
+        val eventSourceChildCount: Int? = null,
+        /** D8 layer (d): `root.refresh()` then `root.childCount` — a stale-links snapshot shows up here. */
+        val refreshChildCount: Int? = null,
     )
 
     /** The ids worth probing for [packageName]: the YouTube trio, or nothing for other packages. */
@@ -120,13 +124,47 @@ object GhostTreeProbe {
     /**
      * The whole probe line body. `rootChildCount=3` is the ghost-tree signature; the `idProbe`
      * counts say whether `findAccessibilityNodeInfosByViewId` can still reach the content.
+     * `eventSourceChildCount` / `refreshChildCount` (D8 layer (d)) discriminate the remaining
+     * mechanisms: a rich `event.source` means the capture should walk the event subtree, a rich
+     * refreshed root means the window snapshot is stale and a `refresh()` at capture fixes it,
+     * both pruned means the vendor prunes the framework's link tree and the lookup grafts are the
+     * permanent mitigation.
      */
     fun format(pkg: String, shape: RootShape, idProbe: String): String =
         "probe $pkg rootPkg=${shape.packageName ?: "none"} rootChildCount=${shape.childCount} " +
             "rootViewId=${shape.viewId ?: "none"} " +
-            "child0Grandchildren=${shape.grandchildCount ?: "none"} idProbe=$idProbe"
+            "child0Grandchildren=${shape.grandchildCount ?: "none"} idProbe=$idProbe " +
+            "eventSourceChildCount=${shape.eventSourceChildCount ?: "none"} " +
+            "refreshChildCount=${shape.refreshChildCount ?: "none"}"
 
     /** The same root shape and counts appended to the per-target `scan` line (D5(d)). */
     fun scanSuffix(shape: RootShape, idProbe: String): String =
         "rootChildCount=${shape.childCount}, idProbe=$idProbe"
+}
+
+/**
+ * D5(d)/D8 — the per-target `scan` line, pure so the diagnostic fields (notably `grafted=`) are
+ * JVM-testable. `grafted` counts nodes the D8 lookups recovered beyond the child links, both the
+ * view-id lookup and the text lookup.
+ */
+object ScanDiagnostics {
+    fun line(
+        appPackage: String,
+        appName: String,
+        nodes: Int,
+        withViewIds: Int,
+        matchedRules: Int,
+        totalRules: Int,
+        matched: Int,
+        grafted: Int,
+        windows: List<WindowStat>,
+        probe: String,
+    ): String =
+        "scan $appPackage ($appName): $nodes nodes, $withViewIds with viewId, " +
+            "rules=$matchedRules/$totalRules, matched=$matched, grafted=$grafted, " +
+            "windows=${windows.size} [${windowText(windows)}], $probe"
+
+    fun windowText(windows: List<WindowStat>): String = windows.joinToString("; ") { window ->
+        "${window.title ?: window.className ?: "?"}(${window.layer})=${window.nodes}/${window.viewIds} ids"
+    }
 }

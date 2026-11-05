@@ -300,3 +300,164 @@ live). Any answer needs the YouTube line **and** an own-package line from the sa
 - H-VENDOR: the raw accessibility tree cannot be the only signal on this device — add a
   non-accessibility fallback (screenshot/OCR or a MediaProjection-based reader) and record the
   vendor limitation in the acceptance notes.
+
+---
+
+## D8 fix — two layers for the ghost tree
+
+### Confirmed cause (on-device, after the probe)
+
+The probe settled **H-OURS**:
+
+```
+probe com.google.android.youtube rootChildCount=2 idProbe=menu_item_0=1
+```
+
+`findAccessibilityNodeInfosByViewId` on the *same* root reaches content that the child links do
+not expose. The framework has the tree; the service's `getChild` links are pruned to 2–3 decor
+nodes (`navigationBarBackground`, empty `content`), so `NodeTreeBuilder` could only snapshot those
+and rules matched nothing (`4 nodes, 1 with viewId, matched=0`). This is not vendor stripping
+(the id lookup works), not the service config (the XML flags are present and compiled), and not the
+walk (unfiltered `getChild`). The declared flags were not in effect on the runtime links.
+
+### Layer (a) — flag re-assertion (general fix)
+
+`FilterService.onServiceConnected` now ORs `FLAG_INCLUDE_NOT_IMPORTANT_VIEWS`,
+`FLAG_REPORT_VIEW_IDS` and `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` into the live `serviceInfo.flags`,
+assigns it back through `setServiceInfo` (`ServiceFlags.withCapture`), and logs the effective flags
+once. Event types, feedback and the service timeout are untouched. Guarantee: when the XML flags
+silently failed to resolve at bind, every subsequent event gets full child links, so the normal
+walk sees the whole tree again.
+
+### Layer (b) — per-id lookup graft (guaranteed fallback)
+
+The scan collects the view ids the applicable rules actually declare (`RuleSetMatcher.lookupViewIds`:
+match `viewId` plus `viewIdTarget`) together with the engine's own known ids (`HomeTabResolver`),
+and calls `findAccessibilityNodeInfosByViewId` on every captured window root
+(`NodeTreeReader.captureAll(viewIdLookups = …)`). Each returned live node is grafted into the
+snapshot (`NodeTreeBuilder.graft`) with its real viewId, class, text, content description, bounds,
+visible/selected/clickable/scrollable flags. Only declared ids are queried — unknown ids cannot be
+enumerated, which is why (a) remains the general fix and this layer is the per-rule guarantee.
+
+- **Ancestry:** the graft walks the live parent chain and hangs the node under the nearest ancestor
+  that is already in the snapshot (matched by `viewId` + `bounds`). When the pruned hierarchy
+  exposes no such ancestor, it becomes a `lookup-graft` child of the top-most window root (the
+  synthetic root only when the capture has no window). Either way the node is marked
+  `NodeSnapshot.grafted`.
+- **Live mapping:** grafted nodes are appended to the capture's live list at their own `index`, so
+  `CapturedTree.live(...)`, `firstByViewId`, `TAP_HOME_TAB` and every action still run on the live
+  `AccessibilityNodeInfo`. `RuleMatcher` and `rules.json` are unchanged.
+- **Dedupe:** a node already walked through the links has the same `(viewId, bounds)` pair and is
+  skipped, so it appears exactly once and is not counted as a graft. The 400-node cap bounds the
+  grafts too; a dropped graft marks the capture capped.
+- **Diagnostics:** the per-target `scan` line now carries `grafted=N` (see `ScanDiagnostics`); the
+  D8 `probe` lines are unchanged and still run for every package.
+
+Guarantee: content reachable by a declared view id is in the snapshot and matches its rule even if
+the child links stay pruned; `grafted>0` on the scan line is the evidence that layer (b) did the work.
+
+
+---
+
+## D8 round 2 — text-lookup graft + mechanism probes
+
+### What round 1 proved on the device (Reno4, ColorOS, Android 13)
+
+Layer (a) (flag re-assert at bind) does **not** restore the child links on this ROM. After the
+install, the engine still captures `rootChildCount=2` for YouTube, while
+`findAccessibilityNodeInfosByViewId("com.google.android.youtube:id/menu_item_0")` on the same root
+still returns 1 — the framework's node cache is complete, only the `getChild` links are pruned.
+
+That also explains why layer (b) reported `grafted=0`: the rules that matter on YouTube and TikTok
+are anchored on **text / content description** (`yt_shorts_shelf`:
+`(?i)(^shorts$| - play short$)`; `tiktok_playback`: the "For You"/"Like video."/"Read or add
+comments"/"Share video." chrome), and a view-id graft has nothing to query for those rules. The
+Pixel dumps always matched these rules because their links were intact (D1/D2 were post-match
+defects), so ghost trees are platform-conditional and the engine has to work on both.
+
+### Layer (c) — text-lookup graft
+
+`RuleLookup` derives, at scan time, the literal strings a rule's `textRegex` /
+`contentDescriptionRegex` degenerates to. A pattern is queryable when it is a literal, optionally
+wrapped in `(?i)`, `^`/`$` anchors and groups, possibly with top-level alternation:
+`(?i)(^shorts$| - play short$)` → `shorts`, `- play short`;
+`(?i)^for you$|like video\.|read or add comments|share video\.|add or remove this video from
+favorites` → `for you`, `like video.`, `read or add comments`, `share video.`, `add or remove this
+video from favorites`. Escaped punctuation (`\.`) decodes to the literal; any real metacharacter
+(`.`, `*`, `+`, `?`, `[...]`, `{...}`, a class escape like `\d`) disqualifies the branch.
+
+`RuleSetMatcher.lookupTexts(app, package)` feeds those values through
+`NodeTreeReader.captureAll(textLookups = …)`, which calls
+`findAccessibilityNodeInfosByText(value)` on every window root and grafts the returned live nodes
+exactly like layer (b): nearest captured ancestor by `(viewId, bounds)`, else the top-most window
+root, `NodeSnapshot.grafted` marker, the shared 400-node cap, and one de-duplication map for both
+lookup kinds. `grafted=N` on the `scan` line counts both kinds. `rules.json`, `Rule`, `MatchSpec`
+and the schema are unchanged.
+
+- **Content descriptions:** asked through the same text API. `View.findViewsWithText` compares the
+  query against the view's *text and content description*, case-insensitively and by containment,
+  which is why the desc-only rules (there is no `textRegex` in the shipped catalog) work here.
+- **Limitation — regex criteria cannot be queried.** `findAccessibilityNodeInfosByText` takes a
+  plain string; a rule whose branch keeps regex syntax (`^shorts.*shelf`, a character class, a
+  quantifier) contributes no query and can only match a tree the ordinary walk can see. The
+  catalog currently has no such branch, but new rules must stay literal (or accept that they will
+  not survive link pruning).
+- **Limitation — over-matching is harmless but real.** Containment is not equality: `shorts`
+  also hits a video title containing that word. A graft is only extra evidence for the untouched
+  `RuleMatcher`, so a spurious graft cannot cause a hit; it does spend node budget.
+- **Limitation — the strings are locale-bound.** The rules are English-locale. The confirm device
+  runs pt-BR, where YouTube's Home has no "Shorts"/"play Short" strings at all, so `matched=0`
+  there is a locale effect, not a graft failure.
+
+### Layer (d) — mechanism probes
+
+The rate-limited `probe` line (one per package per 10 s, on every `TYPE_WINDOW_STATE_CHANGED`) now
+ends with two more fields:
+
+```
+probe <pkg> rootPkg=… rootChildCount=… rootViewId=… child0Grandchildren=… idProbe=… \
+  eventSourceChildCount=<n|none> refreshChildCount=<n|none>
+```
+
+- `eventSourceChildCount` — `event.source.childCount` for the event that triggered the probe
+  (`none` when the framework hands the service no source).
+- `refreshChildCount` — `root.refresh()` and then `root.childCount`; `rootChildCount` is read
+  *before* the refresh, so the pair is the discriminator.
+
+| observation | verdict |
+| --- | --- |
+| `eventSourceChildCount` rich, window root pruned | the event carries a live subtree: the capture should walk `event.source` subtrees (future fix). |
+| `refreshChildCount` rich, `rootChildCount` pruned | stale-links snapshot: call `refresh()` at capture time. |
+| both pruned | vendor link pruning confirmed; the view-id/text lookup grafts are the permanent mitigation. |
+
+### Device confirm (round 2)
+
+`adb install -r app-debug.apk`, `logcat -c`, our app, YouTube Home, one swipe (no taps):
+
+```
+probe dev.k3vinb5.freesocial rootPkg=dev.k3vinb5.freesocial rootChildCount=3 rootViewId=none child0Grandchildren=1 idProbe=n/a eventSourceChildCount=none refreshChildCount=3
+probe com.google.android.youtube rootPkg=dev.k3vinb5.freesocial rootChildCount=3 rootViewId=none child0Grandchildren=1 idProbe=menu_item_0=0 app_bar_wrapper=0 results=0 eventSourceChildCount=none refreshChildCount=3
+scan com.google.android.youtube (YOUTUBE): 5 nodes, 1 with viewId, rules=2/8, matched=0, grafted=1, windows=1 [android.widget.FrameLayout(0)=3/1 ids], rootChildCount=2, idProbe=menu_item_0=1 app_bar_wrapper=0 results=2
+scan com.google.android.youtube (YOUTUBE): 4 nodes, 1 with viewId, rules=2/8, matched=0, grafted=0, windows=1 [YouTube(0)=3/1 ids], rootChildCount=2, idProbe=menu_item_0=1 app_bar_wrapper=0 results=2
+```
+
+Reading it:
+
+- The `scan` lines are measured on the real YouTube window root: `rootChildCount=2` with
+  `menu_item_0=1` and `results=2` — links still pruned, framework cache complete, exactly as in
+  round 1. Layer (a) remains ineffective on this ROM.
+- `grafted=1` on the first scan: a node the child links never exposed entered the snapshot through
+  a lookup. On the second scan the same root yields `grafted=0` because nothing on that screen
+  carried a queryable anchor. `matched=0` in both: the device locale is pt-BR, so YouTube's Home
+  exposes no English "Shorts"/"play Short" string (verified with a `uiautomator dump` of the same
+  screen) and there is no Shorts shelf to match.
+- `eventSourceChildCount=none` for both packages: the events reach the service without a source,
+  so the event-subtree path has nothing to walk. The `probe` lines fire before the window root
+  switches (the YouTube probe still reports `rootPkg=dev.k3vinb5.freesocial`), so their
+  `refreshChildCount` describes the previous active root; the `scan` lines are the authoritative
+  window-root measurement.
+- `refreshChildCount == rootChildCount` on the root the probe saw: no stale-snapshot effect.
+
+Verdict: vendor link pruning confirmed; the id/text lookup grafts are the permanent mitigation.
+The text layer reaches content on a pruned tree (`grafted=1`), but proving `matched>0` needs a
+screen whose strings are in the rules' locale (or localized rules — a separate change).

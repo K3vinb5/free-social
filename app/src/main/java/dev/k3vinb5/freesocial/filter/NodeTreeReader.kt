@@ -7,6 +7,8 @@ import android.view.accessibility.AccessibilityNodeInfo
  * A window tree captured from a live `AccessibilityNodeInfo` hierarchy.
  * [liveNodes] is the same pre-order list the snapshots were built from, indexed by
  * [NodeSnapshot.index], so a rule match can be turned back into the real node for the action.
+ * [grafts] is how many nodes the D8 lookups (view-id and text) recovered that the child links
+ * never exposed.
  */
 class CapturedTree internal constructor(
     val root: NodeSnapshot,
@@ -14,6 +16,7 @@ class CapturedTree internal constructor(
     private val liveNodes: List<AccessibilityNodeInfo>,
     val windows: List<WindowStat> = emptyList(),
     val capped: Boolean = false,
+    val grafts: Int = 0,
 ) {
     fun live(node: NodeSnapshot): AccessibilityNodeInfo? =
         node.index.takeIf { it in liveNodes.indices }?.let { liveNodes[it] }
@@ -45,11 +48,24 @@ object NodeTreeReader {
     /**
      * D6: captures every window of the target package with the metadata the armed dump reports in
      * its header. [WindowRoot]s are aggregated top-most first by [NodeTreeBuilder.buildWindows].
+     *
+     * D8 layer (b): [viewIdLookups] are queried with `findAccessibilityNodeInfosByViewId` on each
+     * window root and the returned nodes are grafted into the snapshot. Only ids the rules (or the
+     * engine's known ids) declare are queried — unknown ids cannot be enumerated — so this is the
+     * guaranteed fallback when the framework hands us pruned child links.
+     *
+     * D8 layer (c): [textLookups] are the literal text/description strings derived from the
+     * applicable rules ([RuleLookup]) and queried with `findAccessibilityNodeInfosByText` on the
+     * same roots. That is what makes the text/desc-anchored rules (YouTube Shorts shelf, TikTok
+     * playback chrome) work on a platform that prunes child links but keeps the framework's own
+     * search index intact. Both graft kinds share one de-duplication map and one node cap.
      */
     fun captureAll(
         windows: List<WindowRoot>,
         packageName: String? = windows.firstOrNull()?.packageName,
         cap: Int = NodeTree.MAX_SCAN_NODES,
+        viewIdLookups: List<String> = emptyList(),
+        textLookups: List<String> = emptyList(),
     ): CapturedTree {
         val sources = windows.map { window ->
             WindowSource(
@@ -61,8 +77,64 @@ object NodeTreeReader {
             )
         }
         val built = NodeTreeBuilder.buildWindows(sources, cap)
-        val live = built.live.map { (it as AndroidNodeSource).info }
-        return CapturedTree(built.root, packageName, live, built.windows, built.capped)
+        val grafts = if (viewIdLookups.isEmpty() && textLookups.isEmpty()) emptyList()
+        else {
+            lookupGrafts(windows, viewIdLookups, cap) + textGrafts(windows, textLookups, cap)
+        }
+        val capture = if (grafts.isEmpty()) built else NodeTreeBuilder.graft(built, grafts, cap)
+        val live = capture.live.map { (it as AndroidNodeSource).info }
+        return CapturedTree(capture.root, packageName, live, capture.windows, capture.capped, capture.grafts)
+    }
+
+    /**
+     * The live nodes `findAccessibilityNodeInfosByViewId` reaches for the declared ids, across every
+     * window root. De-duplication (a node reachable both via links and lookup) happens in
+     * [NodeTreeBuilder.graft]; the lookup itself is bounded by [cap].
+     */
+    private fun lookupGrafts(windows: List<WindowRoot>, ids: List<String>, cap: Int): List<GraftNode> {
+        val out = ArrayList<GraftNode>()
+        for (window in windows) {
+            for (id in ids) {
+                if (out.size >= cap) return out
+                val found = runCatching { window.node.findAccessibilityNodeInfosByViewId(id) }
+                    .getOrNull()
+                    ?: continue
+                for (info in found) {
+                    if (info == null) continue
+                    if (out.size >= cap) return out
+                    val expected = window.packageName
+                    if (expected != null && info.packageName?.toString() != expected) continue
+                    out += GraftNode(AndroidNodeSource(info), id)
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * D8 layer (c): the live nodes `findAccessibilityNodeInfosByText` reaches for each literal
+     * rule value. The framework matches case-insensitively on text *and* content description
+     * (`View.findViewsWithText` compares both), so a desc-only rule works through the same call.
+     * Bounded by [cap]; [NodeTreeBuilder.graft] de-duplicates against the walk and the id grafts.
+     */
+    private fun textGrafts(windows: List<WindowRoot>, values: List<String>, cap: Int): List<GraftNode> {
+        val out = ArrayList<GraftNode>()
+        for (window in windows) {
+            for (value in values) {
+                if (out.size >= cap) return out
+                val found = runCatching { window.node.findAccessibilityNodeInfosByText(value) }
+                    .getOrNull()
+                    ?: continue
+                for (info in found) {
+                    if (info == null) continue
+                    if (out.size >= cap) return out
+                    val expected = window.packageName
+                    if (expected != null && info.packageName?.toString() != expected) continue
+                    out += GraftNode(AndroidNodeSource(info), value)
+                }
+            }
+        }
+        return out
     }
 }
 
@@ -97,4 +169,6 @@ private class AndroidNodeSource(val info: AccessibilityNodeInfo) : NodeSource {
     override val childCount: Int get() = info.childCount
 
     override fun child(index: Int): NodeSource? = info.getChild(index)?.let(::AndroidNodeSource)
+
+    override fun parent(): NodeSource? = info.parent?.let(::AndroidNodeSource)
 }

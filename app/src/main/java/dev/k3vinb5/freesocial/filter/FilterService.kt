@@ -93,6 +93,9 @@ class FilterService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        // D8 layer (a): re-assert the capture flags at bind time. The XML declaration was compiled
+        // but evidently not in effect on the runtime child links.
+        safe { reassertCaptureFlags() }
         val deps = engine(force = true)
         if (deps == null) {
             val error = bootstrap.lastError
@@ -119,7 +122,7 @@ class FilterService : AccessibilityService() {
             // D8: the ghost-tree probe runs for EVERY package — including our own
             // (dev.k3vinb5.freesocial) and system packages — and before the engine/target gates,
             // because "foreign content stripped but own windows rich" is the discrimination.
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) safe { probeActiveRoot(pkg) }
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) safe { probeActiveRoot(pkg, event) }
             // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
             if (captureArmedDumpIfRequested(event, pkg)) return
             // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
@@ -204,35 +207,79 @@ class FilterService : AccessibilityService() {
     // --- D8 ghost-tree probe -------------------------------------------------------------
 
     /**
+     * D8 layer (a): OR the capture flags into the live service info and hand it back via
+     * `setServiceInfo`, leaving event types, feedback and timeout untouched. Logged once at connect.
+     */
+    private fun reassertCaptureFlags() {
+        val info = serviceInfo
+        if (info == null) {
+            Log.w(TAG, "service info unavailable — capture flags could not be re-asserted")
+            return
+        }
+        val before = info.flags
+        info.flags = ServiceFlags.withCapture(before)
+        serviceInfo = info
+        Log.i(
+            TAG,
+            "capture flags: $before -> ${info.flags} (${ServiceFlags.describe(info.flags)}), " +
+                "added=${ServiceFlags.missing(before)}",
+        )
+    }
+
+    /**
      * D8: one `probe <pkg> …` line per package per 10 s on every window-state change. `root` is
      * always `rootInActiveWindow`; the id lookup asks the same root the walk starts from, so:
      * `rootChildCount=3 && idProbe …>=1` = our walk/input is the truncation (H-OURS), while
      * `rootChildCount=3 && idProbe all 0` (with our own package's root rich) = vendor stripping
      * (H-VENDOR). Diagnostics only — nothing here feeds matching, actions or budget.
+     *
+     * D8 round 2 adds the mechanism probes: `eventSourceChildCount` (does the event carry a tree
+     * richer than the window root?) and `refreshChildCount` (does `refresh()` un-stick the root?).
      */
-    private fun probeActiveRoot(pkg: String) {
+    private fun probeActiveRoot(pkg: String, event: AccessibilityEvent) {
         if (!probeLimiter.allow("probe:$pkg", SystemClock.elapsedRealtime())) return
         val root = rootInActiveWindow
         val ids = GhostTreeProbe.idsFor(pkg)
         val line = GhostTreeProbe.format(
             pkg,
-            rootShape(root),
+            rootShape(root, event, refresh = true),
             GhostTreeProbe.idProbeText(ids, viewIdCounts(root, ids)),
         )
         Log.i(TAG, line)
     }
 
-    /** The live root's shape for the probe; unreadable fields stay `-1`/null instead of throwing. */
-    private fun rootShape(root: AccessibilityNodeInfo?): GhostTreeProbe.RootShape {
-        if (root == null) return GhostTreeProbe.RootShape()
+    /**
+     * The live root's shape for the probe; unreadable fields stay `-1`/null instead of throwing.
+     * [refresh] asks the root to re-read its own links first (D8 layer (d): distinguishes a stale
+     * snapshot from a permanently pruned one). The event source is read straight off the event.
+     */
+    private fun rootShape(
+        root: AccessibilityNodeInfo?,
+        event: AccessibilityEvent? = null,
+        refresh: Boolean = false,
+    ): GhostTreeProbe.RootShape {
+        if (root == null) {
+            return GhostTreeProbe.RootShape(eventSourceChildCount = eventSourceChildCount(event))
+        }
         val first = runCatching { if (root.childCount > 0) root.getChild(0) else null }.getOrNull()
+        val before = runCatching { root.childCount }.getOrDefault(-1)
+        val refreshed = if (!refresh) null else runCatching {
+            root.refresh()
+            root.childCount
+        }.getOrNull()
         return GhostTreeProbe.RootShape(
             packageName = runCatching { root.packageName?.toString() }.getOrNull(),
             viewId = runCatching { root.viewIdResourceName }.getOrNull(),
-            childCount = runCatching { root.childCount }.getOrDefault(-1),
+            childCount = before,
             grandchildCount = first?.let { runCatching { it.childCount }.getOrNull() },
+            eventSourceChildCount = eventSourceChildCount(event),
+            refreshChildCount = refreshed,
         )
     }
+
+    /** `event.source?.childCount`, or null when the event carries no readable source. */
+    private fun eventSourceChildCount(event: AccessibilityEvent?): Int? =
+        event?.let { runCatching { it.source?.childCount }.getOrNull() }
 
     /** `findAccessibilityNodeInfosByViewId` hit counts, parallel to [ids]; 0 when unreadable. */
     private fun viewIdCounts(root: AccessibilityNodeInfo?, ids: List<String>): List<Int> =
@@ -303,7 +350,18 @@ class FilterService : AccessibilityService() {
 
         val now = ZonedDateTime.now()
         val elapsed = SystemClock.elapsedRealtime()
-        val captured = NodeTreeReader.captureAll(windows, appPackage)
+        // D8 layers (b)/(c): graft every id and every literal text/desc value an applicable rule
+        // actually declares, so text-anchored rules survive a platform that prunes child links.
+        val lookupIds = (
+            ruleMatcher.lookupViewIds(app, appPackage) + HomeTabResolver.idsFor(appPackage)
+            ).distinct()
+        val lookupTexts = ruleMatcher.lookupTexts(app, appPackage)
+        val captured = NodeTreeReader.captureAll(
+            windows,
+            appPackage,
+            viewIdLookups = lookupIds,
+            textLookups = lookupTexts,
+        )
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
         diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
         val exhausted = isBudgetExhausted(repo, now)
@@ -355,14 +413,20 @@ class FilterService : AccessibilityService() {
         if (!diagLimiter.allow("scan:$appPackage", SystemClock.elapsedRealtime())) return
         val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
         val withIds = nodes.count { it.viewId != null }
-        val windowText = captured.windows.joinToString("; ") { window ->
-            "${window.title ?: window.className ?: "?"}(${window.layer})=${window.nodes}/${window.viewIds} ids"
-        }
         Log.i(
             TAG,
-            "scan $appPackage (${app.name}): ${nodes.size} nodes, $withIds with viewId, " +
-                "rules=${ruleMatcher.rulesFor(app, appPackage).size}/$rules, matched=$hits, " +
-                "windows=${captured.windows.size} [$windowText], $probe",
+            ScanDiagnostics.line(
+                appPackage = appPackage,
+                appName = app.name,
+                nodes = nodes.size,
+                withViewIds = withIds,
+                matchedRules = ruleMatcher.rulesFor(app, appPackage).size,
+                totalRules = rules,
+                matched = hits,
+                grafted = captured.grafts,
+                windows = captured.windows,
+                probe = probe,
+            ),
         )
         if (nodes.size <= 1) {
             warnOnce("empty tree:$appPackage", "scan saw an EMPTY $appPackage tree — capture or window access is broken")

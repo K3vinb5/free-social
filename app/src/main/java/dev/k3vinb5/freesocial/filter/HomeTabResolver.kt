@@ -35,10 +35,14 @@ object HomeTabResolver {
     fun homeTab(root: NodeSnapshot, appPackage: String?): NodeSnapshot? {
         if (appPackage == null) return null
         val nodes = NodeTree.visible(NodeTree.flatten(root, NodeTree.MAX_SCAN_NODES))
-        val knownIds = HOME_TAB_IDS[appPackage].orEmpty()
+        val knownIds = idsFor(appPackage)
         knownIds.firstNotNullOfOrNull { id -> nodes.firstOrNull { it.viewId == id } }?.let { return it }
         return nodes.firstOrNull {
             it.clickable && it.contentDescription?.let(HOME_DESCRIPTION::matches) == true
         }
     }
+
+    /** D8: the known Home-tab ids for [appPackage]; also fed to the view-id graft lookup. */
+    fun idsFor(appPackage: String?): List<String> =
+        appPackage?.let { HOME_TAB_IDS[it] }.orEmpty()
 }
