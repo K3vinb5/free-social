@@ -1,0 +1,102 @@
+name: Release
+
+# Manual release: bump versionName on master, commit, tag, push, then publish
+# via the shared reusable workflow (build-release.yml).
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (ignored when "version" is set)
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: Explicit version, e.g. 0.4.0 (overrides bump; no bump is applied)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      name: ${{ steps.version.outputs.name }}
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute and apply version bump
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPLICIT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EXPLICIT_VERSION" ]; then
+            echo "explicit version requested: $EXPLICIT_VERSION"
+            version="$(bash tools/release/bump_version.sh "$EXPLICIT_VERSION")"
+          else
+            echo "bump requested: $BUMP"
+            version="$(bash tools/release/bump_version.sh "$BUMP")"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid version '$version'"; exit 1; }
+          echo "resulting versionName: $version"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "name=Free Social v$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::tag ${TAG} already exists; aborting without changes"
+            exit 1
+          fi
+
+          if git diff --quiet -- app/build.gradle.kts; then
+            echo "versionName already at ${VERSION}; nothing to commit"
+          else
+            git add app/build.gradle.kts
+            git commit -m "chore(release): v${VERSION}"
+          fi
+
+          git tag -a "$TAG" -m "Free Social ${TAG}"
+          git push origin "HEAD:master"
+          git push origin "refs/tags/${TAG}"
+          echo "pushed ${TAG} at $(git rev-parse --short HEAD)"
+
+  publish:
+    needs: prepare
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-release.yml
+    with:
+      tag_name: ${{ needs.prepare.outputs.tag }}
+      release_name: ${{ needs.prepare.outputs.name }}
+      prerelease: false

@@ -1,0 +1,73 @@
+name: Nightly
+
+# Nightly prerelease: only builds when app/build config actually changed since
+# the newest nightly-* tag. Never bumps versionName, never creates a vX.Y.Z tag.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      name: ${{ steps.check.outputs.name }}
+      changelog_from: ${{ steps.check.outputs.changelog_from }}
+      skipped: ${{ steps.check.outputs.skipped }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect source changes since last nightly
+        id: check
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --prune origin >/dev/null 2>&1 || true
+
+          last_tag="$(git tag -l 'nightly-*' --sort=-creatordate | head -n1 || true)"
+          last_commit=""
+          if [ -n "$last_tag" ]; then
+            last_commit="$(git rev-list -n1 "$last_tag")"
+            echo "newest nightly tag: $last_tag ($last_commit)"
+          else
+            echo "no previous nightly tag found; this is the first nightly"
+          fi
+
+          if [ -n "$last_commit" ] && git diff --quiet "$last_commit..HEAD" -- \
+            app/ build.gradle.kts settings.gradle.kts gradle/ gradlew gradlew.bat; then
+            echo "::notice::no source changes since ${last_tag} — skipping nightly"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          short_sha="$(git rev-parse --short HEAD)"
+          tag="nightly-$(date -u +%Y%m%d)-${short_sha}"
+          {
+            echo "skipped=false"
+            echo "tag=$tag"
+            echo "name=Nightly $(date -u +%F) (${short_sha})"
+            echo "changelog_from=$last_commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "nightly tag: $tag"
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.skipped != 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-release.yml
+    with:
+      tag_name: ${{ needs.prepare.outputs.tag }}
+      release_name: ${{ needs.prepare.outputs.name }}
+      prerelease: true
+      changelog_from: ${{ needs.prepare.outputs.changelog_from }}
