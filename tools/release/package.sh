@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Single packaging truth for Free Social debug builds.
+# Single packaging truth for Free Social release builds.
 #
 #   tools/release/package.sh <version> <sha> <outdir>
 #
 # Produces <outdir>/free-social-<version>-<sha>.zip containing exactly:
-#   free-social-<version>-<sha>.apk   (copy of app/build/outputs/apk/debug/app-debug.apk)
+#   free-social-<version>-<sha>.apk   (copy of app/build/outputs/apk/release/app-release.apk,
+#                                      a signed release build — never the debug APK)
 #   README.txt                        (install steps, generated from the template below)
 #
-# Run ./gradlew assembleDebug first. Prints the zip path on stdout.
+# Run ./gradlew assembleRelease (with signing configured) first. Prints the zip
+# path on stdout.
 set -euo pipefail
 
 usage() {
@@ -29,8 +31,8 @@ outdir="$3"
 [[ "$sha" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || die "invalid sha '$sha'"
 
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-apk="$script_root/app/build/outputs/apk/debug/app-debug.apk"
-[ -f "$apk" ] || die "apk not found: $apk (run ./gradlew assembleDebug first)"
+apk="$script_root/app/build/outputs/apk/release/app-release.apk"
+[ -f "$apk" ] || die "apk not found: $apk (run ./gradlew assembleRelease first)"
 
 base="free-social-${version}-${sha}"
 mkdir -p "$outdir"
@@ -45,6 +47,8 @@ build_date="$(date -u +%Y-%m-%d)"
 
 cat >"$stage/README.txt" <<EOF
 Free Social ${version} (build ${sha}, ${build_date})
+
+This APK is a signed release build (not a debug build).
 
 INSTALL (3 steps)
 1. Extract the .apk from this zip and tap it. Allow install from this source.

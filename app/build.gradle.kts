@@ -1,9 +1,31 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.20"
     id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
 }
+
+// Release signing material is never committed. It comes from the environment
+// (CI: FREE_SOCIAL_KEYSTORE_FILE / _PASSWORD / _KEY_ALIAS / _KEY_PASSWORD) or
+// from a gitignored keystore.properties next to the root build file.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(envName: String, propertyName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFilePath = signingValue("FREE_SOCIAL_KEYSTORE_FILE", "storeFile")
+
+fun resolveStoreFile(path: String): File =
+    File(path).let { if (it.isAbsolute) it else rootProject.file(path) }
 
 android {
     namespace = "dev.k3vinb5.freesocial"
@@ -18,9 +40,21 @@ android {
         versionName = "0.4.0"
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFilePath != null) {
+                storeFile = resolveStoreFile(releaseStoreFilePath)
+                storePassword = signingValue("FREE_SOCIAL_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("FREE_SOCIAL_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("FREE_SOCIAL_KEY_PASSWORD", "keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")?.takeIf { it.storeFile != null }
         }
     }
 
