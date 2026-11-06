@@ -807,3 +807,180 @@ was PARTLY ARTIFACTUAL — uiautomator dumps cause an accessibility rebind, whic
 reloaded settings mid-test and made fixture writes appear live. True behavior at the
 time was the stale-snapshot defect (D10). After the settings-propagation fix the
 scenario must be re-run WITHOUT relying on dump-triggered rebinds (dump after asserts).
+
+# 0.3.0 verification — Reno4 end-to-end (feature set at d6ef75c, 2026-11-06)
+
+Device: OPPO Reno4 5G, `adb -s DEVICE-SERIAL-REDACTED` (USB; fallback `LAN-IP-REDACTED:5555`), Android 13 / SDK 33.
+APK built from HEAD `d6ef75c` (`versionName` still `0.1.0` — see item 6: the release label is 0.3.0,
+the manifest version is not bumped, so the staleness banner must be judged on versionName).
+Evidence: `reverse/runtime-reno/verify-030/`.
+
+*(Filled in as each item completes.)*
+
+## Item 0 — the Block chip writes its mode on every tap — **PASS**
+
+The wave's unresolved flag (two Block taps that left `app_mode_com.instagram.android` untouched)
+does **not** reproduce when the tap is resolved from a fresh dump of the chip node.
+
+* `tools/device/scenarios/app_mode_chip_persistence.py` (PASS, 67.3 s, evidence
+  `verify-030/scenario-blockchip2/`): three deliberate trials — each preceded by its own dump,
+  followed by a prefs read-back and an Instagram launch, with `Filter` / `Allow` taps interleaved
+  so the Block tap always changes the state (mirrors the wave's sequence).
+* The Block text node is `clickable=False` at `[492,496][589,542]` inside the pill; the tap point
+  `(540,519)` lies inside the chip's own bounds, so the hit target is correct — case **(b)**
+  (missed chip) ruled out.
+* trial 1 `filter → block`: pref `filter` → `block`, block screen **0.96 s**
+* trial 2 `Filter` chip → `Block`: pref `filter` → `block`, block screen **0.76 s**
+* trial 3 `Allow` chip → `Block`: pref `allow` → `block`, block screen **0.90 s**
+
+Every tap wrote the pref *before* the launch and the very next launch was blocked, so neither case
+**(a)** (state wiring) nor case **(c)** (settings propagation) reproduces. Screens before/after each
+tap and the dumps: `scenario-blockchip2/01…09-*.png` / `*.xml`; engine excerpt per trial
+(`matched`, `neutralising`, block latency): `scenario-blockchip2/logcat-FilterService-080435/080537/080555.txt`.
+An earlier run (`scenario-blockchip/`) aborted in the *harness* after "Go home" (the app is
+backgrounded there, so the next detail-screen lookup failed) — not a product failure; the scenario
+now relaunches Free Social between trials. No code change needed; the scenario is kept as the
+permanent regression guard.
+
+## Item 1 — instant settings, no app restart — **PASS**
+
+Headline behaviour: tapping a mode chip on the AppDetail screen is in force on the **next**
+launch of the target app, with no Free Social process restart and no engine bounce.
+
+Process continuity (proves "no restart"): `dev.k3vinb5.freesocial` PID **20107** started
+2248 s before the check (`/proc/20107/stat` field 22 = 13932148 ticks, `/proc/uptime` =
+141569 s, 07:58:47) — i.e. it has been up since the APK install at 07:21 and never restarted
+during the whole sequence. Instagram PID **1361** started 3965 s before the check (06:52), so
+the target app was *relaunched*, never killed/restarted
+(`reverse/runtime-reno/verify-030/00-process-ids.txt`).
+
+| Step (07:29–07:31) | Observed | Evidence |
+|---|---|---|
+| IG detail → **Block** chip → `am start` IG | `BlockActivity` displayed **1.03 s** after the tap (`Displayed …BlockActivity: +262ms`); topResumedActivity = `ui.BlockActivity` | `10-instant-block.png`, `10-instant-block.logcat.txt`, scenario-instant2/01 |
+| → **Allow** chip → launch IG | IG `MainTabActivity` foreground; engine line `com.instagram.android is not filtered (master off or monitor mode)`; **zero** `neutralising` / `escape flash` | `12-instant-allow.png`, `12-instant-allow.logcat.txt` |
+| → **Filter** chip → launch IG | IG foreground, no block screen; engine scanning (`scan com.instagram.android … matched=2`) | `14-filter-pay.logcat.txt`, `15-filter-reels-playing.png` |
+| Budget variant: stepper 20→**5**, watch Reels | used counted 58 s → 301 s while watching; at **07:41:27.952** `ContentFlashActivity` STARTed and the Reels surface escaped to the IG feed — no user action, no restart | `16-budget-5.png`, `17-item1-watch-start.png`, `18-item1-escape.logcat.txt` |
+
+Note (honesty): the 07:41 flash's own `FilterService` lines were lost when the main log
+buffer wrapped (ColorOS `main` buffer is small and rotated before the excerpt could be
+saved); the launch is quoted from the live `logcat -v time` read taken immediately after
+(ActivityTaskManager 07:41:27.952 `START … ContentFlashActivity`). The flash mechanics at
+exhausted budget are re-proven with a tight capture in Item 2.
+
+Instant-settings regression guard: `tools/device/scenarios/instant_settings_mode.py`
+(PASS, 54.3 s, evidence `scenario-instant2/`): block screen at **1.03 s** (budget 2.0 s),
+Allow = "not filtered" + 0 actions, Filter = engine scanning + no block.
+
+## Item 2 — escape flash — **PASS**
+
+`tools/device/scenarios/flash_escape_visibility.py` (PASS, 33.2 s, evidence
+`scenario-flash4/`), and the copy was also captured by hand at 07:46 (`scenario-flash/01`).
+
+* Flash appears **0.80 s** after the Reels entry at exhausted budget; on screen **2.12 s**
+  (2.2 s `FLASH_DURATION_MS`, ≤ 2.5 s budget), then auto-dismissed.
+* Copy verified on a mid-show screencap: title **"Free Social blocked this"**, reason
+  **"Reels & Shorts budget used up · resets at midnight"**, caption "You can watch again
+  after the budget resets." (`scenario-flash4/01-flash-mid-show.png`).
+* One flash per episode: a second entry issued the instant the flash was dismissed
+  (< 3 s after the first) produced **1 `flash throttled`** line, **no** extra
+  `escape flash` line and **no** second flash on screen.
+* Detection note: `dumpsys activity` keeps a finished flash's task record for ~0.9 s;
+  the scenario measures lifetime from `mCurrentFocus` to avoid that artifact (an earlier
+  run read 2.94–3.19 s and was a measurement artifact, not a product regression).
+
+## Item 3 — exhausted-budget escape sweep — **PASS**
+
+Setup through the app UI: the allowance stepper was taken to its floor (`20 → 5 min`); used was
+already **698 s** > 300 s, so the budget was exhausted on the spot (`50-item1-exhausted-5min.png`,
+"0 min left today").
+
+| entry | evidence | observed |
+|---|---|---|
+| IG **Reels tab** | `54`, `55-item1-reelstab-entry2.logcat.txt` | 08:26:54.138 `neutralising com.instagram.android/reels_tab via TAP_HOME_TAB`, then **one** `escape flash … reason=BUDGET`; 15 s watched, nothing else |
+| IG **feed-cell → viewer** | `56`, `57`, `58`, `59-item1-feedcell.logcat.txt` | 08:30:58.475 `matched=1`, `neutralising …/clips_viewer via BACK`, **one** flash; the follow-up scan logged `duplicate action for the current surface episode` |
+| **YT Shorts player** | `60`, `61`, `62-item1-yt-shorts.logcat.txt` | 08:32:08.271 `matched=1`, `neutralising …/shorts_player via BACK`, **one** flash; focus returned to YT `Shell$HomeActivity` |
+
+No allow-then-deny alternation on any entry: all three matched and escaped on the first scan.
+
+Honesty note: the first Reels-tab run (`51/52/53`) produced **two** flashes from one entry
+(08:24:36.246 and 08:24:45.325) with a `connected, rules=8` a11y rebind between them. That rebind
+was the tail of the `uiautomator dump` taken just before the tap (the known dump-triggered rebind)
+and the re-bound engine re-matched the cached Reels tree; the clean repeat without a preceding dump
+fires exactly once (08:26:54). Instrumentation artifact, but worth a dedicated no-dump test if the
+pattern recurs.
+
+## Item 4 — TikTok live: FYP pay + exhausted escape — **FAIL (as found)**
+
+Mid-range (limit 20 min, used 698 s): a TikTok FYP video was playing (`Para Ti` selected,
+`40-item4-tiktok-fyp.png`) for ~2 min. Every scan reported `matched=0` and
+`budget_used_seconds` stayed **698** — no `tiktok_playback` hit, no accrual:
+
+```
+08:10:53 / 08:11:04 / 08:14:30  I/FilterService: scan com.zhiliaoapp.musically (TIKTOK):
+    64 nodes, 37 with viewId, rules=2/8, matched=0, grafted=3, windows=1 [TikTok(0)=60/34 ids]
+    com.zhiliaoapp.musically: 0 hit(s) but gate=NONE (budget=false, locked=false)
+```
+
+Cause — the device is running a **stale user rule override**, not the shipped asset:
+`Surfaces & rules → Rules in use` reads **`Your override (rules-override.json)`**
+(`42-item4-rule-source.png`), and `files/rules-override.json` (written 2026-11-05 16:47, copied to
+`43-item4-device-rules-override.json`) still holds the **pre-re-anchor** rule:
+
+```json
+"match": { "viewId": "com.zhiliaoapp.musically:id/player_view",
+           "classNameRegex": "android\\.view\\.(TextureView|SurfaceView)|android\\.widget\\.VideoView" }
+```
+
+The shipped asset at `d6ef75c` dropped the class criterion (`app/src/main/assets/rules.json`); the
+override still ANDs it, and this build exposes no video-surface node — the engine's own capture has
+`player_view` **visible** at `[0,110][1080,2121]` as `android.widget.FrameLayout` and no
+TextureView/SurfaceView/VideoView (`reverse/runtime-reno/anchor-audit/tt-b-midplay.json`), so the
+rule can never match. `RuleOverride.select()` gives a *valid* override full precedence over the
+asset (`filter/RuleOverride.kt`), and the file survives the APK update, so the 0.3.0 TikTok fix
+never reaches this device.
+
+Consequence at exhausted budget: entering the FYP did **not** escape — `08:32:44 matched=0`, video
+still playing at `08:32:52` (`70-item3-tiktok-fyp-exhausted.png`, `71-item3-tiktok-exhausted.logcat.txt`).
+Also logged during that scan: `E/ANR_LOG … Blocked msg … cost=3105 ms` on the service handler.
+
+The re-keyed rule itself is right at unit level (`TikTokPlaybackRuleTest`, `LocaleProofRulesTest`);
+the failure is device state (stale override), reported here rather than fixed (user data, outside
+this wave's file scope). The recorded "photo post also matches by id" trade-off of the re-key is
+moot while the override keeps the rule from matching at all.
+
+## Item 5 — no-leak sweep at exhausted budget — **FAIL (TikTok only)**
+
+One continuous window, 08:32:38–08:33:31 (~53 s), exhausted budget throughout, deliberate entries on
+all three apps (`72-item3-sweep-ig-yt.logcat.txt`):
+
+* **TikTok FYP — LEAK**: launched 08:32:38, scan 08:32:44 `matched=0`, video playing at 08:32:52
+  (~14 s), no action line at all. Same stale-override cause as Item 4.
+* **IG clips viewer**: escaped 08:33:17.7 (`neutralising …/clips_viewer via BACK` + flash); the
+  next entry at 08:33:20.2 escaped again with `escape flash suppressed (one per 3000 ms)`.
+* **YT Shorts**: escaped 08:33:26.4 (`matched=1`, `neutralising …/shorts_player via BACK` + flash).
+
+No IG or YouTube short video played >2 s without an escape; TikTok played ~14 s with none.
+
+## Item 6 — staleness banner — **PASS**
+
+* Installed Instagram `versionName` **454.0.0.54.77** (`dumpsys package com.instagram.android`).
+* AppDetail shows `Rules verified for Instagram 454.0.0.54` and **no** stale banner
+  (`80-item6-appdetail-staleness.png`). The verdict compares the asset stamp
+  `Instagram 454.0.0.54.77` with the installed string → segment-equal → **FRESH**, so the absence
+  of the banner matches the verdict. (The displayed copy is the hand-written `rulesVersion` label
+  and drops the `.77`; it is a label, not the compared stamp.)
+* Flagged, not fixed: Free Social's own `versionName` is still **0.1.0** while the packaging labels
+  say 0.3.0, so no build check can tell the 0.3.0 APK from an older one.
+
+## Final state restore
+
+* Budget: **limit 20 min**, used **698 s** of 1200 s — hub reads "9 min left"
+  (`90-item5-final-hub.png`, `91-item5-final-state.txt`). The Budget screen has **no reset-usage
+  control** (only "Resets at midnight"), so "used 0" is unreachable through the app UI; the counter
+  is left exactly as the wave found it.
+* Modes: IG `filter`, YT `filter`, TikTok unset → default `filter`; all three hub rows read
+  "Filtering", IG detail shows the `Filter` chip selected.
+* Apps: IG on its home feed, YT on `Shell$HomeActivity`, TikTok left — none parked in a player.
+* Front: Free Social hub with `Filtering on`; both accessibility services bound —
+  `dumpsys accessibility` Bound services = `Content filtering` (FilterService) + `Whole-app
+  blocking` (BlockService).
