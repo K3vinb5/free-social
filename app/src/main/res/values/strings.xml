@@ -28,6 +28,11 @@
     <string name="hub_caption">Rules verified · IG 454 · YT 21.43 · TT 47.6</string>
     <string name="hub_rule_inspector">Surfaces &amp; rules</string>
     <string name="hub_rule_inspector_dev">See and heal the rules each capture uses</string>
+    <!-- Hub: freedom-respecting star ask. One card, shown until dismissed once, never again. -->
+    <string name="hub_star_title">Free Social is free and open source</string>
+    <string name="hub_star_subtitle">No ads, no tracking, no popups. A star helps other people find it — only if you want to.</string>
+    <string name="hub_star_action">Star on GitHub</string>
+    <string name="hub_star_dismiss">Don\'t show again</string>
     <string name="schedule_on">On</string>
     <string name="schedule_off">Off</string>
 
