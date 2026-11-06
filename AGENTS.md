@@ -1,0 +1,47 @@
+# Agent instructions — Free Social
+
+## OpenProject filing protocol
+
+Board: https://open-prj.k3vinb5.dev — project **Free Social 🎯** (`-p 4`, identifier `free-social`).
+Every agent working in this repo SHOULD file issues for findings that are **outside its
+assigned file scope** or that it cannot fix this run. The board is the cross-run memory;
+a defect that only lives in a return note gets lost.
+
+```bash
+. ~/.config/opencode/env/openproject.sh    # exports OP_CLI_HOST + OP_CLI_TOKEN
+# Never print, echo, commit or paste $OP_CLI_TOKEN anywhere.
+timeout 15 op work-package create "Bug: <one line>" -p 4 --type Task --description "<body>"
+```
+
+Rules — a ticket that breaks these is noise and will be closed unread:
+
+1. **Verified only.** File what you actually observed: a log line, a screenshot, a
+   `file:line`, a failing command. Every body must contain the evidence path
+   (`reverse/...`, `docs/...`, `app/src/...:123`, a logcat excerpt path). No
+   speculation, no "might", no second-hand claims.
+2. **No duplicates of your brief.** If the finding is inside your brief's scope, fix it
+   or report it in your return format — do not ticket it. Tickets are for discoveries
+   beyond scope, deferred work, and defects that need a different run to fix.
+3. **Subject prefix = kind:** `Bug:`, `Task:`, `Chore:`, `Decision:`. Keep the board scannable.
+4. **Close what you fix.** If your run also fixes a filed item, transition it yourself
+   (recipe below) — never leave a fixed bug open.
+5. **No secrets or personal data** in tickets. Device LAN IPs and USB serials are
+   private-repo content: reference the evidence file instead of pasting values.
+6. **Body under ~15 lines.** The evidence file holds the detail; the ticket holds the claim.
+
+Status flow (`op` has no `--status` flag — use API v3; ids on this instance:
+`1` New · `7` In progress · `12` Closed):
+
+```bash
+LV=$(timeout 15 curl -sS -u "apikey:$OP_CLI_TOKEN" "$OP_CLI_HOST/api/v3/work_packages/<ID>" | jq .lockVersion)
+timeout 15 curl -sS -X PATCH -H 'Content-Type: application/json' -u "apikey:$OP_CLI_TOKEN" \
+  "$OP_CLI_HOST/api/v3/work_packages/<ID>" \
+  -d '{"lockVersion":'"$LV"',"_links":{"status":{"href":"/api/v3/statuses/12"}}}'
+```
+
+Link-href shape on THIS instance (measured 2026-11-06): `_links` hrefs take **no** trailing
+slash — `/api/v3/statuses/7` works, `/api/v3/statuses/7/` 422s. Same for membership
+payloads (`/api/v3/projects/4`, `/api/v3/users/4`, `/api/v3/roles/11`).
+
+Wrap every `op`/`curl` call in `timeout 15`. `op login`/`op logout` are interactive —
+never run them. After any mutation, re-inspect and report the resulting state.
