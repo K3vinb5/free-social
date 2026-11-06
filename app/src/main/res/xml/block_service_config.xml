@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Whole-app blocker config (docs/analysis/01a): window-state changes only, 300 ms framework
+  Whole-app blocker config (archived RE notes 01a; see docs/analysis/README.md): window-state changes only, 300 ms framework
   coalescing. Only the event's package name is read, so window content stays off.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"

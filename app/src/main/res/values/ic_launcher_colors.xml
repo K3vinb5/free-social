@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon background = app background token (FsColors.Background). -->
+<resources>
+    <color name="ic_launcher_background">#FF131218</color>
+</resources>

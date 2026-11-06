@@ -24,7 +24,7 @@ sealed interface BlockDecision {
 }
 
 /**
- * Simplified v1 whole-app gate chain (SPEC §2.3; `docs/analysis/01a` gates 0, 2, 3, 10, 14, 15).
+ * Simplified v1 whole-app gate chain (SPEC §2.3; `docs/analysis/README.md` (RE notes 01a) gates 0, 2, 3, 10, 14, 15).
  *
  * Pure and Android-free: the service feeds device flags plus the resolved target/mode, and the JVM
  * tests drive the decision table with a fake clock.
