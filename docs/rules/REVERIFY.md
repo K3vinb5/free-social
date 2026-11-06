@@ -4,7 +4,7 @@ Supersedes the cancelled run of 2026-11-05; all scenarios re-run clean.
 
 Status: **IN PROGRESS** — device-driver evidence pass. No code changes, no gradle, no commits.
 
-Device: OPPO Reno4 5G (`192.168.50.20:37161`), Android 13 / SDK 33, ColorOS, 1080×2400.
+Device: OPPO Reno4 5G (`LAN-IP-REDACTED:37161`), Android 13 / SDK 33, ColorOS, 1080×2400.
 APK `7f530f7` already installed (versionName 0.1.0, lastUpdateTime 2026-11-05 07:58:04).
 Evidence: `reverse/runtime-reno/`.
 
@@ -16,7 +16,7 @@ enforcement-truth hub banner; arm-then-capture inspector.
 
 ## Wave A — YouTube + budget (YT-only)
 
-Device: OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, 1080×2400. APK `7f530f7`,
+Device: OPPO Reno4 5G, `LAN-IP-REDACTED:37161`, Android 13 / ColorOS, 1080×2400. APK `7f530f7`,
 YouTube logged in, Instagram/TikTok untouched (out of scope). All state changes via Free Social's UI.
 Logs: `adb logcat -d -s FilterService`; screenshots `reverse/runtime-reno/waveA-NN-*.png`.
 
@@ -221,7 +221,7 @@ now read `22:30 → 07:00`. Hub: `Filtering on`, `19 min left`, `Schedule · On 
 
 ## Wave B — block mode + schedule flip + Doze
 
-Device: same OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS. Run 2026-11-05
+Device: same OPPO Reno4 5G, `LAN-IP-REDACTED:37161`, Android 13 / ColorOS. Run 2026-11-05
 09:46–… WET (Thursday). All state changes through Free Social's UI (`input tap`), 2–3 s pauses,
 no reboot, no `am force-stop`. Evidence: `reverse/runtime-reno/waveB-NN-*.png`.
 Scope note: this wave deliberately uses **whole-app block mode**, because the content tree is the
@@ -344,12 +344,12 @@ Final state (verified, `waveB-16-final-hub.png`): hub on screen, `Filtering on`,
 reset control), `Schedule · On · 22:30–07:00` with **all seven days** `22:30 → 07:00` (Thursday
 re-checked after the edits, `waveB-09-schedule-restored.png`), Wind-down/Morning lock left at the
 `0 min` they were found at, `Permissions · 4 of 4`, both services bound, next schedule alarm
-`2026-11-05 22:30:00`. `adb devices` shows `192.168.50.20:37161  device`. No reboot, no
+`2026-11-05 22:30:00`. `adb devices` shows `LAN-IP-REDACTED:37161  device`. No reboot, no
 `am force-stop`, no `settings put`, no code/gradle/git changes.
 
 ## Wave A retry — pt-PT content behaviors
 
-Device: same OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, pt-PT. APK built from
+Device: same OPPO Reno4 5G, `LAN-IP-REDACTED:37161`, Android 13 / ColorOS, pt-PT. APK built from
 HEAD `620e74e` (sources 11:17–11:24, APK 11:25:09, `assembleDebug` UP-TO-DATE, reinstalled with
 `install -r` at 11:29). Budget at start: limit 20 min, used 116 s, `budget_date=2026-11-05`.
 No schedule lock in the test window (Thu 22:30→07:00, device clock 11:30 WET). Evidence
@@ -483,7 +483,7 @@ than Wave A, and R4 is a seam bug (armed dump skips the lookup layers).
 Final state (verified, `waveAr-15-final-hub.png`): hub on screen, `Filtering on`, three apps
 `Filtering`, `Schedule · On · 22:30–07:00`, `Permissions · 4 of 4`, both services bound
 (`dumpsys accessibility`: 2 `Service[label=…]`, Content filtering `capabilities=41`), `adb devices`
-shows `192.168.50.20:37161  device`. Budget limit restored to **20** (`budget_limit_minutes=20`)
+shows `LAN-IP-REDACTED:37161  device`. Budget limit restored to **20** (`budget_limit_minutes=20`)
 but `budget_used_seconds=300` — there is **no reset control**, the day resets at midnight; the hub
 and Budget screen read **`17 min left of 20`** while 300 s used implies ~15, i.e. the displayed
 remainder lags the persisted counter (noted, not chased — out of scope for this wave).
@@ -576,14 +576,14 @@ that the 44–56-node scans show.)
 `budget_date=2026-11-05` (verified by `cat shared_prefs/settings.xml`); hub on screen
 `Filtering on`, three apps `Filtering`, `Schedule · On · 22:30–07:00`, `Permissions · 4 of 4`
 (`waveAg-06-final-hub.png`); both accessibility services bound; `adb devices` shows
-`192.168.50.20:37161 device`. Caveat: the hub/Budget readouts kept `15 min left` for this process
+`LAN-IP-REDACTED:37161 device`. Caveat: the hub/Budget readouts kept `15 min left` for this process
 (the app and the service each hold an in-memory `SettingsRepository`; the persisted value is 0 and
 the display corrects on the next process start). No reboot, no `settings put`, no second
 `am force-stop`.
 
 ## Wave C — Instagram + TikTok
 
-Device: same OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, **pt-PT**, 3-button nav.
+Device: same OPPO Reno4 5G, `LAN-IP-REDACTED:37161`, Android 13 / ColorOS, **pt-PT**, 3-button nav.
 APK `479bec3` installed (no rebuild, no reinstall). Run 2026-11-05 14:17–… WET (Thursday; schedule
 `22:30–07:00`, so no lock in the window). Start budget: limit 20 min, `budget_used_seconds=0`.
 Both apps signed in. Evidence `reverse/runtime-reno/waveC-NN-*.png`, logcat `-s FilterService`,
@@ -647,7 +647,7 @@ Note: `logcat -c` precedes each scenario so the excerpt belongs to that scenario
 
 ## Wave D — policy acceptance
 
-Device: OPPO Reno4 5G, `192.168.50.20:37161`, Android 13 / ColorOS, 1080×2400, pt-PT UI,
+Device: OPPO Reno4 5G, `LAN-IP-REDACTED:37161`, Android 13 / ColorOS, 1080×2400, pt-PT UI,
 2–3 s pacing. APK `7f530f7` (unchanged); driver at `e6d7fce`. No app code changed, no commits,
 **no reboot, no `am force-stop`**. Every run: `uv run tools/device/drive.py run <scenario>`
 (exit 0 = PASS) with evidence under `reverse/runtime-reno/driver-<ts>/<scenario>/`.
@@ -810,7 +810,7 @@ scenario must be re-run WITHOUT relying on dump-triggered rebinds (dump after as
 
 # 0.3.0 verification — Reno4 end-to-end (feature set at d6ef75c, 2026-11-06)
 
-Device: OPPO Reno4 5G, `adb -s 6121068d` (USB; fallback `192.168.50.20:5555`), Android 13 / SDK 33.
+Device: OPPO Reno4 5G, `adb -s DEVICE-SERIAL-REDACTED` (USB; fallback `LAN-IP-REDACTED:5555`), Android 13 / SDK 33.
 APK built from HEAD `d6ef75c` (`versionName` still `0.1.0` — see item 6: the release label is 0.3.0,
 the manifest version is not bumped, so the staleness banner must be judged on versionName).
 Evidence: `reverse/runtime-reno/verify-030/`.
@@ -997,7 +997,7 @@ No IG or YouTube short video played >2 s without an escape; TikTok played ~14 s 
 
 ## Re-verify after override clear — 2026-11-06 (verify-030, items 4 + 5)
 
-Dated follow-up to the two FAILs above. Device `6121068d` (USB), branch HEAD `e1bf545` during the
+Dated follow-up to the two FAILs above. Device `DEVICE-SERIAL-REDACTED` (USB), branch HEAD `e1bf545` during the
 run, installed APK `lastUpdateTime 2026-11-06 07:21:17` (`versionName` still mislabelled `0.1.0`).
 Goal: delete our own W2-import residue (`files/rules-override.json`), force a live engine reload
 without a restart, and re-run items 4/5.
@@ -1137,7 +1137,7 @@ Evidence — all `reverse/runtime-reno/verify-030/1xx-*`.
 disk at 09:20:29, `101-prefs-before-phase0.xml`, `budget_limit_minutes=20` untouched) and then, with
 no UI action in between, `./gradlew assembleDebug` → `BUILD SUCCESSFUL`, 37 tasks up to date,
 `app-debug.apk` 30 074 281 B whose `resources.arsc` contains `Use built-in rules`;
-`adb -s 6121068d install -r` 09:21:32 → 09:21:41, `Success`. Nothing was tapped after the write.
+`adb -s DEVICE-SERIAL-REDACTED install -r` 09:21:32 → 09:21:41, `Success`. Nothing was tapped after the write.
 
 **7.2 What the install changed — no dialog, no toggle.**
 

@@ -3,7 +3,7 @@
 
     uv run tools/device/drive.py list
     uv run tools/device/drive.py run yt_home_shelf_visibility
-    uv run tools/device/drive.py run ig_reels_entry --device 192.168.50.20:37161
+    uv run tools/device/drive.py run ig_reels_entry --device <serial>
 
 Exit code: 0 = PASS, 1 = FAIL or WALL.
 """
@@ -11,7 +11,6 @@ Exit code: 0 = PASS, 1 = FAIL or WALL.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -30,8 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("scenario", help="scenario module name under tools/device/scenarios/")
     run.add_argument(
         "--device",
-        default=os.environ.get("FREE_SOCIAL_DEVICE"),
-        help="adb serial, e.g. 192.168.50.20:37161 (or $FREE_SOCIAL_DEVICE)",
+        default=None,
+        help="adb serial; default: $FS_DEVICE_SERIAL, else first device `adb devices` lists",
     )
     run.add_argument(
         "--evidence-dir",

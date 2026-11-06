@@ -31,7 +31,7 @@ Secondary (earlier, still clean) evidence: `165537-ig_feed`, `170110-yt_home`, `
 
 ### Locale capture — Reno4 `CPH2195` (2026-11-05, pt-PT)
 
-The Reno4 test phone (`192.168.50.20:37161`, `persist.sys.locale=pt-PT`) runs the same YouTube
+The Reno4 test phone (`LAN-IP-REDACTED:37161`, `persist.sys.locale=pt-PT`) runs the same YouTube
 21.43.523 with a Portuguese UI: every shelf card is described `"<title> – reproduzir Short"`
 (en dash **U+2013**, not a hyphen) and the shelf header is still `"Shorts"` (product name).
 

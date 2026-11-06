@@ -10,6 +10,7 @@ Transport is pinned with `adb -s <host:port>` and every command is bounded by
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
@@ -21,7 +22,12 @@ from pathlib import Path
 from .selectors import Selector, matches
 from .xmlnodes import Node, parse_xml
 
-DEFAULT_SERIAL = "192.168.50.20:37161"
+# No device address is ever hardcoded here: pick the target at run time from an
+# explicit serial, $FS_DEVICE_SERIAL (or the legacy $FREE_SOCIAL_DEVICE), or the
+# first entry `adb devices` reports.
+DEFAULT_SERIAL = "auto"
+SERIAL_ENV_VARS = ("FS_DEVICE_SERIAL", "FREE_SOCIAL_DEVICE")
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVIDENCE_ROOT = REPO_ROOT / "reverse" / "runtime-reno"
 REMOTE_DUMP = "/sdcard/freesocial-driver-dump.xml"
@@ -130,6 +136,42 @@ def _safe(value: str) -> str:
     return cleaned[:80] or "shot"
 
 
+def attached_devices(adb: str = "adb", timeout: int = 15) -> list[str]:
+    """Serials of every device adb reports in state `device` (booted, authorised)."""
+    try:
+        proc = subprocess.run(
+            [adb, "devices"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
+    except FileNotFoundError as exc:
+        raise DriverError("adb binary not found (install platform-tools)") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise DriverError("`adb devices` timed out") from exc
+    found: list[str] = []
+    for line in proc.stdout.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            found.append(parts[0])
+    return found
+
+
+def resolve_serial(serial: str | None = None, adb: str = "adb", timeout: int = 15) -> str:
+    """Resolve the adb target: explicit > $FS_DEVICE_SERIAL > $FREE_SOCIAL_DEVICE > first attached."""
+    for candidate in (serial, *(os.environ.get(name) for name in SERIAL_ENV_VARS)):
+        value = (candidate or "").strip()
+        if value and value.lower() != "auto":
+            return value
+    found = attached_devices(adb=adb, timeout=timeout)
+    if not found:
+        raise DriverError(
+            "no device: pass --device, export FS_DEVICE_SERIAL, or attach a phone over USB/tcpip"
+        )
+    return found[0]
+
+
 class Device:
     """One device session, one evidence directory, one step counter."""
 
@@ -141,7 +183,7 @@ class Device:
         adb: str = "adb",
         scenario: str = "scenario",
     ) -> None:
-        self.serial = serial or DEFAULT_SERIAL
+        self.serial = resolve_serial(serial, adb=adb, timeout=timeout)
         self.timeout = timeout
         self.adb = adb
         self.scenario = scenario
