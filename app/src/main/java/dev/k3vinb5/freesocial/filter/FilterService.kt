@@ -27,7 +27,7 @@ import dev.k3vinb5.freesocial.ui.ContentFlash
 import java.time.ZonedDateTime
 
 /**
- * The content-filtering engine (SPEC §2.1–2.2, mechanics from `docs/analysis/03a`).
+ * The content-filtering engine (SPEC §2.1–2.2, mechanics from `docs/analysis/README.md` (RE notes 03a, archived)).
  *
  * One single-flight scan per event burst on the main looper (0-delay, coalesced), a 1200 ms action
  * debounce per surface plus a per-app quota, a 400-node walk cap, and a stopwatch that charges

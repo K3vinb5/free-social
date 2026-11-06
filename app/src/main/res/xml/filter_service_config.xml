@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Mirrors the original NativeReelsBlockerService config (docs/analysis/03a §1.1):
+  Mirrors the original NativeReelsBlockerService config (archived RE notes 03a §1.1; see docs/analysis/README.md):
   six event types, 50 ms framework coalescing, view ids + unimportant views + interactive windows.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
