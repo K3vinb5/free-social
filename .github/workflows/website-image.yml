@@ -58,7 +58,7 @@ env:
 
 jobs:
   build-push:
-    # The release/nightly pipeline commits website/downloads + website/index.html
+    # The release/nightly pipeline commits website/downloads + the site source in website/
     # and then calls this workflow for that exact commit. Skip the push-triggered
     # duplicate for those bot commits: same commit, same tags, and the call is the
     # build deploy-site waits on.
