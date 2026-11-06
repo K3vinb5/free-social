@@ -57,17 +57,19 @@ directory works as is. The script:
   `{"generated","stable":[…],"nightlies":[…]}`, newest first, each entry
   `{version,sha,date,apk,zip,bytes_apk,bytes_zip}` with site-root-relative hrefs;
 - keeps the newest 10 stable and the newest 10 nightly entries, and **deletes the files**
-  of a nightly that falls out of the window (stable artifacts are versioned, never deleted);
-- regenerates the Stable and Nightlies tables between the `AUTOGEN:downloads:start/end`
-  markers in `website/index.html` — direct APK and ZIP links, no redirect.
+  of a nightly that falls out of the window (stable artifacts are versioned, never deleted).
+
+It writes data only — no HTML. The Stable and Nightlies tables on the page are rendered
+from `versions.json` at site build time (`website/src/components/DownloadTables.tsx`), so
+the next website build is what puts a published build in front of visitors.
 
 `PUBLISH_DATE=YYYY-MM-DD` overrides the publish date for a new entry (backfills). Re-running
-with the same arguments is a no-op: a recorded entry keeps its date, so the filenames,
-`versions.json` and the generated tables stay byte-identical. Missing artifacts exit 1 with a
-message; a bad invocation exits 2.
+with the same arguments is a no-op: a recorded entry keeps its date, so the filenames and
+`versions.json` stay byte-identical. Missing artifacts exit 1 with a message; a bad
+invocation exits 2.
 
-The tables in `website/index.html` and `versions.json` are build output — edit the
-script, not them.
+`versions.json` is build input, and everything under `website/downloads/` is publish output —
+edit neither by hand.
 
 ## Deploying the site container
 
@@ -108,4 +110,11 @@ removed first. `HTTP_TIMEOUT` (60s) and `PULL_TIMEOUT` (300s) are also overridab
 
 In CI this is the `deploy-site` job of `build-release.yml`, which runs `--check` and
 then the deploy against the image that `website-image.yml` pushed for the same commit.
+
+## Building the site locally
+
+`website/` is a React + Vite project; `bun run build` prerenders it to static files in
+`website/dist/`, which is exactly what the image serves (see `website/README.md`). The
+`publish-site` job of `build-release.yml` commits `website/downloads/` only and then calls
+`website-image.yml` for that commit, so the image always carries fresh tables.
 

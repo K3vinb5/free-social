@@ -4,9 +4,10 @@
 #   tools/release/publish_downloads.sh <release|nightly> <version> <sha> <artifact-dir>
 #
 # Copies the APK and the packaging zip out of <artifact-dir> (any *.apk / *.zip)
-# into website/downloads/ under their final public names, records them in
-# website/downloads/versions.json and regenerates the download tables in
-# website/index.html between the AUTOGEN:downloads markers.
+# into website/downloads/ under their final public names and records them in
+# website/downloads/versions.json. The download tables on the page are rendered
+# from versions.json when the site is built (website/src/components/DownloadTables.tsx),
+# so publishing a build is a data change, never an HTML edit.
 #
 #   release   -> free-social-<version>-<sha>.apk / .zip
 #   nightly   -> nightly-<YYYYMMDD>-<sha>.apk / .zip   (UTC publish date)
@@ -19,9 +20,8 @@
 #   PUBLISH_DATE=YYYY-MM-DD   publish date for a new entry (backfills, seeds).
 #
 # Re-running with the same arguments is a no-op: an entry that is already
-# recorded keeps its date, so its filename, versions.json and the generated
-# tables stay byte-identical. The "generated" stamp only moves when the data
-# actually changed.
+# recorded keeps its date, so its filename and versions.json stay byte-identical.
+# The "generated" stamp only moves when the data actually changed.
 #
 # Exit status: 0 published (or already current), 1 missing/unusable artifacts,
 # 2 bad invocation.
@@ -35,8 +35,9 @@ usage: tools/release/publish_downloads.sh <release|nightly> <version> <sha> <art
   nightly            copy as nightly-<YYYYMMDD UTC>-<sha>.apk/.zip
   <artifact-dir>     holds the built *.apk and the packaging *.zip
 
-Rewrites website/downloads/versions.json and the AUTOGEN:downloads block in
-website/index.html, then prunes to the newest 10 per channel.
+Rewrites website/downloads/versions.json and prunes to the newest 10 per
+channel. The site's Stable/Nightlies tables are rendered from that file at build
+time, so the next site build (website/ -> bun run build) picks the entry up.
 EOF
   exit 2
 }
@@ -67,8 +68,7 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required"
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 site="$script_root/website"
 dl="$site/downloads"
-index="$site/index.html"
-[ -f "$index" ] || die "missing $index"
+[ -d "$site" ] || die "missing $site"
 [ -d "$artifact_dir" ] || die "artifact directory not found: $artifact_dir"
 mkdir -p "$dl"
 artifact_dir="$(cd "$artifact_dir" && pwd)"
@@ -146,32 +146,16 @@ zip_dst="$dl/$base.zip"
 [ "$apk_src" -ef "$apk_dst" ] || cp -f "$apk_src" "$apk_dst"
 [ "$zip_src" -ef "$zip_dst" ] || cp -f "$zip_src" "$zip_dst"
 
-python3 - "$dl" "$index" "$mode" "$version" "$sha" "$publish_date" "$apk_dst" "$zip_dst" <<'PY'
+python3 - "$dl" "$mode" "$version" "$sha" "$publish_date" "$apk_dst" "$zip_dst" <<'PY'
 import datetime
 import json
 import os
 import re
 import sys
 
-dl, index_path, mode, version, sha, date, apk_path, zip_path = sys.argv[1:9]
+dl, mode, version, sha, date, apk_path, zip_path = sys.argv[1:8]
 json_path = os.path.join(dl, "versions.json")
 key = "stable" if mode == "release" else "nightlies"
-START = "<!-- AUTOGEN:downloads:start -->"
-END = "<!-- AUTOGEN:downloads:end -->"
-
-try:
-    with open(index_path, encoding="utf-8") as fh:
-        page = fh.read()
-except OSError as exc:
-    sys.exit("error: cannot read %s: %s" % (index_path, exc))
-
-head = page.find(START)
-tail = page.find(END)
-if head < 0 or tail < 0 or tail < head:
-    sys.exit(
-        "error: %s is missing the %s / %s markers; refusing to publish links "
-        "that nothing generates" % (index_path, START, END)
-    )
 
 try:
     with open(json_path, encoding="utf-8") as fh:
@@ -257,7 +241,8 @@ previous = None
 if os.path.isfile(json_path):
     with open(json_path, encoding="utf-8") as fh:
         previous = fh.read()
-if serialized != previous:
+changed = serialized != previous
+if changed:
     with open(json_path, "w", encoding="utf-8") as fh:
         fh.write(serialized)
 
@@ -272,96 +257,14 @@ def human(size):
     return "%d B" % size
 
 
-def text(value):
-    return (
-        str(value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
-
-
-def table(title, anchor, entries, empty, note=""):
-    lines = [
-        '          <div class="dl-block">',
-        '            <h3 class="dl-block__h" id="%s">%s</h3>' % (anchor, title),
-    ]
-    if note:
-        lines.append('            <p class="dl-block__note">%s</p>' % note)
-    lines += [
-        '            <table class="dl-table">',
-        '              <colgroup>',
-        '                <col class="dl-col-v"><col class="dl-col-sha"><col class="dl-col-date">'
-        '<col class="dl-col-size"><col class="dl-col-get"><col class="dl-col-get">',
-        "              </colgroup>",
-        "              <thead>",
-        "                <tr>",
-        '                  <th scope="col">Version</th>',
-        '                  <th scope="col">SHA</th>',
-        '                  <th scope="col">Date</th>',
-        '                  <th scope="col">Size APK / ZIP</th>',
-        '                  <th scope="col" colspan="2">Download</th>',
-        "                </tr>",
-        "              </thead>",
-        "              <tbody>",
-    ]
-    if not entries:
-        lines.append(
-            '                <tr class="dl-empty"><td colspan="6">%s</td></tr>' % empty
-        )
-    for entry in entries:
-        lines += [
-            "                <tr>",
-            '                  <th scope="row">%s</th>' % text(entry["version"]),
-            "                  <td><code>%s</code></td>" % text(entry["sha"]),
-            '                  <td><time datetime="%s">%s</time></td>'
-            % (text(entry["date"]), text(entry["date"])),
-            '                  <td><span class="dl-size">%s</span>'
-            '<span class="dl-size">%s</span></td>'
-            % (human(entry["bytes_apk"]), human(entry["bytes_zip"])),
-            '                  <td class="dl-get">'
-            '<a class="dl-link" href="%s" download>APK</a></td>' % text(entry["apk"]),
-            '                  <td class="dl-get">'
-            '<a class="dl-link dl-link--alt" href="%s" download>ZIP</a></td>'
-            % text(entry["zip"]),
-            "                </tr>",
-        ]
-    lines += ["              </tbody>", "            </table>", "          </div>"]
-    return lines
-
-
-block = [
-    START,
-    "        <!-- Generated by tools/release/publish_downloads.sh from"
-    ' downloads/versions.json. Do not edit by hand. -->',
-    '        <div class="dl-wrap">',
-]
-block += table("Stable", "dl-stable-h", stable, "No stable release published yet.")
-block += table(
-    "Nightlies",
-    "dl-nightly-h",
-    nightlies,
-    "No nightly published yet.",
-    "Untagged prerelease builds of <code>master</code>. Their versionName is never"
-    " bumped, so every entry reads 0.0.0 &mdash; the date and the commit identify them.",
-)
-block += ["        </div>", END]
-
-generated = "\n".join(block)
-updated = page[:head] + generated + page[tail + len(END):]
-page_changed = updated != page
-if page_changed:
-    with open(index_path, "w", encoding="utf-8") as fh:
-        fh.write(updated)
-
 apk_name = os.path.basename(new_entry["apk"])
 zip_name = os.path.basename(new_entry["zip"])
 print("published %s (%s) and %s (%s)"
       % (apk_name, human(new_entry["bytes_apk"]),
          zip_name, human(new_entry["bytes_zip"])))
-print("versions.json: %d stable, %d nightly%s"
+print("versions.json: %d stable, %d nightly%s (%s)"
       % (len(stable), len(nightlies),
-         (", pruned " + ", ".join(removed)) if removed else ""))
-print("index.html: %s" % ("tables regenerated" if page_changed else "unchanged"))
+         (", pruned " + ", ".join(removed)) if removed else "",
+         "updated" if changed else "unchanged"))
+print("site tables are rendered from versions.json by the next site build")
 PY
