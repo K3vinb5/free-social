@@ -118,3 +118,11 @@ follow it exactly, because the board is the only cross-run memory.
 - Full device facts (model, OS build, screen, locale, quirks) live in project
   memory **#267** — read that instead of re-deriving, and keep identifiers out of
   this repo.
+
+## Portainer docker-proxy status codes (2026-11-06)
+
+`POST /api/endpoints/4/docker/containers/create` returns **200** with a Portainer
+envelope on this instance, not the 201 the Docker API documents. Treat any 2xx as
+success on the mutating calls; `tools/release/deploy-site.sh` does after the first
+real deploy taught us. (Its rollback handled the misread correctly — the old
+container was restored — but the deploy itself had already been declared failed.)
