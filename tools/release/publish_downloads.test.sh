@@ -38,6 +38,8 @@ artifacts() { # artifacts <dir> <zip-name> [apk-bytes]
 set +e
 bash "$script" release 1.0.0 abc >/dev/null 2>&1
 [ "$?" -eq 2 ] && pass "wrong argument count exits 2" || fail "wrong argument count should exit 2"
+bash "$script" release 1.0.0 abc "$tmp/rel" extra >/dev/null 2>&1
+[ "$?" -eq 2 ] && pass "extra arguments exit 2 (arity pinned at 4)" || fail "extra arguments should exit 2"
 bash "$script" beta 1.0.0 abc "$tmp" >/dev/null 2>&1
 [ "$?" -eq 2 ] && pass "unknown mode exits 2" || fail "unknown mode should exit 2"
 bash "$script" release 1.0.0 abc "$tmp/nope" >/dev/null 2>&1
@@ -108,6 +110,20 @@ count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['ni
 [ -f "$root/website/downloads/free-social-1.0.0-abc1234.apk" ] \
   && pass "stable artifacts are never pruned" \
   || fail "stable artifact was deleted"
+
+# 13 stable entries total -> JSON keeps the newest 10, files all stay.
+for i in $(seq 1 12); do
+  d="$(printf '%02d' "$i")"
+  artifacts "$tmp/rel$i" "free-social-2.0.$i-s$i.zip"
+  PUBLISH_DATE="2026-02-$d" bash "$script" release "2.0.$i" "s$i" "$tmp/rel$i" >/dev/null
+done
+count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['stable']))" "$json")"
+[ "$count" = "10" ] && pass "stable entries are capped at the newest 10" || fail "expected 10 stable entries, got $count"
+newest="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['stable'][0]['version'])" "$json")"
+[ "$newest" = "2.0.12" ] && pass "stable entries are newest-first" || fail "newest stable entry is $newest"
+[ -f "$root/website/downloads/free-social-2.0.1-s1.apk" ] \
+  && pass "capped stable files are kept on disk" \
+  || fail "capped stable file was deleted"
 
 [ "$index_before" = "$(cksum < "$root/website/index.html")" ] \
   && pass "index.html still untouched after every publish" \

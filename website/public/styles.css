@@ -1280,8 +1280,8 @@ h2 em {
 }
 
 /* ---------- downloads: generated build tables ---------- */
-/* Markup between AUTOGEN:downloads markers is written by
-   tools/release/publish_downloads.sh — keep selectors in sync with it. */
+/* Table markup is rendered from website/downloads/versions.json at build time
+   (src/site/DownloadTables) — keep selectors in sync with it. */
 .dl-history {
   margin-top: clamp(24px, 3.6vw, 36px);
   padding-top: 20px;

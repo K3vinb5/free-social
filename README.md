@@ -179,9 +179,9 @@ Release packaging lives in `tools/release/` and is driven by the
 
 The public download list is generated, never hand-edited:
 `tools/release/publish_downloads.sh <release|nightly> <version> <sha> <artifact-dir>` copies the
-built APK and zip into `website/downloads/`, records them in `website/downloads/versions.json`
-and rewrites the two tables between the `AUTOGEN:downloads` markers in `website/index.html`.
-Re-running it with the same arguments is a no-op.
+built APK and zip into `website/downloads/` and records them in `website/downloads/versions.json`
+(newest 10 per channel; pruned nightly files are deleted). The site's Stable/Nightlies tables
+render from that file at build time. Re-running it with the same arguments is a no-op.
 
 The same pipeline ships the site itself: `website-image.yml` builds `website/` into
 `ghcr.io/k3vinb5/free-social-website:<sha>`, and `build-release.yml` then runs
