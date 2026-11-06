@@ -5,14 +5,16 @@ import dev.k3vinb5.freesocial.core.loadRuleSet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D2a + rule #271: `tiktok_playback` is proved by the player container id (`player_view`) AND a
- * video surface class, both locale-independent. The FYP chrome descriptions are auxiliary hints
- * now: a pt-PT UI must still match. The rule must never depend on `video_seek_bar` — a player
- * control the host hides (`isVisibleToUser=false`) during playback while uiautomator still lists it.
+ * D2a + rule #271 + the 2026-11-06 Reno4 audit: `tiktok_playback` is proved by the player container
+ * id (`player_view`) alone — locale-independent and always present. A video-surface class is NOT
+ * part of the key: on the Reno4 / Android 13 build TikTok 47.6.3 the player exposes no
+ * TextureView/SurfaceView/VideoView node at all (anchor-audit/tt-a, tt-b, tt-c), so requiring one
+ * made the rule unreachable while a video played. The FYP chrome descriptions are auxiliary hints:
+ * a pt-PT UI must still match. The rule must never depend on `video_seek_bar` — a player control
+ * the host hides (`isVisibleToUser=false`) during playback while uiautomator still lists it.
  */
 class TikTokPlaybackRuleTest {
 
@@ -105,22 +107,52 @@ class TikTokPlaybackRuleTest {
     }
 
     @Test
-    fun `a photo post (no video surface) does not match`() {
-        // 235543-tt_fyp_next2: same chrome, player_view present, no TextureView, no seek bar.
+    fun `a photo post in the FYP matches by id - recorded trade-off`() {
+        // 2026-11-06 Reno4 audit, anchor-audit/tt-d-photo-post.json: the photo tree is a strict
+        // subset of the video tree. It HAS player_view (visible, full playback bounds) and its only
+        // missing nodes are the seek-bar chrome. With no video-surface node on this build there is
+        // no locale-proof way to separate a photo carousel from a video post, so the id anchor
+        // matches both: the surface being gated is the FYP player either way, and a DM-opened video
+        // is still shielded by tiktok_dm_carve_out (SKIP). Live stays excluded (no player_view).
         val photo = node(
             bounds = Bounds(0, 0, 1080, 2424),
             children = listOf(
-                node(className = "android.widget.LinearLayout", description = "For You", bounds = Bounds(698, 137, 899, 289)),
-                node(className = "android.widget.Button", description = "Like video. 43 likes", bounds = Bounds(912, 1375, 1080, 1533)),
+                node(className = "android.widget.LinearLayout", description = "Para Ti", bounds = Bounds(698, 137, 899, 289)),
+                node(className = "android.widget.Button", description = "Gosto. 43 gostos", bounds = Bounds(912, 1375, 1080, 1533)),
                 node(
                     viewId = "$TT:id/player_view",
                     className = "android.widget.FrameLayout",
-                    bounds = Bounds(0, 137, 1080, 2169),
+                    bounds = Bounds(0, 110, 1080, 2121),
                 ),
-                node(className = "android.widget.TextView", text = "Photo", bounds = Bounds(0, 1800, 400, 1900)),
+                node(className = "android.widget.TextView", text = "Foto", bounds = Bounds(0, 1800, 400, 1900)),
             ),
         )
-        assertNull(match(photo))
-        assertTrue("the video surface class is what separates a video post", rule.match.classNameRegex!!.contains("TextureView"))
+        assertNotNull(match(photo))
+        assertNull("no video-surface class may be required", rule.match.classNameRegex)
+    }
+
+    @Test
+    fun `a playing video with no video surface node in the tree still matches`() {
+        // The 2026-11-06 regression: tt-a-fresh-swipe / tt-b-midplay / tt-c-tap-focus (Reno4,
+        // TikTok 47.6.3) carry player_view [0,110][1080,2121] and ZERO TextureView/SurfaceView/
+        // VideoView nodes. Requiring a surface class logged matched=0 for a playing video.
+        val renoVideo = node(
+            bounds = Bounds(0, 0, 1080, 2400),
+            children = listOf(
+                node(className = "android.widget.LinearLayout", description = "Para Ti", bounds = Bounds(715, 110, 910, 284)),
+                node(className = "android.widget.FrameLayout", description = "Início", bounds = Bounds(0, 2121, 216, 2268)),
+                node(
+                    viewId = "$TT:id/player_view",
+                    className = "android.widget.FrameLayout",
+                    bounds = Bounds(0, 110, 1080, 2121),
+                ),
+                node(
+                    viewId = "$TT:id/video_seek_bar",
+                    className = "android.widget.LinearLayout",
+                    bounds = Bounds(0, 2076, 1080, 2160),
+                ),
+            ),
+        )
+        assertNotNull("player_view alone must prove playback on the audited build", match(renoVideo))
     }
 }

@@ -58,7 +58,7 @@ was using the phone mid-capture). Deleted at the end of this run.
 | `ig_dm_carve_out` | `dm_carve_out` (2) | `234329` (+ `234011`) | `id/row_thread_composer_edittext` + class `EditText` | Instagram 454.0.0.54.77 | SKIP |
 | `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` (en-US), `pt-yt-home3` (pt-PT) | content-desc `^Shorts$` / `- play Short$` / ` – reproduzir Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
 | `yt_shorts_player` | `shorts_player` (2) | `234810` | `id/reel_recycler` + class `android.support.v7.widget.RecyclerView` | YouTube 21.43.523 | BACK |
-| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo, negative), `235326` (live, negative) | **proof** `id/player_view` + class `TextureView`/`SurfaceView`/`VideoView`; content-desc FYP chrome (`For You`, `Like video.`, …) is now a hint only | TikTok 47.6.3 | BACK |
+| `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo), `235326` (live, negative); Reno4 audit `anchor-audit/tt-a`,`tt-b`,`tt-c` (video: **no surface node**) vs `tt-d` (photo) | **proof** `id/player_view` alone; content-desc FYP chrome (`For You`, `Like video.`, …) is a hint only | TikTok 47.6.3 | BACK |
 | `tiktok_dm_carve_out` | `dm_carve_out` (2) | `001928` (DM video) + `001335` (thread) | `id/udm` + class `android.widget.Button` ("Message <name>...") | TikTok 47.6.3 | SKIP |
 
 All eight surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
@@ -93,16 +93,22 @@ Enforcement is in code, not prose:
 | `ig_clips_viewer` | `com.instagram.android:id/clips_viewer_view_pager` + `androidx.viewpager.widget.ViewPager` | `233528-ig_reels_tab.xml` | — |
 | `ig_dm_carve_out` | `com.instagram.android:id/row_thread_composer_edittext` + `android.widget.EditText` | `234329-ig_dm_thread.xml` | `Message…` (not authored as a criterion) |
 | `yt_shorts_player` | `com.google.android.youtube:id/reel_recycler` + `android.support.v7.widget.RecyclerView` | `234810-yt_shorts_player.xml`, `170126-yt_shorts.xml` | — |
-| `tiktok_playback` | `com.zhiliaoapp.musically:id/player_view` + `TextureView`/`SurfaceView`/`VideoView` | `234958-tt_consent_check.xml` (video); `235543-tt_fyp_next2.xml` (photo: id, no surface); `235326-tt_fyp_next.xml` (live: SurfaceView, no `player_view`) | FYP chrome descriptions (`For You`, `Like video.`, …) |
+| `tiktok_playback` | `com.zhiliaoapp.musically:id/player_view` (id alone — the video-surface class was dropped 2026-11-06) | `234958-tt_consent_check.xml` (Pixel, video); `reverse/runtime-reno/anchor-audit/tt-a-fresh-swipe.json`, `tt-b-midplay.json`, `tt-c-tap-focus.json` (Reno4, video, **no surface node at all**), `tt-d-photo-post.json` (photo control); `235326-tt_fyp_next.xml` (live: `SurfaceView`, no `player_view`, negative) | FYP chrome descriptions (`For You`, `Like video.`, …) |
 | `tiktok_dm_carve_out` | `com.zhiliaoapp.musically:id/udm` + `android.widget.Button` | `001928-tt_dm_video_paused.xml`, `001335-tt_activity_carol.xml` | `Message <name>…` (observed, not a key) |
 | `ig_feed_reel_cell` (RETIRED) | `com.instagram.android:id/video_container` + `android.view.ViewGroup` | `233205-ig_feed_scroll3.xml`, `233157-ig_feed_scroll2.xml` | — |
 | `yt_shorts_shelf` (RETIRED) | **UNPROOFED** — see below | `234610-yt_home.xml`, `reverse/runtime-reno/pt-yt-home3.xml` | desc `Shorts` / ` - play Short` / ` – reproduzir Short` |
 
-Why TikTok uses `player_view` and not the video-surface class alone: `235326-tt_fyp_next.xml`
-(live preview) **does** render a `SurfaceView`, so the class by itself would flag LIVE, which is
-not a short-video surface. The `player_view` container exists for a post/video and is absent on
-LIVE; the surface class is what keeps the `235543` photo negative clean (`player_view` there, no
-video surface). Neither signal is a string.
+Why TikTok uses `player_view` alone (2026-11-06 anchor audit): the Reno4 / TikTok 47.6.3 trees
+expose **no** `TextureView`/`SurfaceView`/`VideoView` node at all while a video plays
+(`tt-a-fresh-swipe.json`, `tt-b-midplay.json`, `tt-c-tap-focus.json`) — requiring a class made the
+rule unreachable (`matched=0` live). The only video-vs-photo discriminators in the dumps are
+`video_seek_bar` + `vrp` (SeekBar), both D2a-proven transient player chrome the host hides during
+clean playback; anchoring on them would reintroduce the leak class at exhaustion. So the key is
+`id/player_view` alone (locale-proof, `visible` viewport present in video AND photo — photos render
+inside the same viewport, `tt-d-photo-post.json`). **Recorded trade-off:** a photo post on the FYP
+matches too (accrues budget; escapes at exhaustion like any FYP entry) — accepted, because
+"never leak a short video at 0 budget" outranks "never over-count a photo", and FYP is the
+short-video surface either way. The DM carve-out (`id/udm`) is unaffected.
 
 **`yt_shorts_shelf` — UNPROOFED as a locale-independent anchor.** No dump (EN `234610-yt_home.xml`
 or pt-PT `pt-yt-home3.xml`) shows a view id or a distinctive structural/geometry fingerprint for
@@ -129,7 +135,7 @@ is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
 | `ig_dm_carve_out` | `id/row_thread_composer_edittext` | **Yes** — the thread composer is thread chrome, present for the whole thread (`234329`); it is what keeps shared reels in a DM usable. |
 | `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` / ` – reproduzir Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
 | `yt_shorts_player` | `id/reel_recycler` | **Yes** — the Shorts player's pager container (`234810`), present for as long as the player is. |
-| `tiktok_playback` | `id/player_view` + `TextureView`/`SurfaceView`/`VideoView` class | **Yes** — the player container and the video surface exist only while a video plays (FYP chrome strings are hints; see *Locale-proof anchors*). The old `video_seek_bar` anchor was `isVisibleToUser=false` during playback (D2a). |
+| `tiktok_playback` | `id/player_view` (id alone since 2026-11-06) | **Yes, with a recorded trade-off** — the player viewport is present for every FYP post and absent on LIVE (`235326`). It also covers photo posts (`tt-d-photo-post.json`), accepted per the anchor-audit note above; the alternative discriminators (`video_seek_bar`/`vrp`) are `isVisibleToUser=false` during clean playback (D2a) and would leak at exhaustion. FYP chrome strings are hints only. |
 | `tiktok_dm_carve_out` | `id/udm` + class `Button` | **Yes** — the in-thread composer button is DM chrome, not a player control (`001928`, `001335`); re-verify it on every TikTok update, like every TikTok id. |
 
 ## Locale variants (hint data only)
@@ -246,6 +252,9 @@ dumps first, then add branches the same way (alternation, one dump citation per 
    `Read or add comments`, `Share video.`, favourites) **and** a video surface class
    (`TextureView`/`SurfaceView`/`VideoView`). The surface class is what keeps the photo negative
    control clean: `235543-tt_fyp_next2` has the same chrome and `player_view` but no video surface.
+   *(Superseded 2026-11-06: the Reno4 anchor audit found no surface-class node at all while video
+   played, so the class was dropped from the key — see "Why TikTok uses `player_view` alone";
+   the photo trade-off is recorded there.)*
    The seek bar survives only as an *optional extra* signal — never the anchor, and never alone
    (`grep -c video_seek_bar rules.json` = 1, in the notes only). No id is used at all, so an
    obfuscation rename cannot kill the rule. See `TikTokPlaybackRuleTest`.
