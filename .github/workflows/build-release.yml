@@ -2,6 +2,8 @@ name: Build & Release (reusable)
 
 # Shared delivery mechanics for release.yml (versioned release) and
 # nightly.yml (commit-hash prerelease). Builds, tests, packages and publishes.
+# Artifacts are signed release builds (never debug builds): the keystore is
+# decoded from repository secrets on the runner and never committed.
 on:
   workflow_call:
     inputs:
@@ -20,7 +22,7 @@ on:
         type: boolean
         default: false
       changelog_from:
-        description: Optional ref; adds `git log` range notes in front of the generated notes
+        description: Optional ref to start the changelog range at (defaults to the previous tag)
         required: false
         type: string
         default: ""
@@ -93,8 +95,46 @@ jobs:
           test -d "$SDK/platforms/android-36" || { echo "::error::$ANDROID_PLATFORM_PKG missing"; exit 1; }
           test -d "$SDK/build-tools/36.0.0" || { echo "::error::$ANDROID_BUILD_TOOLS_PKG missing"; exit 1; }
 
-      - name: Test and build debug APK
-        run: ./gradlew --no-daemon test assembleDebug
+      - name: Verify signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.FREE_SOCIAL_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.FREE_SOCIAL_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FREE_SOCIAL_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FREE_SOCIAL_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$KEYSTORE_B64" ] || missing+=("FREE_SOCIAL_KEYSTORE_B64")
+          [ -n "$KEYSTORE_PASSWORD" ] || missing+=("FREE_SOCIAL_KEYSTORE_PASSWORD")
+          [ -n "$KEY_ALIAS" ] || missing+=("FREE_SOCIAL_KEY_ALIAS")
+          [ -n "$KEY_PASSWORD" ] || missing+=("FREE_SOCIAL_KEY_PASSWORD")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing release signing secrets: ${missing[*]}"
+            echo "Releases must be signed release builds, not debug builds." >&2
+            echo "Set each one with: gh secret set <NAME>  (value on stdin)" >&2
+            exit 1
+          fi
+          echo "All four release signing secrets are present."
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.FREE_SOCIAL_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/freesocial-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$keystore"
+          test -s "$keystore" || { echo "::error::decoded keystore is empty"; exit 1; }
+          echo "FREE_SOCIAL_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
+          echo "Decoded the release keystore for this job."
+
+      - name: Test and build signed release APK
+        env:
+          FREE_SOCIAL_KEYSTORE_FILE: ${{ runner.temp }}/freesocial-release.jks
+          FREE_SOCIAL_KEYSTORE_PASSWORD: ${{ secrets.FREE_SOCIAL_KEYSTORE_PASSWORD }}
+          FREE_SOCIAL_KEY_ALIAS: ${{ secrets.FREE_SOCIAL_KEY_ALIAS }}
+          FREE_SOCIAL_KEY_PASSWORD: ${{ secrets.FREE_SOCIAL_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon test assembleRelease
 
       - name: Package artifact
         id: package
@@ -113,27 +153,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
-          echo "apk=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+          echo "apk=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
           unzip -l "$zip"
 
       - name: Compose release notes
         env:
           CHANGELOG_FROM: ${{ inputs.changelog_from }}
+          TAG_NAME: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          notes="$RUNNER_TEMP/release-notes.md"
-          : > "$notes"
-          if [ -n "$CHANGELOG_FROM" ]; then
-            {
-              echo "## Changes since \`${CHANGELOG_FROM}\`"
-              echo
-              echo '```'
-              git log --oneline "${CHANGELOG_FROM}..HEAD" || echo "(range unavailable)"
-              echo '```'
-              echo
-            } >> "$notes"
-          fi
-          cat "$notes"
+          tools/release/changelog.sh "$CHANGELOG_FROM" "$(git rev-parse HEAD)" "$TAG_NAME" > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish GitHub release
         env:
@@ -147,7 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           title="${RELEASE_NAME:-$TAG}"
-          args=(--title "$title" --prerelease="$PRERELEASE" --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md")
+          args=(--title "$title" --prerelease="$PRERELEASE" --notes-file "$RUNNER_TEMP/release-notes.md")
           if [ "$TAG_EXISTS" != "true" ]; then
             args+=(--target "$(git rev-parse HEAD)")
           fi

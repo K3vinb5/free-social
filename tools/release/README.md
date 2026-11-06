@@ -14,8 +14,10 @@ Everything here runs on GitHub Actions; no local tooling beyond `./gradlew` is r
   `settings.gradle.kts`, `gradle/`, `gradlew`, `gradlew.bat` are unchanged since that
   commit. Never bumps `versionName`, never creates a `vX.Y.Z` tag.
 - `.github/workflows/build-release.yml` — reusable (`workflow_call`): checkout, JDK 21,
-  Android SDK guard, `./gradlew test assembleDebug`, `tools/release/package.sh`,
-  `gh release create --generate-notes`.
+  Android SDK guard, secret-guarded release signing (keystore decoded from GitHub
+  secrets to the runner temp dir), `./gradlew test assembleRelease`,
+  `tools/release/package.sh`, `gh release create --notes-file` with the body from
+  `tools/release/changelog.sh` (grouped sections + compare link).
 
 ## How to trigger
 
@@ -27,8 +29,9 @@ Everything here runs on GitHub Actions; no local tooling beyond `./gradlew` is r
 - Release asset: `free-social-X.Y.Z-<sha>.zip` (apk + README.txt inside).
 - Nightly asset: `free-social-nightly-YYYYMMDD-<sha>.zip`, tag
   `nightly-YYYYMMDD-<sha>`, marked **prerelease**.
-- Versioned releases are full releases; nightlies are prereleases and their notes
-  prepend `git log --oneline <last-nightly>..HEAD` to GitHub's generated notes.
+- Versioned releases are full releases; nightlies are prereleases. Both get their
+  notes from `tools/release/changelog.sh`; a nightly's range starts at the previous
+  `nightly-*` tag (or the last release when none exists).
 
 Both zips come from `tools/release/package.sh` (the single packaging truth), so local
 zips and CI artifacts are identical in layout.

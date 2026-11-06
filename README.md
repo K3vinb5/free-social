@@ -166,7 +166,8 @@ is 8.14.3, AGP 8.13.2). `local.properties` must point at your SDK.
 
 ```bash
 ./gradlew test            # 258 JVM tests
-./gradlew assembleDebug   # app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug   # debug: app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease # signed release: app/build/outputs/apk/release/app-release.apk (needs keystore.properties)
 ```
 
 Release packaging lives in `tools/release/` and is driven by the

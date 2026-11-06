@@ -2,6 +2,10 @@
 # — ~650 MB of generated/vendor material, not commit-able. Rebuildable via docs/analysis/00-recipe.md.
 reverse/
 
+# Release signing material — never commit a keystore or its passwords
+keystore.properties
+*.jks
+
 # Build outputs
 build/
 .gradle/
