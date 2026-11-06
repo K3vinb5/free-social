@@ -1,0 +1,15 @@
+{
+  "generated": "2026-11-06T15:02:41Z",
+  "stable": [
+    {
+      "version": "0.4.1",
+      "sha": "1e7b5a1",
+      "date": "2026-11-06",
+      "apk": "downloads/free-social-0.4.1-1e7b5a1.apk",
+      "zip": "downloads/free-social-0.4.1-1e7b5a1.zip",
+      "bytes_apk": 23650045,
+      "bytes_zip": 8198439
+    }
+  ],
+  "nightlies": []
+}

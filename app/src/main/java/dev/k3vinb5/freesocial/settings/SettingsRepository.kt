@@ -194,6 +194,13 @@ class SettingsRepository(private val store: PrefsStore) {
     var permissionStatus by mutableStateOf(PermissionStatus())
         private set
 
+    /**
+     * True once the user dismissed the GitHub star card on the hub. Permanent by design: the card
+     * is an offer, not a nag, so there is no API to bring it back (DESIGN: our values say freedom).
+     */
+    var githubStarCardDismissed by mutableStateOf(store.getBoolean(KEY_GITHUB_STAR_DISMISSED, false))
+        private set
+
     var scheduleEnabled by mutableStateOf(store.getBoolean(KEY_SCHEDULE_ENABLED, true))
         private set
 
@@ -244,6 +251,7 @@ class SettingsRepository(private val store: PrefsStore) {
         budgetUsedSeconds = store.getLong(KEY_BUDGET_USED, 0L)
         budgetDate = store.getString(KEY_BUDGET_DATE)
         firstRunCompleted = store.getBoolean(KEY_FIRST_RUN, false)
+        githubStarCardDismissed = store.getBoolean(KEY_GITHUB_STAR_DISMISSED, false)
         scheduleEnabled = store.getBoolean(KEY_SCHEDULE_ENABLED, true)
         windDownMinutes = store.getInt(KEY_WIND_DOWN, ScheduleState.DEFAULT_WIND_DOWN_MINUTES)
             .coerceIn(0, MAX_MINUTES)
@@ -278,6 +286,18 @@ class SettingsRepository(private val store: PrefsStore) {
         val status = readPermissionStatus(context)
         permissionStatus = status
         return status
+    }
+
+    // --- Optional: GitHub star offer ------------------------------------------------------
+
+    /**
+     * Hides the hub's star card for good. One-way on purpose — no un-dismiss API exists, so a
+     * single "Don't show again" is enough and the user is never asked twice.
+     */
+    fun dismissGithubStarCard() {
+        if (githubStarCardDismissed) return
+        githubStarCardDismissed = true
+        store.putBoolean(KEY_GITHUB_STAR_DISMISSED, true)
     }
 
     // --- Master switch -------------------------------------------------------------------
@@ -422,12 +442,16 @@ class SettingsRepository(private val store: PrefsStore) {
 
     companion object {
         const val PREFS_NAME = "settings"
+
+        /** Where "Star on GitHub" points; kept here so the hub and its test share one value. */
+        const val GITHUB_REPO_URL = "https://github.com/K3vinb5/free-social"
         const val MIN_BUDGET = 0
         const val MAX_BUDGET = 240
         const val MAX_MINUTES = 180
 
         const val KEY_FILTERING = "filtering_enabled"
         const val KEY_FIRST_RUN = "first_run_completed"
+        const val KEY_GITHUB_STAR_DISMISSED = "github_star_card_dismissed"
         const val KEY_BUDGET_LIMIT = "budget_limit_minutes"
         const val KEY_BUDGET_USED = "budget_used_seconds"
         const val KEY_BUDGET_DATE = "budget_date"
