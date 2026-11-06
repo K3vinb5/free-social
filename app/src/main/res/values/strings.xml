@@ -189,6 +189,12 @@
     <string name="inspector_import_rejected">Rules rejected — the current rules stay active: %1$s</string>
     <string name="inspector_import_failed">Could not read the selected file.</string>
     <string name="inspector_override_error">Override not applied: %1$s</string>
+    <string name="inspector_override_imported">Imported %1$s</string>
+    <string name="inspector_override_stale">Your rules override may predate app fixes — tap to review</string>
+    <string name="inspector_rules_use_builtin">Use built-in rules</string>
+    <string name="inspector_rules_revert_confirm">Your imported rules will be removed. Free Social will use its built-in rules.</string>
+    <string name="inspector_rules_reverted">Your imported rules were removed — built-in rules are active.</string>
+    <string name="inspector_rules_revert_failed">Could not remove the override file — it is still active.</string>
     <string name="inspector_rule_enabled">Enabled</string>
     <string name="inspector_rule_disabled">Disabled</string>
     <string name="inspector_last_verified">Last verified against %1$s</string>

@@ -1,6 +1,9 @@
 package dev.k3vinb5.freesocial.filter
 
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -88,5 +91,61 @@ class RuleOverrideTest {
         val missing = RuleOverride.select(null, null)
         assertTrue(missing.rules.isEmpty())
         assertNotNull(missing.error)
+    }
+
+    @Test
+    fun `revert deletes the override so the next select returns the asset`() {
+        val dir = Files.createTempDirectory("rule-override").toFile()
+        try {
+            val file = File(dir, RuleOverride.FILE_NAME)
+            file.writeText(override)
+
+            // While the file is present the override still wins — precedence is unchanged.
+            val active = RuleOverride.select(asset, file.readText())
+            assertEquals(RuleOverride.Source.OVERRIDE, active.source)
+            assertEquals(listOf("user_rule"), active.rules.map { it.id })
+
+            assertTrue(RuleOverride.revert(file))
+            assertFalse(file.exists())
+
+            val after = RuleOverride.select(asset, file.takeIf { it.isFile }?.readText())
+            assertEquals(RuleOverride.Source.ASSETS, after.source)
+            assertEquals(listOf("asset_rule"), after.rules.map { it.id })
+            assertNull(after.error)
+
+            // Reverting again is harmless.
+            assertTrue(RuleOverride.revert(file))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `the import timestamp is the override file time and absent without a file`() {
+        val dir = Files.createTempDirectory("rule-override").toFile()
+        try {
+            val file = File(dir, RuleOverride.FILE_NAME)
+            assertNull(RuleOverride.importedAt(file))
+
+            file.writeText(override)
+            val written = file.lastModified()
+            assertEquals(written, RuleOverride.importedAt(file))
+
+            file.delete()
+            assertNull(RuleOverride.importedAt(file))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an override older than seven days is flagged as stale`() {
+        val now = 1_800_000_000_000L
+        val day = 24L * 60L * 60L * 1000L
+
+        assertFalse(RuleOverride.isStale(null, now))
+        assertFalse(RuleOverride.isStale(now - 7 * day, now))
+        assertFalse(RuleOverride.isStale(now - 6 * day, now))
+        assertTrue(RuleOverride.isStale(now - 8 * day, now))
     }
 }

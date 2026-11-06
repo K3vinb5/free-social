@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +61,10 @@ import dev.k3vinb5.freesocial.ui.components.SectionLabel
 import dev.k3vinb5.freesocial.ui.components.TextButton
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 private const val TAG = "SurfacesRules"
@@ -85,6 +91,8 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     var rules by remember { mutableStateOf(RuleCatalog.current(context)) }
     var rulesSource by remember { mutableStateOf(RuleCatalog.source) }
     var rulesError by remember { mutableStateOf(RuleCatalog.lastError) }
+    var overrideImportedAt by remember { mutableStateOf(RuleCatalog.overrideImportedAt(context)) }
+    var confirmRevert by remember { mutableStateOf(false) }
     var session by remember { mutableStateOf(GuidedCapture.session) }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var stepCard by remember { mutableStateOf<CaptureSurfaces.Surface?>(null) }
@@ -94,6 +102,7 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         rules = RuleCatalog.current(context)
         rulesSource = RuleCatalog.source
         rulesError = RuleCatalog.lastError
+        overrideImportedAt = RuleCatalog.overrideImportedAt(context)
     }
 
     val surfaces = remember(app, rules) { CaptureSurfaces.forApp(app, rules) }
@@ -274,8 +283,23 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 source = rulesSource,
                 error = rulesError,
                 overridePath = RuleCatalog.overridePath(context),
+                importedAt = overrideImportedAt,
+                onReviewStale = {
+                    message = context.getString(
+                        R.string.inspector_override_path,
+                        RuleCatalog.overridePath(context),
+                    )
+                },
             )
             HorizontalGap(12.dp)
+            if (rulesSource == RuleOverride.Source.OVERRIDE) {
+                SecondaryButton(
+                    text = stringResource(R.string.inspector_rules_use_builtin),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { confirmRevert = true },
+                )
+                HorizontalGap(10.dp)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryButton(
                     text = stringResource(R.string.inspector_export),
@@ -294,6 +318,50 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     text = stringResource(R.string.inspector_import),
                     modifier = Modifier.weight(1f),
                     onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                )
+            }
+
+            if (confirmRevert) {
+                AlertDialog(
+                    onDismissRequest = { confirmRevert = false },
+                    title = {
+                        Text(
+                            text = stringResource(R.string.inspector_rules_use_builtin),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = FsColors.TextPrimary,
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = stringResource(R.string.inspector_rules_revert_confirm),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = FsColors.TextSecondary,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            text = stringResource(R.string.inspector_rules_use_builtin),
+                            onClick = {
+                                confirmRevert = false
+                                val reverted = RuleCatalog.revertOverride(context)
+                                refreshCatalog()
+                                message = context.getString(
+                                    if (reverted) {
+                                        R.string.inspector_rules_reverted
+                                    } else {
+                                        R.string.inspector_rules_revert_failed
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    dismissButton = {
+                        TextButton(
+                            text = stringResource(R.string.action_cancel),
+                            onClick = { confirmRevert = false },
+                        )
+                    },
+                    containerColor = FsColors.Surface,
                 )
             }
 
@@ -441,6 +509,8 @@ private fun RulesSection(
     source: RuleOverride.Source,
     error: String?,
     overridePath: String,
+    importedAt: Long?,
+    onReviewStale: () -> Unit,
 ) {
     val sourceText = when (source) {
         RuleOverride.Source.OVERRIDE ->
@@ -448,6 +518,17 @@ private fun RulesSection(
         RuleOverride.Source.ASSETS -> stringResource(R.string.inspector_rules_source_assets)
     }
     Caption(sourceText)
+    if (source == RuleOverride.Source.OVERRIDE && importedAt != null) {
+        Caption(stringResource(R.string.inspector_override_imported, formatImportTime(importedAt)))
+        if (RuleOverride.isStale(importedAt, System.currentTimeMillis())) {
+            HorizontalGap(8.dp)
+            InfoBanner(
+                text = stringResource(R.string.inspector_override_stale),
+                color = FsColors.Warning,
+                onClick = onReviewStale,
+            )
+        }
+    }
     Caption(stringResource(R.string.inspector_override_path, overridePath))
     if (error != null) {
         HorizontalGap(8.dp)
@@ -481,6 +562,11 @@ private fun RulesSection(
         }
     }
 }
+
+/** "Imported 5 Nov, 16:47" — the override's file time in the device's zone. */
+private fun formatImportTime(millis: Long): String =
+    DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.getDefault())
+        .format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
 
 private fun notificationsRequested(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NOTIF_ASKED, false)

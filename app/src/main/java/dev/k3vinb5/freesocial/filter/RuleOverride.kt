@@ -2,6 +2,7 @@ package dev.k3vinb5.freesocial.filter
 
 import dev.k3vinb5.freesocial.core.Rule
 import dev.k3vinb5.freesocial.core.loadRuleSet
+import java.io.File
 
 /**
  * User-editable rule override (`filesDir/rules-override.json`).
@@ -15,6 +16,11 @@ import dev.k3vinb5.freesocial.core.loadRuleSet
 object RuleOverride {
 
     const val FILE_NAME = "rules-override.json"
+
+    /** An override older than this is flagged as possibly predating app fixes. */
+    const val MAX_AGE_DAYS = 7L
+
+    private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
     enum class Source { ASSETS, OVERRIDE }
 
@@ -74,4 +80,20 @@ object RuleOverride {
             )
         }
     }
+
+    /**
+     * Import time of the override at [file]: its last write, which is when the import (or a manual
+     * edit) landed. Null when there is no override, so the UI can hide the age line.
+     */
+    fun importedAt(file: File): Long? = file.takeIf { it.isFile }?.lastModified()
+
+    /** True when an override imported at [importedAtMillis] is more than [MAX_AGE_DAYS] old. */
+    fun isStale(importedAtMillis: Long?, nowMillis: Long): Boolean =
+        importedAtMillis != null && nowMillis - importedAtMillis > MAX_AGE_DAYS * MILLIS_PER_DAY
+
+    /**
+     * Deletes the override so the shipped asset rules apply again. A missing file counts as
+     * success (nothing to shadow); an IO failure returns false and leaves the override in place.
+     */
+    fun revert(file: File): Boolean = !file.exists() || file.delete()
 }

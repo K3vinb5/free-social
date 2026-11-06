@@ -92,6 +92,27 @@ object RuleCatalog {
         }
     }
 
+    /**
+     * Reverts to the shipped rules: deletes `filesDir/rules-override.json`, re-reads the asset, and
+     * drops the service's compiled cache through the same [RuleReload] seam the import path uses,
+     * so the built-in rules apply on the next event. Returns false only when the file cannot be
+     * deleted (the override then stays active).
+     */
+    fun revertOverride(context: Context): Boolean {
+        val file = overrideFile(context)
+        val deleted = runCatching { RuleOverride.revert(file) }.getOrElse { error ->
+            Log.w(TAG, "could not delete the override", error)
+            false
+        }
+        if (!deleted) return false
+        load(context)
+        RuleReload.wake()
+        return true
+    }
+
+    /** Import time (last write) of the override, or null when the built-in rules are active. */
+    fun overrideImportedAt(context: Context): Long? = RuleOverride.importedAt(overrideFile(context))
+
     /** The current effective rules as a pretty-printed override document (Export / Share). */
     fun exportText(context: Context): String =
         json.encodeToString(RuleSet.serializer(), RuleSet(rules = current(context)))
