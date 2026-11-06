@@ -53,6 +53,13 @@
     <string name="info_youtube">When the budget runs out, Shorts exit automatically.</string>
     <string name="info_tiktok">Direct messages are never touched.</string>
     <string name="rules_verified_for">Rules verified for %1$s</string>
+    <string name="rules_may_be_stale">Rules for %1$s may be stale — app updated</string>
+    <string name="rules_none_for">No rules for %1$s yet</string>
+    <string name="rules_unstamped">Rules for %1$s are not version-stamped</string>
+    <string name="rules_app_not_installed">%1$s is not installed — its rules are unverified here</string>
+    <string name="staleness_banner">%1$s %2$s is newer than the rules\' verified version %3$s — filtering may be partial until re-verified.</string>
+    <string name="staleness_capture_now">Capture now</string>
+    <string name="staleness_capture_unavailable">No capture-ready surface for %1$s yet.</string>
 
     <!-- Budget (F10) -->
     <string name="budget_title">Reels &amp; Shorts budget</string>
