@@ -1,0 +1,26 @@
+{
+  "name": "free-social-website",
+  "private": true,
+  "version": "0.4.1",
+  "type": "module",
+  "description": "Static marketing site for Free Social \u2014 React source, prerendered to plain files.",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && bun scripts/prerender.mjs && bun scripts/copy-downloads.mjs && bun scripts/check-build.mjs",
+    "preview": "vite preview",
+    "test": "bun scripts/check-build.mjs"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6"
+  }
+}

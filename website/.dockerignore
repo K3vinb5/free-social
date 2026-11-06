@@ -1,0 +1,7 @@
+# Only source is needed in the image; dependencies and build output are produced
+# inside the build stage.
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.log
