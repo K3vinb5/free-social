@@ -1,10 +1,10 @@
 # free-social — rebuild spec
 
-Status: **FINAL** — investigation complete (8 analysis docs in `docs/analysis/`,
-dropped features in `docs/out-of-scope/`). Scope decisions 2026-11-04 (§7): content
+Status: **FINAL** — investigation complete. Scope decisions 2026-11-04 (§7): content
 filtering is the focus; v1 covers **Instagram, YouTube, TikTok only**; added the
-**Short-video budget** (§2.3). Evidence per claim: `docs/analysis/*` (file:line citations).
-Re-derivation recipe: `docs/analysis/00-recipe.md`.
+**Short-video budget** (§2.3). The reverse-engineering analysis (8 docs, with the
+file:line evidence behind every claim) and the dropped-feature notes were archived out
+of the distributed tree on 2026-11-06 — see the archive stubs under `docs/`.
 
 ## 1. Goal
 
@@ -23,8 +23,8 @@ apps — not out of the apps themselves*.
 4. **Schedule** — a nightly lock window (§2.4).
 
 Out of scope for v1 (analysed where noted, deferred): Snapchat/X/Facebook rules
-(fully analysed in `03b`/`03c` — re-add later from those tables), the webview social
-client + JS injection (`docs/out-of-scope/04b`), VPN/DNS filtering (`04a`), notification
+(fully analysed before archiving — re-add later from those tables), the webview social
+client + JS injection, VPN/DNS filtering, notification
 filtering, per-app daily limits, "Hard Mode", break/post-mode timers, billing/paywall,
 kid/parent accounts and sync, widgets, awards, onboarding media, device-admin uninstall
 protection (the original's is empty-policy theatre).
@@ -187,8 +187,8 @@ v318, you have v322". We never need SocialLite again: it is not the source of ru
 | Nightly schedule | **Reproduce, one window** | With real alarms, unlike the original |
 | Rule inspector | **New** | Only honest answer to rule maintenance (§2.5) |
 | Screen-off/locked bailout | **Reproduce as-is** | Deliberate |
-| Snapchat/X/Facebook rules | **Defer (analysed)** | User: focus on IG/YT/TikTok for now; tables kept in `03b`/`03c` |
-| Notification filter, per-app daily limits, "Hard Mode", break timers | **Drop (decided 2026-11-04)** | See `docs/analysis/01b`, `02b` |
+| Snapchat/X/Facebook rules | **Defer (analysed)** | User: focus on IG/YT/TikTok for now; tables kept in the archived analysis notes |
+| Notification filter, per-app daily limits, "Hard Mode", break timers | **Drop (decided 2026-11-04)** | See the archived analysis notes |
 | Paywall gate, kid/parent sync, billing, widgets, awards, webview, VPN/DNS, device-admin | **Drop** | Out of scope / theatre / bypassable |
 
 ## 4. Architecture (clone)

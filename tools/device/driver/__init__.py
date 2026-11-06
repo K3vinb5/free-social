@@ -2,11 +2,14 @@
 
 from .device import (
     DEFAULT_SERIAL,
+    SERIAL_ENV_VARS,
     Device,
     DriverError,
     DumpError,
     StepError,
     WallError,
+    attached_devices,
+    resolve_serial,
 )
 from . import policy
 from .selectors import (
@@ -21,6 +24,7 @@ from .xmlnodes import Node, parse_xml
 
 __all__ = [
     "DEFAULT_SERIAL",
+    "SERIAL_ENV_VARS",
     "Device",
     "DriverError",
     "DumpError",
@@ -29,6 +33,8 @@ __all__ = [
     "StepError",
     "policy",
     "WallError",
+    "attached_devices",
+    "resolve_serial",
     "by_class",
     "by_desc",
     "by_id",

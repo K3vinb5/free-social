@@ -7,9 +7,12 @@ Playwright-style scenario runner for the real target apps, built only on `adb`
 ```bash
 uv run tools/device/drive.py list
 uv run tools/device/drive.py run yt_home_shelf_visibility   # exit 0 PASS / 1 FAIL|WALL
-uv run tools/device/drive.py run ig_reels_entry --device LAN-IP-REDACTED:37161
+uv run tools/device/drive.py run ig_reels_entry --device <serial>
 ```
-Default device: `LAN-IP-REDACTED:37161` (override with `--device` or `$FREE_SOCIAL_DEVICE`).
+Device target, in priority order: `--device <serial>`, `$FS_DEVICE_SERIAL`, the legacy
+`$FREE_SOCIAL_DEVICE`, then `auto` — the first entry `adb devices` reports as `device`
+(USB serial or `host:port` from `adb tcpip 5555`). Nothing is hardcoded, and a run with
+no attached/authorised device fails fast with a `DriverError` instead of guessing.
 Evidence: `reverse/runtime-reno/driver-<ts>/<scenario>/` — numbered PNGs, every
 dump, `steps.log`, `summary.txt`, logcat excerpts, last-good/failure dumps.
 All adb calls are pinned to one serial and bounded to 15 s.

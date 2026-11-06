@@ -45,3 +45,13 @@ payloads (`/api/v3/projects/4`, `/api/v3/users/4`, `/api/v3/roles/11`).
 
 Wrap every `op`/`curl` call in `timeout 15`. `op login`/`op logout` are interactive —
 never run them. After any mutation, re-inspect and report the resulting state.
+
+## Keep the docs in sync
+
+- **README mirrors the product.** When a run changes a screen, feature, permission flow
+  or visible string that `README.md` (or `website/index.html`) describes or screenshots,
+  update those docs in the same pass — stale screenshots and stale copy are defects.
+- **DevOps/infra learnings** (CI quirks, registry/deploy steps, DNS/MCP setup, API gotchas)
+  go in `docs/dev/DEVOPS.md` so the next agent doesn't rediscover them. Never write
+  secrets, tokens, device LAN IPs or USB serials into any doc — reference the memory id
+  or an evidence file instead.
