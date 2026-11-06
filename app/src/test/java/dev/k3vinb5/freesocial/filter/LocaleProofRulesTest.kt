@@ -82,7 +82,8 @@ class LocaleProofRulesTest {
 
     @Test
     fun `tiktok playback matches on the player container with no FYP strings`() {
-        // 234958 shape, but every accessibility string localized away: id + TextureView only.
+        // 234958 shape, but every accessibility string localized away: the player id alone proves it
+        // (the 2026-11-06 Reno4 audit dropped the video-surface class from the key).
         val tree = node(
             bounds = Bounds(0, 0, 1080, 2424),
             children = listOf(
@@ -97,7 +98,7 @@ class LocaleProofRulesTest {
             ),
         )
         val hit = match("tiktok_playback", tree)
-        assertNotNull("id + surface class must prove playback", hit)
+        assertNotNull("the player id alone must prove playback", hit)
         assertEquals("$TT:id/player_view", hit!!.viewId)
     }
 
