@@ -911,6 +911,12 @@ pattern recurs.
 
 ## Item 4 — TikTok live: FYP pay + exhausted escape — **FAIL (as found)**
 
+> **Update 2026-11-06:** the stale override this FAIL blames has since been cleared from the
+> device. See *Re-verify after override clear* at the end of this file — the first attempt was
+> blocked on a user-only ColorOS dialog, then resolved by installing the HEAD APK (which restarts
+> the process and rebinds the services). Item 4 now **PASSES**: `matched=1` and a rising
+> `budget_used_seconds`. The FAIL below stands as the original record.
+
 Mid-range (limit 20 min, used 698 s): a TikTok FYP video was playing (`Para Ti` selected,
 `40-item4-tiktok-fyp.png`) for ~2 min. Every scan reported `matched=0` and
 `budget_used_seconds` stayed **698** — no `tiktok_playback` hit, no accrual:
@@ -950,6 +956,10 @@ moot while the override keeps the rule from matching at all.
 
 ## Item 5 — no-leak sweep at exhausted budget — **FAIL (TikTok only)**
 
+> **Update 2026-11-06:** same addendum as Item 4 — override cleared, and the sweep **now PASSES**
+> after the HEAD APK install: all three short-video surfaces escape at exhausted, TikTok included
+> (*Re-verify after override clear*, end of file). The FAIL below stands as the original record.
+
 One continuous window, 08:32:38–08:33:31 (~53 s), exhausted budget throughout, deliberate entries on
 all three apps (`72-item3-sweep-ig-yt.logcat.txt`):
 
@@ -984,3 +994,237 @@ No IG or YouTube short video played >2 s without an escape; TikTok played ~14 s 
 * Front: Free Social hub with `Filtering on`; both accessibility services bound —
   `dumpsys accessibility` Bound services = `Content filtering` (FilterService) + `Whole-app
   blocking` (BlockService).
+
+## Re-verify after override clear — 2026-11-06 (verify-030, items 4 + 5)
+
+Dated follow-up to the two FAILs above. Device `DEVICE-SERIAL-REDACTED` (USB), branch HEAD `e1bf545` during the
+run, installed APK `lastUpdateTime 2026-11-06 07:21:17` (`versionName` still mislabelled `0.1.0`).
+Goal: delete our own W2-import residue (`files/rules-override.json`), force a live engine reload
+without a restart, and re-run items 4/5.
+
+**Outcome of the first attempt (§1–§5 below): the override is gone, but the live reload the re-run
+needed was blocked on a user-only ColorOS confirmation dialog, so items 4 and 5 were left
+UNVERIFIED. Those paragraphs are kept verbatim as the record of what was tried.**
+
+**Outcome of the unblock (addendum subsection 7): an `adb install -r` of the HEAD APK — which ends
+the app process and makes the system rebind both accessibility services — cleared the cached
+selection with no dialog, no toggle and no consent tap. `Rules in use` now reads `Built-in rules`,
+and items 4 and 5 both pass: `matched=1` for `tiktok_playback` with a rising budget, and all three
+short-video surfaces escape at an exhausted budget. The original FAILs above are untouched.**
+
+### 1. Override cleared — **PASS**
+
+`run-as dev.k3vinb5.freesocial ls -l files/` → `rules-override.json`, 11766 B, 2026-11-05 16:47 (the
+same file `43-item4-device-rules-override.json` recorded). Content re-captured to
+`92-override-before-rm.json` before deleting: 8 rules, and `tiktok_playback` still carries
+`"viewId": "…/id/player_view"` **AND** `"classNameRegex": "android\\.view\\.(TextureView|SurfaceView)|android\\.widget\\.VideoView"`
+— i.e. exactly the pre-re-key rule. Then `rm files/rules-override.json`; `ls -l files/` afterwards
+shows only `profileInstalled`. Nothing else in `files/` or `shared_prefs/` was modified by the
+deletion.
+
+### 2. The deletion is not observed live — the dual cache, measured
+
+`RuleCatalog` keeps `current`/`source` in process memory and `EngineBootstrap.deps` holds the
+compiled `RuleSetMatcher`; `RuleCatalog.load()` only runs from `FilterService.loadEngine()`, i.e.
+from `onServiceConnected` or from `RuleCatalog.RuleReload.wake()`. Nothing re-reads the directory.
+
+Measured, in order:
+
+* 08:48 `Surfaces & rules → Rules in use` still reads **`Your override (rules-override.json)`**
+  with the override path beneath it (`94-rule-source-before-reload.png`).
+* 08:49, minutes *after* the file was deleted and with the app freshly brought to the front, the same
+  screen still reads **`Your override (rules-override.json)`**
+  (`95-rule-source-still-override-after-file-rm.png`) — the file is gone from disk, the cached
+  selection is not.
+* The process has been alive since `07:21:18` (`ps -A -o PID,STIME`), i.e. since the APK install,
+  so the cached selection is the one taken at that moment — the override.
+
+So the engine is still running the 2 TikTok rules of the override, and the 0.3.0 asset fix cannot
+reach it by deleting the file alone. This is memory #274's dual cache, now with direct evidence.
+
+### 3. The reload gate — ColorOS confirmation dialog, stopped (BLOCKER — superseded by subsection 7)
+
+The live reload needs the accessibility service to reconnect. Attempted in the order the brief
+gives:
+
+1. `settings put secure enabled_accessibility_services …` (idempotent write of the current value,
+   purely to test writability) → `SecurityException: … requires:android.permission.WRITE_SECURE_SETTINGS`,
+   exit 255, setting unchanged. Confirmed denied on this build, as recorded.
+2. UI path: Settings → Acessibilidade → **Content filtering** → toggle ON at 08:51
+   (`96-phase1-toggle-on-before.png`). Tapping it at 08:52 raised the ColorOS confirmation
+   **“Desligar Content filtering? / Se você tocar em Parar, o Content filtering será interrompido.”**
+   with `Cancelar` / `Parar` (`97a-phase1-colourOS-disable-confirm.png`, the dialog itself).
+   Re-enabling afterwards is the step that grants the service device-wide control, so honouring
+   this dialog means consenting on the user's behalf. **Stopped here and cancelled** — `Cancelar`
+   tapped, no state changed: both services still `Ligado`, `enabled_accessibility_services`
+   unchanged, `dumpsys accessibility | grep -c freesocial` = **2**, and both services still Bound
+   (`97-phase1-colourOS-disable-confirm-cancelled.png`, toggle back to `Ligado`).
+3. The in-app alternative does not exist on this install: `RuleCatalog.revertOverride()` is wired
+   to a **“Use built-in rules”** button that ships only from `e1bf545` (HEAD). The installed APK's
+   `resources.arsc` contains `Your override (%1$s)` and `Built-in rules` but **not**
+   `Use built-in rules`, and the screen shows no such button above Export/Import
+   (`95-rule-source-still-override-after-file-rm.png`). No source was changed to route around this.
+
+`adb shell am kill` / a reinstall would reboot the process, which the run forbids, so no load path
+remained. **The user has to tap the toggle (or restart the app) once; a single tap is all that is
+missing.**
+
+What the reload would apply is not in doubt: the installed APK's own `assets/rules.json` already
+carries the fixed rule — 8 rules, `tiktok_playback` = `viewId …/player_view` +
+`contentDescriptionRegex "…for you…|like video…"` with **no** `classNameRegex` — identical in shape to
+`app/src/main/assets/rules.json` at HEAD. The asset is right; only the cached selection is
+wrong.
+
+### 4. Items 4 and 5 — not re-run at the time (superseded by subsection 7 — both now PASS)
+
+No FYP scan was taken after the clear: with the stale override still selected in memory,
+`matched=0` is a foregone conclusion and any evidence would restate the FAIL above under a new
+name. Item 4 (mid-range pay + `budget_used_seconds` rising) and item 5 (exhausted escape + the
+three-app sweep) stay **UNVERIFIED pending one reload**. When it is done, the check is unchanged:
+`matched=1` for `tiktok_playback` on a playing video and a rising `budget_used_seconds`; the photo
+post trade-off of the re-key then needs re-recording.
+
+### 5. Phase 3 — the `run-as` + internal-write reset does **not** work (measured)
+
+The reset recipe must be recorded as **invalid**, not as a recipe. Measured at 09:00–09:01:
+
+* before: `shared_prefs/settings.xml` → `budget_used_seconds=698`, `budget_date=2026-11-06`,
+  `budget_limit_minutes=20`; hub and Budget screen both read **9 min left** (`99-budget-before-reset.png`).
+* wrote `budget_used_seconds=0` (date already today) through `run-as` (`cp` from
+  `/data/local/tmp`, then `chmod 660`); disk verified `0`.
+* immediately afterwards the Budget screen still read **9 min left** — navigating away and back
+  (which builds a fresh `SettingsRepository`, since `SettingsRepository.from()` is not a singleton)
+  still read 9 min, because the *process-wide* `SharedPreferences` map is the cache, not the file
+  (`99b-budget-disk-zero-not-live.png`).
+* then one internal write — the limit stepper `+` then `−` (the stepper moves **5 min per tap**,
+  measured in 7.5 below) — and the disk **went back to
+  `budget_used_seconds=698`**: `SettingsRepository` writes the whole in-memory map back, clobbering
+  the external edit. Same conclusion as D8 above, now with the clobbering step captured.
+
+Consequences: `used 0` cannot be made live on a running process (no reset control in the UI, a
+restart is forbidden), and a disk-only `0` is not durable — the next app write of any setting or
+any counted second restores `698+n`. Final device action was therefore the `run-as` write of
+`budget_used_seconds=0` / `budget_date=2026-11-06` with `budget_limit_minutes=20`, re-read from disk
+15 s later unchanged (`98-final-state.txt`, `98-final-prefs.xml`). **Disk says 0, the live cache
+says 698 (9 min left)** — the divergence is real, expected from the above, and resolves at the next
+process start. State dump before the write: `98-prefs-before.xml`.
+
+### 6. Final state (2026-11-06 09:04 Z, `98-final-state.txt`)
+
+* Front: Free Social hub, `Filtering on`, all three rows "Filtering", `99c-hub-before-final-write.png`.
+* Budget: limit **20**, `budget_date 2026-11-06`, disk `used 0`; live engine and UI still 698
+  (**9 min left**) — see §5.
+* Modes: IG `filter`, YT `filter`, TikTok key unset → default `filter` (left as found, not written).
+* `files/`: `profileInstalled` only — **no override**.
+* Services: `enabled_accessibility_services` has both components;
+  `dumpsys accessibility | grep -c freesocial` = **2**, both **Bound** (Content filtering +
+  Whole-app blocking).
+* Apps: IG/YT/TikTok were not launched this run (the device stayed on Free Social from 08:46 to
+  09:04), so their last state is the one recorded in *Final state restore* above.
+* No source file and no git commit — only `docs/rules/REVERIFY.md` and
+  `reverse/runtime-reno/verify-030/9x-*` evidence.
+
+### 7. The unblock — HEAD APK install, cache cleared, items 4 and 5 re-run (09:20–09:52)
+
+The gate in subsection 3 was a *live process holding a cached selection*, not a device permission.
+Ending that process is the documented way to get a fresh `RuleCatalog.load()`, and an
+`adb install -r` does it: the system kills the app and then rebinds both accessibility services,
+which is the `onServiceConnected` path. No toggle, no dialog, no consent tap was involved.
+Evidence — all `reverse/runtime-reno/verify-030/1xx-*`.
+
+**7.1 Phase 0 and install.** `run-as` write of `budget_used_seconds=0` / `budget_date=2026-11-06`
+(the file already held those values from the previous run's final write; re-written and verified on
+disk at 09:20:29, `101-prefs-before-phase0.xml`, `budget_limit_minutes=20` untouched) and then, with
+no UI action in between, `./gradlew assembleDebug` → `BUILD SUCCESSFUL`, 37 tasks up to date,
+`app-debug.apk` 30 074 281 B whose `resources.arsc` contains `Use built-in rules`;
+`adb -s DEVICE-SERIAL-REDACTED install -r` 09:21:32 → 09:21:41, `Success`. Nothing was tapped after the write.
+
+**7.2 What the install changed — no dialog, no toggle.**
+
+* process: pid `20107` (STIME 07:21:19) → **`5586`** (STIME 09:21:41).
+* `versionName` `0.1.0` → **`0.4.0`**; `lastUpdateTime 2026-11-06 09:21:40`.
+* `dumpsys accessibility | grep -c freesocial` = **2** at 09:22:48 (checked once, no wait loop
+  needed); both components still in `enabled_accessibility_services`, both **Bound** (Content
+  filtering + Whole-app blocking). The system rebound them on its own; no ColorOS dialog appeared
+  and none was answered.
+* disk budget read back `used 0` after the fresh start, i.e. the phase-0 write survived.
+
+**7.3 `Rules in use` reads the built-in asset — PASS.** Hub at 09:24 shows **20 min left**
+(`103-hub-20-min-left.png`) — first proof the fresh process loaded `used 0`; the 698 s cache died
+with pid `20107`. Surfaces & rules → `Rules in use` = **`Built-in rules`**
+(`108-rules-in-use-builtin.png`, dump `107-rules-in-use.xml`). The
+`Override file: /data/user/0/dev.k3vinb5.freesocial/files/rules-override.json` line beneath it is
+the static `inspector_override_path` hint (`app/src/main/res/values/strings.xml:183`), not a
+selection. No `Use built-in rules` button was shown and none was needed — it only renders while an
+override is active. The list shows `tiktok_playback | TikTok · playback | Enabled | Last verified
+against TikTok 47.6.3` (`109-rules-list-tiktok.png`), and at 09:48:51 the service logs
+`connected, rules=8, targets=…` — the built-in 8-rule set, not the 2-rule override.
+
+**7.4 Item 4 — TikTok FYP pay — PASS.** Before the run `budget_used_seconds=0` (disk + hub 20 min).
+TikTok launched 09:33, `Para Ti` feed, a video post playing (`112-item4-tiktok-fyp-video.png`,
+node dump `114-item4-fyp-nodes.xml`). Eleven scans 09:34:32 → 09:36:15, every one `matched=1`:
+
+```
+11-06 09:34:32.518 I/FilterService( 5586): scan com.zhiliaoapp.musically (TIKTOK): 66 nodes, 38 with viewId,
+    rules=2/8, matched=1, grafted=2, windows=1 [TikTok(0)=63/36 ids], rootChildCount=2, idProbe=n/a
+11-06 09:34:32.521 I/FilterService( 5586): com.zhiliaoapp.musically: 1 hit(s) but gate=PAY (budget=false, locked=false)
+… (same pair every ~10 s) …
+11-06 09:36:15.483 I/FilterService( 5586): com.zhiliaoapp.musically: 1 hit(s) but gate=PAY (budget=false, locked=false)
+```
+
+`budget_used_seconds`: **0 → 114** (`111-item4-logcat-early.txt`) → **252**
+(`113-item4-prefs-after.txt`), and the hub then read **15 min left** (`116-hub-used-252.png`). The
+counter reached **317** by the time the hub was brought forward (~09:37:45) — the extra 65 s is
+TikTok still playing in the foreground while the dumps/screencaps were taken, and it stops on the
+first scan that sees the un-filtered hub window (`scan()` → `stopBudget()`), so nothing accrued
+outside the surface. Gate
+`PAY` with `budget=false` is the intended middle state. The UI was Portuguese
+("Gostar do vídeo…", "Partilhar vídeo") and still matched — the key is the locale-proof
+`viewId …:id/player_view`, with `contentDescriptionRegex` only breaking ties
+(`RuleMatcher.kt:70-105`).
+
+*Photo-post trade-off:* not exercised this run — the FYP served a video post only, so nothing was
+measured for a photo carousel. By construction the key is `player_view`, which a photo post also
+renders into, so the "photo post also matches" trade-off of the re-key stands unrefuted but
+**unmeasured on device**.
+
+**7.5 Item 5 — exhausted escape on all three surfaces — PASS.** Stepper set the allowance 20 → 5
+(note: the stepper moves in **5-minute** steps per tap, not 1 — this also corrects the
+`20→21→20` wording in §5; `120-budget-limit5-final.xml`). With `used 317 s` > `300 s` the budget
+was exhausted immediately (0 min left, `121-budget-limit5.png`), no extra watching needed.
+
+| entry | scan | action | flash |
+|---|---|---|---|
+| TikTok FYP 09:47:05 | `matched=1`, 66 nodes | `neutralising com.zhiliaoapp.musically/playback via BACK` | `escape flash … reason=BUDGET` |
+| IG reels 09:47:40 | `matched=2` (reels_tab + clips_viewer markers) | `neutralising com.instagram.android/reels_tab via TAP_HOME_TAB` | `escape flash … reason=BUDGET` |
+| YT Shorts 09:49:09 | `matched=1`, 5 nodes | `neutralising com.google.android.youtube/shorts_player via BACK` | `escape flash … reason=BUDGET` |
+
+Logs `122-item5-tiktok.logcat.txt`, `124-item5-ig-reels.logcat.txt`, `126-item5-yt-shorts.logcat.txt`;
+screens `123-item5-tiktok-escape-{a,b,c}.png`, `125-item5-ig-reels-{a,b}.png`,
+`128-item5-yt-shorts-{a,b}.png`. TikTok's `BACK` returned focus to Free Social within 0.2 s of the
+scan, so no FYP video reached 2 s — the leak recorded under *Item 5* above is gone. IG was entered
+via `instagram://reels_home`; the reels-tab rule fires first, and the same scan reports `matched=2`,
+so the clips viewer was matched too and never rendered — the entry that was asked for (clips viewer)
+is therefore blocked one gate earlier, not skipped. YT: the Shorts shelf tap opened
+`shorts_player`, `BACK` escaped and took the app out to the launcher.
+
+### 8. Final state after the re-verify (2026-11-06 09:52 Z, `137-final-state.txt`)
+
+Restore order matters and was followed exactly: **first** the allowance back to 20 with the stepper
+(3 taps × 5 min, `131-budget-limit20-restored.xml`), which writes the whole in-memory map
+(`used 317`), **then** the `run-as` hygiene write of `budget_used_seconds=0` / `budget_date=2026-11-06`
+(limit already 20) at 09:50:56 as the **last** write (`132-prefs-before-final-write.xml` →
+`133-final-prefs.xml`), re-read 15 s later unchanged (`134-final-prefs-15s.xml`). No UI write after it.
+
+* Front: Free Social hub, `Filtering on`, all three rows "Filtering", `136-final-hub.png`.
+* Budget: limit **20**, `budget_date 2026-11-06`, disk `used 0`; hub still reads **15 min left**
+  (live cache 317). **Expected, per §5**: a disk-only reset is invisible until the next process
+  start (or midnight), and any write through the app re-clobbers the disk copy — so the durable
+  "clean" state is exactly this one, taken as the last write.
+* Modes: IG `filter`, YT `filter`, TikTok key unset → default `filter` (unchanged, never written).
+* `files/`: `profileInstalled` only — **no override**.
+* Services: `enabled_accessibility_services` has both components;
+  `dumpsys accessibility | grep -c freesocial` = **2**, both **Bound**.
+* Process: pid `5586`, `versionName 0.4.0`, `lastUpdateTime 09:21:40`.
+* No source file changed and no git commit — only this document and
+  `reverse/runtime-reno/verify-030/1xx-*` evidence.
