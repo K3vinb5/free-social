@@ -1,0 +1,32 @@
+name: CI
+
+# Light CI: tests + build only, per PR and on master pushes.
+# The release pipeline (release.yml / nightly.yml) is separate and untouched.
+# The Android build environment lives in .github/actions/android-setup (shared
+# with build-release.yml) so the setup exists in exactly one place.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android build environment
+        uses: ./.github/actions/android-setup
+
+      - name: Tests
+        run: ./gradlew test
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug

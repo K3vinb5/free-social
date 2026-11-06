@@ -71,10 +71,13 @@ home, because it was never given the ability to.
 
 ## Quick start
 
-1. Download `free-social-<version>-<sha>.zip` from
+1. Download `free-social-<version>-<sha>.apk` from
    [Releases](https://github.com/K3vinb5/free-social/releases) (or
-   [freesocial.k3vinb5.dev](https://freesocial.k3vinb5.dev)).
-2. Extract it and tap the APK. Allow install from this source when prompted.
+   [freesocial.k3vinb5.dev](https://freesocial.k3vinb5.dev)). Stable builds are direct
+   `.apk` files, and nightlies join the same list once the nightly workflow publishes one.
+   `free-social-<version>-<sha>.zip` holds the same signed APK plus a `README.txt` with these
+   install steps, if you want them next to the file.
+2. Tap the APK. Allow install from this source when prompted.
 3. Follow the setup wizard: restricted settings → filtering service → optional block service
    and battery exemption → done. Rules are verified for the Instagram, YouTube and TikTok
    versions listed on the hub; an app update raises a staleness warning instead of failing
@@ -174,6 +177,17 @@ Release packaging lives in `tools/release/` and is driven by the
 [`Release`](.github/workflows/release.yml) and reusable
 [`build-release`](.github/workflows/build-release.yml) workflows.
 
+The public download list is generated, never hand-edited:
+`tools/release/publish_downloads.sh <release|nightly> <version> <sha> <artifact-dir>` copies the
+built APK and zip into `website/downloads/` and records them in `website/downloads/versions.json`
+(newest 10 per channel; pruned nightly files are deleted). The site's Stable/Nightlies tables
+render from that file at build time. Re-running it with the same arguments is a no-op.
+
+The same pipeline ships the site itself: `website-image.yml` builds `website/` into
+`ghcr.io/k3vinb5/free-social-website:<sha>`, and `build-release.yml` then runs
+`tools/release/deploy-site.sh` to pull that image on the docker host through Portainer —
+health-gated, with automatic rollback to `<container>-prev`.
+
 ## Honest limitations
 
 - **Fail-open by design.** Android apps are not a stable API. When Instagram, YouTube or
@@ -188,8 +202,8 @@ Release packaging lives in `tools/release/` and is driven by the
   toggle behind *Allow restricted settings* until granted per install.
 - **Three apps, one job.** v1 covers Instagram, YouTube and TikTok. Snapchat, X and Facebook
   were analysed and deliberately deferred.
-- **Known rough edge.** The TikTok DM carve-out is structurally matched; its live check was
-  still pending at v0.4.0.
+- **Known rough edge.** The TikTok DM carve-out is structurally matched; its live check is
+  still pending.
 - **No cloud, no sync, no family accounts.** Settings live on the device, and nothing leaves
   it.
 

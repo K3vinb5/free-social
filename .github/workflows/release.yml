@@ -20,9 +20,6 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
   group: release
   cancel-in-progress: false
@@ -30,6 +27,8 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -93,8 +92,12 @@ jobs:
 
   publish:
     needs: prepare
+    # contents: write for the release + the site publish commit inside the reusable
+    # workflow; packages: write so its site-image call (website-image.yml, the only
+    # image build/push definition) may push to GHCR.
     permissions:
       contents: write
+      packages: write
     uses: ./.github/workflows/build-release.yml
     secrets: inherit
     with:

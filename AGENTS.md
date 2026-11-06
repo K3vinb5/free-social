@@ -55,3 +55,13 @@ never run them. After any mutation, re-inspect and report the resulting state.
   go in `docs/dev/DEVOPS.md` so the next agent doesn't rediscover them. Never write
   secrets, tokens, device LAN IPs or USB serials into any doc — reference the memory id
   or an evidence file instead.
+
+## Feature branches (see docs/dev/BRANCHES.md)
+
+Parallel tasks each get their own git worktree + branch (`feature/<slug>`, `fix/<slug>`,
+`chore/<slug>`). Do all your work inside the assigned worktree directory — never edit the
+main checkout. Commit on your branch, open one PR per task (title carries the OpenProject
+id when one exists), and let the light CI (`.github/workflows/ci.yml`, tests + build) run.
+Never push to `master` — the only exception is the release pipeline's own bump/site
+bookkeeping commits. Overlapping-file tasks follow the combine → serialize → rebase ladder
+in `docs/dev/BRANCHES.md`.
