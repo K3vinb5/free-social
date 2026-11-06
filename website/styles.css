@@ -227,6 +227,30 @@ code, pre, kbd, samp { font-family: var(--mono); }
 }
 .nav__cta:hover { background: rgba(255, 178, 92, 0.2); }
 
+/* GitHub pill: same geometry as the nav CTA, quieter fill. The star is the only
+   amber element, so the link reads as a secondary action next to Download. */
+.nav__gh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding-inline: 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: border-color 0.2s var(--ease), color 0.2s var(--ease), background 0.2s var(--ease);
+}
+.nav__gh svg { flex: 0 0 auto; color: var(--accent); }
+.nav__gh:hover {
+  color: var(--text);
+  border-color: rgba(255, 178, 92, 0.45);
+  background: rgba(255, 178, 92, 0.07);
+}
+
 /* ---------- buttons & links ---------- */
 /* PrimaryButton: 52dp tall, 26dp radius, Primary fill, OnPrimary label. */
 .btn {
@@ -261,6 +285,19 @@ code, pre, kbd, samp { font-family: var(--mono); }
   white-space: nowrap;
 }
 .btn--lg { height: 56px; padding-inline: 28px; font-size: 16px; }
+
+/* SecondaryButton: same box as the primary button, outlined instead of filled,
+   so the hero can carry two CTAs without two competing fills. */
+.btn--ghost {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.btn--ghost svg { flex: 0 0 auto; color: var(--accent); }
+.btn--ghost:hover {
+  background: rgba(255, 178, 92, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(255, 178, 92, 0.5), 0 16px 34px -22px rgba(255, 178, 92, 0.5);
+}
 
 .link-arrow {
   display: inline-flex;
@@ -802,6 +839,16 @@ h2 em {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 12px;
 }
+/* Plain-language lead: the core idea before any card. */
+.rules-lead {
+  max-width: 68ch;
+  margin-bottom: clamp(20px, 3vw, 30px);
+  font-size: clamp(16px, 1.5vw, 17.5px);
+  line-height: 1.62;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+.rules-lead em { font-style: normal; color: var(--text); }
 .panel {
   min-width: 0;
   padding: clamp(18px, 2.5vw, 26px);
@@ -831,6 +878,30 @@ h2 em {
   color: var(--text);
   font-weight: 500;
 }
+/* A question card that keeps its banner pinned to the bottom edge. */
+.panel--stack { display: flex; flex-direction: column; }
+.panel__banner { margin-top: 18px; }
+.panel .anchors + p { margin-top: 14px; }
+
+/* Capture + heal: text on the left, evidence on the right. */
+.rulefix {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(18px, 3vw, 36px);
+  align-items: start;
+}
+.rulefix__txt { min-width: 0; }
+.rulefix__txt .born + p { margin-top: 14px; }
+.rulefix__shot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  align-self: center;
+}
+.rulefix__shot .phone.mini { width: clamp(132px, 15vw, 176px); }
+.rulefix__shot .shot-cap { max-width: 24ch; text-align: center; }
 
 .anchors {
   margin-top: 18px;
@@ -904,13 +975,6 @@ h2 em {
   line-height: 1;
 }
 
-.stale {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(18px, 3.2vw, 40px);
-  align-items: center;
-  margin-top: 4px;
-}
 /* InfoBanner: warning at 12% fill, 20dp radius, coloured dot. */
 .warn {
   min-width: 0;
@@ -951,7 +1015,8 @@ h2 em {
   color: var(--text-2);
 }
 .warn__btn {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   height: 32px;
   margin-top: 10px;
@@ -1142,7 +1207,23 @@ h2 em {
   line-height: 1.6;
   text-wrap: pretty;
 }
-.download .btn { margin-top: clamp(20px, 3vw, 28px); max-width: 100%; }
+.download__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-top: clamp(20px, 3vw, 28px);
+}
+.download .btn { max-width: 100%; }
+.download__alt {
+  padding-bottom: 1px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.download__alt:hover { color: var(--accent); border-color: var(--accent); }
 .download__meta {
   display: flex;
   flex-direction: column;
@@ -1196,6 +1277,123 @@ h2 em {
   line-height: 1.55;
   color: var(--text-3);
   overflow-wrap: anywhere;
+}
+
+/* ---------- downloads: generated build tables ---------- */
+/* Markup between AUTOGEN:downloads markers is written by
+   tools/release/publish_downloads.sh — keep selectors in sync with it. */
+.dl-history {
+  margin-top: clamp(24px, 3.6vw, 36px);
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.dl-history__h {
+  margin-bottom: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.006em;
+}
+.dl-wrap {
+  display: grid;
+  gap: 22px;
+  margin-top: 18px;
+}
+.dl-block { min-width: 0; }
+.dl-block__h {
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.dl-block__note {
+  max-width: 62ch;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-3);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.dl-block__note code { font-family: var(--mono); }
+.dl-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.dl-col-v { width: 15%; }
+.dl-col-sha { width: 17%; }
+.dl-col-date { width: 19%; }
+.dl-col-size { width: 25%; }
+.dl-col-get { width: 12%; }
+.dl-table th,
+.dl-table td {
+  padding: 10px 8px 10px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.dl-table thead th {
+  padding-block: 8px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.dl-table thead th[colspan] { text-align: center; }
+.dl-table tbody th {
+  font-weight: 500;
+  color: var(--text);
+}
+.dl-table tbody th,
+.dl-table time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.dl-table time { color: var(--text-2); }
+.dl-table code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.dl-size { white-space: nowrap; }
+.dl-size + .dl-size::before {
+  content: " / ";
+  color: var(--text-3);
+}
+.dl-get { text-align: center; }
+.dl-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding-inline: 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+.dl-link:hover { background: rgba(255, 178, 92, 0.22); }
+.dl-link--alt { background: var(--chip); color: var(--text-2); }
+.dl-link--alt:hover { background: rgba(69, 63, 78, 0.8); color: var(--text); }
+.dl-empty td {
+  padding-block: 12px;
+  font-size: 12px;
+  color: var(--text-3);
 }
 
 /* ---------- footer ---------- */
@@ -1268,6 +1466,9 @@ html.js [data-reveal].is-in {
 
 /* ---------- responsive ---------- */
 @media (max-width: 1020px) {
+  /* Two pills + four links get tight before the links drop at 720px. */
+  .nav { gap: 18px; }
+  .nav__links { gap: 18px; }
   .hero__grid { grid-template-columns: minmax(0, 1fr); }
   .hero__visual { margin-top: 4px; }
   .stage { max-width: 460px; }
@@ -1312,7 +1513,6 @@ html.js [data-reveal].is-in {
   .stage__tag { display: none; }
 
   .panel--7, .panel--5 { grid-column: 1 / -1; }
-  .stale { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .privacy__side, .privacy__ledger { grid-column: 1 / -1; }
   .ledger { margin-top: 2px; }
   .limits li { grid-template-columns: minmax(0, 1fr); gap: 6px; }
@@ -1333,15 +1533,56 @@ html.js [data-reveal].is-in {
 @media (max-width: 720px) {
   .nav__links { display: none; }
   .nav { height: 58px; gap: 12px; }
+  /* The star stays (with its aria-label) but drops the label so brand + two
+     pills still fit a 360px viewport. */
+  .nav__gh { width: 36px; padding-inline: 0; }
+  .nav__gh span { display: none; }
   html { scroll-padding-top: 72px; }
   .download__ring { opacity: 0.34; }
+  .dl-link { padding-inline: 8px; }
 }
 
 @media (max-width: 620px) {
   .card__split { flex-direction: column; gap: 16px; }
   .phone.mini { width: 104px; margin-inline: 0; }
-  .born-shot .phone.mini { width: 104px; }
+  .rulefix { grid-template-columns: minmax(0, 1fr); }
+  .rulefix__shot { flex-direction: row; align-items: flex-start; gap: 14px; }
+  .rulefix__shot .phone.mini { width: 104px; }
+  .rulefix__shot .shot-cap { text-align: left; max-width: 26ch; }
   .lede { font-size: 1.3rem; }
+
+  /* Six columns do not fit a phone, so each row becomes a small card. */
+  .dl-table colgroup,
+  .dl-table thead { display: none; }
+  .dl-table,
+  .dl-table tbody { display: block; }
+  .dl-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "ver  sha"
+      "date size"
+      "apk  zip";
+    gap: 5px 10px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  .dl-table th,
+  .dl-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .dl-table tbody th { grid-area: ver; font-size: 14px; }
+  .dl-table td:nth-of-type(1) { grid-area: sha; text-align: right; }
+  .dl-table td:nth-of-type(2) { grid-area: date; }
+  .dl-table td:nth-of-type(3) { grid-area: size; text-align: right; }
+  .dl-table td:nth-of-type(4) { grid-area: apk; margin-top: 4px; }
+  .dl-table td:nth-of-type(5) { grid-area: zip; margin-top: 4px; }
+  .dl-table tr.dl-empty { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ver"; }
+  .dl-table tr.dl-empty td { grid-area: auto; text-align: left; }
+  .dl-table .dl-link { display: flex; min-height: 34px; }
 }
 
 @media (max-width: 560px) {
@@ -1367,8 +1608,7 @@ html.js [data-reveal].is-in {
 
 @media (max-width: 440px) {
   .hero__actions { gap: 10px; }
-  .hero__actions .btn { width: 100%; }
-  .download .btn { width: 100%; }
+  .hero__actions .btn { width: 100%; }  .download .btn { width: 100%; }
   .download .btn__meta { display: none; }
   .btn--lg { font-size: 15px; padding-inline: 18px; }
   .download__meta { font-size: 10.5px; }

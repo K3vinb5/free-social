@@ -34,6 +34,10 @@
         <li><a href="#rules">Honest rules</a></li>
         <li><a href="#privacy">Privacy</a></li>
       </ul>
+      <a class="nav__gh" href="https://github.com/K3vinb5/free-social" aria-label="Star Free Social on GitHub">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2.4l2.94 5.96 6.58 0.96-4.76 4.64 1.12 6.55L12 17.42l-5.88 3.09 1.12-6.55-4.76-4.64 6.58-0.96z"/></svg>
+        <span>Star on GitHub</span>
+      </a>
       <a class="nav__cta" href="#download">Download</a>
     </nav>
   </div>
@@ -56,9 +60,13 @@
           When you do want one, you spend it from one daily budget.
         </p>
         <div class="hero__actions">
-          <a class="btn" href="#download">
-            Download for Android
-            <span class="btn__meta">8 MB · 0.4.1</span>
+          <a class="btn" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
+            Download the APK
+            <span class="btn__meta">23.7 MB · 0.4.1</span>
+          </a>
+          <a class="btn btn--ghost" href="https://github.com/K3vinb5/free-social">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2.4l2.94 5.96 6.58 0.96-4.76 4.64 1.12 6.55L12 17.42l-5.88 3.09 1.12-6.55-4.76-4.64 6.58-0.96z"/></svg>
+            Star on GitHub
           </a>
           <a class="link-arrow" href="#rules">See what it matches <span aria-hidden="true">→</span></a>
         </div>
@@ -111,7 +119,7 @@
           <li>
             <span class="step__n">01</span>
             <h3>Install the APK</h3>
-            <p>The download is a zip holding a signed release build and a README. Unzip it, tap the APK, allow the install from your file manager. Android 12L or newer.</p>
+            <p>The APK installs straight from the page. The .zip is the same signed build with the README inside, for when you want the install steps offline. Android 12L or newer.</p>
           </li>
           <li>
             <span class="step__n">02</span>
@@ -250,12 +258,25 @@
         <p class="sec-note">A blocker that finds Reels by looking for the word “Reels” works in exactly one language and breaks on the first rename. This one matches structure — and shows you the working.</p>
       </header>
 
+      <p class="rules-lead" data-reveal>
+        Free Social finds short video by structure, not by wording. Each rule is one small claim
+        about the screen: <em>this container, with this id, in this app</em>. So a phone set to
+        Spanish filters like one set to English — and when a rule stops being true, the app says
+        so instead of guessing.
+      </p>
+
       <div class="rules-grid">
 
         <article class="panel panel--7" data-reveal>
-          <h3>Locale-proof anchors</h3>
-          <p>An enabled rule may only be proved by a signal that survives a language change: a view-id, a class name, or the geometry of the screen. Localized text is a hint that can go missing — it is never the proof.</p>
-          <p>Six of the eight shipped rules are enabled; the other two are retired evidence, kept disabled on purpose. The build fails if an enabled rule has no locale-independent anchor, or if that anchor is not cited against a recorded XML dump.</p>
+          <h3>How does it recognise a reel?</h3>
+          <p>By an <strong>anchor</strong> — a landmark in the app's view tree that stays put. Three
+            kinds count: a <strong>resource id</strong> like <code>…:id/clips_viewer_view_pager</code>, a
+            <strong>class name</strong> like <code>androidx.viewpager2…</code>, or the
+            <strong>bounds</strong> of a container that fills the screen. Those are the same in every
+            language build, because the app has to keep them for its own code to run.</p>
+          <p>Visible text is a different thing. “Reels”, “Shorts”, “Para ti”: all of it is translated,
+            renamed and sometimes absent. Text is allowed as a <strong>hint</strong> — it can narrow a
+            match — but it is never the proof on its own. The shipped catalog is graded that way:</p>
           <div class="anchors">
             <div><code>view-id="…:id/clips_viewer_view_pager"</code><span class="tag yes">proof</span></div>
             <div><code>classNameRegex="androidx.viewpager2…"</code><span class="tag yes">proof</span></div>
@@ -263,36 +284,58 @@
             <div><code>contentDescription="Reels"</code><span class="tag">optional hint</span></div>
             <div><code>visible text</code><span class="tag no">never the only proof</span></div>
           </div>
+          <p>Six of the eight shipped rules are enabled; the other two are retired evidence, kept
+            disabled on purpose. The build fails if an enabled rule has no locale-independent anchor,
+            or if that anchor is not cited against a recorded XML dump.</p>
+          <p><strong>One concrete example.</strong> YouTube's Shorts shelf has no view-id at all —
+            it is a plain container inside the home feed. That rule matches the container's shape
+            and treats the word “Shorts” as a hint, never as proof. Tests pin it against captured
+            trees from English, German and Portuguese builds, and the catalog records it as the
+            exception it is.</p>
         </article>
 
-        <article class="panel panel--5" data-reveal style="--d:80ms">
-          <h3>How a rule is born</h3>
-          <p>Not from a PC, a cable or a scrape of the store listing. From the screen itself, on the phone that has the app installed.</p>
-          <ol class="born">
-            <li><span>01</span>Open the screen you want recognised in the target app.</li>
-            <li><span>02</span>Arm guided capture. Progress and “Stop now” live in a notification; the dump records view-ids, text, bounds and classes.</li>
-            <li><span>03</span>Save it as a rule override, editable in-app. The running service re-reads it on the spot.</li>
-          </ol>
-          <div class="born-shot">
-            <div class="phone mini">
-              <img src="assets/inspector.png" width="720" height="1600" loading="lazy" decoding="async"
-                   alt="Rule inspector: per-app tabs, captured screens with node counts for the Instagram home feed, reels viewer, YouTube Shorts player and TikTok playback.">
-            </div>
-          </div>
-        </article>
-
-        <article class="panel panel--12" data-reveal>
-          <h3>When an app updates, rules fail open — on purpose.</h3>
-          <div class="stale">
-            <div>
-              <p>A rule that stops matching does nothing at all. That is the design: letting a reel through is annoying; blocking the wrong screen is worse. So a stale rule never pretends to work — it goes quiet, and the app says so.</p>
-              <p>Free Social remembers the version each rule set was verified against and compares it with what is installed. You get a warning with one action on it: capture the new screen and re-verify. No silent failures, no invented certainty.</p>
-            </div>
+        <article class="panel panel--5 panel--stack" data-reveal style="--d:80ms">
+          <h3>What happens when Instagram updates?</h3>
+          <p>The rules <strong>fail open</strong> — on purpose. In plain words: if a rule stops
+            matching, the filter stops filtering and lets that screen through. It does not block the
+            wrong thing, and it does not pretend everything is fine. A reel that leaks is annoying; an
+            app that closes your DMs is worse.</p>
+          <p>So Free Social keeps a stamp: the app version each rule set was verified against. It
+            compares that with the version installed, and when the app is newer, you get a warning with
+            exactly one action on it — capture the new screen and re-verify. No silent failure, no
+            invented certainty.</p>
+          <div class="panel__banner">
             <div class="warn" role="img" aria-label="Stale-rule warning: Instagram 455.0.1.2 is newer than the rules' verified version 454.0.0.54, so filtering may be partial until re-verified. The action is Capture now.">
               <p class="warn__head"><span class="warn__dot" aria-hidden="true"></span>Stale rules</p>
               <p class="warn__t">Instagram 455.0.1.2 is newer than the rules' verified version 454.0.0.54</p>
               <p class="warn__s">Filtering may be partial until re-verified. <span class="warn__btn">Capture now</span></p>
             </div>
+          </div>
+        </article>
+
+        <article class="panel panel--12" data-reveal>
+          <h3>How do I fix a rule myself?</h3>
+          <div class="rulefix">
+            <div class="rulefix__txt">
+              <p>A rule is never written from a PC, a cable or a scrape of the store listing. It is
+                written from the screen itself, on the phone that has the app installed — and that is
+                the same path you take when an update breaks one.</p>
+              <ol class="born">
+                <li><span>01</span>Open the screen you want recognised in the target app.</li>
+                <li><span>02</span>Arm guided capture. Progress and “Stop now” live in a notification; the dump records view-ids, text, bounds and classes.</li>
+                <li><span>03</span>Save it as a rule override, editable in-app. The running service re-reads it on the spot.</li>
+              </ol>
+              <p>The result is maintenance, not magic: no restart, no rebuild, no second device. The
+                override beats the built-in rule until you switch back to the built-in set, which is
+                also what a proper fix in the next release looks like.</p>
+            </div>
+            <figure class="rulefix__shot">
+              <div class="phone mini">
+                <img src="assets/inspector.png" width="720" height="1600" loading="lazy" decoding="async"
+                     alt="Rule inspector: per-app tabs, captured screens with node counts for the Instagram home feed, reels viewer, YouTube Shorts player and TikTok playback.">
+              </div>
+              <figcaption class="shot-cap">What a capture leaves behind: the screen, its node count, and the rules that matched it.</figcaption>
+            </figure>
           </div>
         </article>
 
@@ -410,20 +453,83 @@
           <li><b>0</b>trackers</li>
           <li><b>0</b>servers</li>
         </ul>
-        <p class="download__p">A signed release build, zipped with a README. Unzip it, tap the APK, allow the install. Android 12L or newer; Android 13+ needs the extra “Allow restricted settings” toggle from step two.</p>
-        <a class="btn btn--lg" href="/downloads/free-social-0.4.1-1e7b5a1.zip">
-          Download Free Social 0.4.1
-          <span class="btn__meta">8.2 MB</span>
-        </a><!-- UPDATE-ME: download href + version line -->
+        <p class="download__p">A signed release build. Tap the APK, allow the install from your file manager. The .zip holds the same APK plus the README, if you would rather keep the install steps next to the file. Android 12L or newer; Android 13+ needs the extra “Allow restricted settings” toggle from step two.</p>
+        <div class="download__actions">
+          <a class="btn btn--lg" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
+            Download the APK
+            <span class="btn__meta">23.7 MB</span>
+          </a>
+          <a class="download__alt" href="downloads/free-social-0.4.1-1e7b5a1.zip" download>
+            or the .zip <span aria-hidden="true">·</span> 8.2 MB, APK + README
+          </a>
+        </div><!-- UPDATE-ME: primary apk href, alt zip href, version line -->
         <p class="download__meta">
-          <span>v0.4.1 · 1e7b5a1 · 8.2 MB · minSdk 32</span>
-          <code>sha256 2e9439c32911bc9eb9130ca94735bc9a7da39e02de80ea86829d9b81e8d05024</code>
+          <span>v0.4.1 · 1e7b5a1 · 23.7 MB APK · minSdk 32</span>
+          <code>apk sha256 4f40926c0833eaa21532beaa6ca5493002f5600d884bcdf43b017de575825f93</code>
         </p>
         <ol class="install">
-          <li><span>01</span><b>Unzip</b><small>free-social-0.4.1-1e7b5a1.apk plus a README.</small></li>
+          <li><span>01</span><b>Open the APK</b><small>Tap the download; the browser or file manager hands it over.</small></li>
           <li><span>02</span><b>Allow the install</b><small>Your file manager will ask to install unknown apps.</small></li>
           <li><span>03</span><b>Enable the service</b><small>Allow restricted settings first on Android 13+.</small></li>
         </ol>
+
+        <div class="dl-history">
+          <h3 class="dl-history__h">Every build, direct</h3>
+          <p class="dl-block__note">Every file here is served straight from this site, not through a redirect. The APK installs as it is; the .zip is the same APK plus the README.</p>
+        <!-- AUTOGEN:downloads:start -->
+        <!-- Generated by tools/release/publish_downloads.sh from downloads/versions.json. Do not edit by hand. -->
+        <div class="dl-wrap">
+          <div class="dl-block">
+            <h3 class="dl-block__h" id="dl-stable-h">Stable</h3>
+            <table class="dl-table">
+              <colgroup>
+                <col class="dl-col-v"><col class="dl-col-sha"><col class="dl-col-date"><col class="dl-col-size"><col class="dl-col-get"><col class="dl-col-get">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col">Version</th>
+                  <th scope="col">SHA</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Size APK / ZIP</th>
+                  <th scope="col" colspan="2">Download</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">0.4.1</th>
+                  <td><code>1e7b5a1</code></td>
+                  <td><time datetime="2026-11-06">2026-11-06</time></td>
+                  <td><span class="dl-size">23.7 MB</span><span class="dl-size">8.2 MB</span></td>
+                  <td class="dl-get"><a class="dl-link" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>APK</a></td>
+                  <td class="dl-get"><a class="dl-link dl-link--alt" href="downloads/free-social-0.4.1-1e7b5a1.zip" download>ZIP</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="dl-block">
+            <h3 class="dl-block__h" id="dl-nightly-h">Nightlies</h3>
+            <p class="dl-block__note">Untagged prerelease builds of <code>master</code>. Their versionName is never bumped, so every entry reads 0.0.0 &mdash; the date and the commit identify them.</p>
+            <table class="dl-table">
+              <colgroup>
+                <col class="dl-col-v"><col class="dl-col-sha"><col class="dl-col-date"><col class="dl-col-size"><col class="dl-col-get"><col class="dl-col-get">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col">Version</th>
+                  <th scope="col">SHA</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Size APK / ZIP</th>
+                  <th scope="col" colspan="2">Download</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="dl-empty"><td colspan="6">No nightly published yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+<!-- AUTOGEN:downloads:end -->
+        </div>
       </div>
     </div>
   </section>
