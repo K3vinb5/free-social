@@ -347,13 +347,13 @@ deploy() {
   ROLLBACK_ARMED=1
   code="$(api POST "/containers/${CONTAINER}/stop?t=30")" || die "stop failed"
   case "$code" in
-    204 | 304) ;;
+    2[0-9][0-9]) ;;
     *) die "stop returned http ${code}" ;;
   esac
 
   # --- rename (last point before the point of no return) --------------------
   code="$(api POST "/containers/${CONTAINER}/rename?name=${prev}")" || die "rename failed"
-  [ "$code" = "204" ] || die "rename returned http ${code}"
+  [[ "$code" =~ ^2[0-9][0-9]$ ]] || die "rename returned http ${code}"
   echo "renamed ${CONTAINER} -> ${prev}"
 
   # --- create + start the replacement ---------------------------------------
@@ -377,7 +377,7 @@ deploy() {
 
   code="$(http POST "/containers/create?name=${CONTAINER}" "$WORK/create.json" "$create_body")" ||
     die "create request failed"
-  if [ "$code" != "201" ]; then
+  if [[ ! "$code" =~ ^2[0-9][0-9]$ ]]; then
     head -c 400 "$WORK/create.json" >&2 || true
     die "container create returned http ${code}"
   fi
@@ -388,7 +388,7 @@ deploy() {
 
   code="$(api POST "/containers/${NEW_ID}/start")" || die "start request failed"
   case "$code" in
-    204 | 304) ;;
+    2[0-9][0-9]) ;;
     *) die "start returned http ${code}" ;;
   esac
   echo "started ${NEW_ID:0:12}"
