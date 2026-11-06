@@ -27,16 +27,20 @@ on:
         type: string
         default: ""
 
-permissions:
-  contents: write
-
-env:
-  ANDROID_PLATFORM_PKG: "platforms;android-36"
-  ANDROID_BUILD_TOOLS_PKG: "build-tools;36.0.0"
+# No workflow-level permissions: every job declares exactly what it needs
+# (a workflow-level block would cap the packages: write granted below).
+# SDK setup lives in .github/actions/android-setup (shared with ci.yml).
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      sha: ${{ steps.package.outputs.sha }}
+      zip: ${{ steps.package.outputs.zip }}
+      apk: ${{ steps.package.outputs.apk }}
     steps:
       - name: Resolve checkout ref
         id: ref
@@ -61,39 +65,8 @@ jobs:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 0
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-
-      - name: Ensure Android SDK packages
-        run: |
-          set -euo pipefail
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          [ -d "$SDK" ] || { echo "::error::Android SDK not found at $SDK"; exit 1; }
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "Using Android SDK at $SDK"
-
-          SDKMANAGER="$(command -v sdkmanager || true)"
-          if [ -z "$SDKMANAGER" ]; then
-            for candidate in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/cmdline-tools/bin/sdkmanager" "$SDK/tools/bin/sdkmanager"; do
-              if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
-            done
-          fi
-          [ -n "$SDKMANAGER" ] || { echo "::error::sdkmanager not found under $SDK"; exit 1; }
-
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          # Already-installed packages make sdkmanager exit 0; tolerate its
-          # stderr noise and verify the directories instead of trusting the code.
-          for pkg in "$ANDROID_PLATFORM_PKG" "$ANDROID_BUILD_TOOLS_PKG"; do
-            echo "Ensuring SDK package: $pkg"
-            "$SDKMANAGER" "$pkg" >/dev/null 2>&1 || true
-          done
-          test -d "$SDK/platforms/android-36" || { echo "::error::$ANDROID_PLATFORM_PKG missing"; exit 1; }
-          test -d "$SDK/build-tools/36.0.0" || { echo "::error::$ANDROID_BUILD_TOOLS_PKG missing"; exit 1; }
+      - name: Set up Android build environment
+        uses: ./.github/actions/android-setup
 
       - name: Verify signing secrets
         env:
@@ -142,19 +115,63 @@ jobs:
           TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          if [ "${TAG#nightly-}" != "$TAG" ]; then
-            # nightly-YYYYMMDD-<sha> -> artifact named free-social-nightly-YYYYMMDD-<sha>.zip
-            version="${TAG%-*}"
+          # `version` is the app's versionName: it is what the site records in
+          # versions.json and prints in the download table (nightlies are never
+          # bumped, so they inherit the release line they were cut from).
+          version_name="$(sed -nE 's/^.*versionName *= *"([^"]+)".*$/\1/p' app/build.gradle.kts | head -n1)"
+          [ -n "$version_name" ] || { echo "::error::cannot read versionName from app/build.gradle.kts"; exit 1; }
+
+          # The packaged zip name keeps its tag-derived label so it matches
+          # tools/release/package.sh and tools/release/README.md:
+          #   v0.4.1                    -> free-social-0.4.1-<sha>.zip
+          #   nightly-YYYYMMDD-<sha>    -> free-social-nightly-YYYYMMDD-<sha>.zip
+          if [[ "$TAG" =~ ^nightly-([0-9]{8})-([0-9A-Za-z._-]+)$ ]]; then
+            artifact_version="nightly-${BASH_REMATCH[1]}"
+            echo "nightly tag ${TAG} -> artifact label ${artifact_version}"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            artifact_version="${TAG#v}"
           else
-            version="${TAG#v}"
+            echo "::error::tag '$TAG' is neither vX.Y.Z nor nightly-YYYYMMDD-<sha>"
+            exit 1
           fi
+
           sha="$(git rev-parse --short HEAD)"
-          zip="$(tools/release/package.sh "$version" "$sha" dist)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "zip=$zip" >> "$GITHUB_OUTPUT"
-          echo "apk=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+          zip="$(tools/release/package.sh "$artifact_version" "$sha" dist)"
+          {
+            echo "version=$version_name"
+            echo "sha=$sha"
+            echo "zip=$zip"
+            echo "apk=app/build/outputs/apk/release/app-release.apk"
+          } >> "$GITHUB_OUTPUT"
           unzip -l "$zip"
+
+      # The site uploader takes a flat directory holding app-release.apk plus any
+      # *.zip (tools/release/publish_downloads.sh). upload-artifact roots the
+      # artifact at the least common ancestor of its paths, so uploading the two
+      # build paths directly would preserve app/build/outputs/... and dist/ inside
+      # the artifact. Copy both into one flat dir and upload that instead.
+      - name: Stage publish artifacts
+        env:
+          ZIP: ${{ steps.package.outputs.zip }}
+          APK: ${{ steps.package.outputs.apk }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/release-artifacts"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -f "$ZIP" "$stage/$(basename "$ZIP")"
+          cp -f "$APK" "$stage/app-release.apk"
+          test -s "$stage/app-release.apk"
+          ls -la "$stage"
+
+      - name: Upload publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          # flat: app-release.apk + free-social-<label>-<sha>.zip, as built above
+          path: ${{ runner.temp }}/release-artifacts/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Compose release notes
         env:
@@ -182,3 +199,204 @@ jobs:
             args+=(--target "$(git rev-parse HEAD)")
           fi
           gh release create "$TAG" "${args[@]}" "$ZIP" "$APK"
+
+  # Publishes the artifacts just built to the static site: website/downloads/,
+  # versions.json and the autogenerated table in website/index.html, then commits
+  # only those paths to master. Tags are never pushed here.
+  publish-site:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: site-deploy
+      cancel-in-progress: false
+    outputs:
+      kind: ${{ steps.kind.outputs.kind }}
+      version: ${{ steps.kind.outputs.version }}
+      sha: ${{ steps.kind.outputs.sha }}
+      commit: ${{ steps.commit.outputs.commit }}
+      short: ${{ steps.commit.outputs.short }}
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: ${{ runner.temp }}/release-artifacts
+
+      - name: Detect release kind
+        id: kind
+        env:
+          TAG: ${{ inputs.tag_name }}
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # nightly-YYYYMMDD-<sha> is the only nightly shape
+          # (tools/release/publish_downloads.sh uses the same pattern for the files
+          # it serves). Anything else is a versioned release tag.
+          if [[ "$TAG" =~ ^nightly-([0-9]{8})-([0-9A-Za-z._-]+)$ ]]; then
+            kind=nightly
+            echo "nightly tag: date ${BASH_REMATCH[1]}, build ${BASH_REMATCH[2]}"
+          elif [[ "$TAG" =~ ^nightly- ]]; then
+            echo "::error::nightly tag '$TAG' is not nightly-YYYYMMDD-<sha>"
+            exit 1
+          else
+            kind=release
+          fi
+          [ -n "$SHA" ] || { echo "::error::the release job reported no build sha"; exit 1; }
+          [ -n "$VERSION" ] || { echo "::error::the release job reported no version"; exit 1; }
+          echo "kind=${kind} version=${VERSION} sha=${SHA} (tag ${TAG})"
+          {
+            echo "kind=${kind}"
+            echo "version=${VERSION}"
+            echo "sha=${SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stage artifacts
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/release-artifacts
+          STAGE_DIR: ${{ runner.temp }}/site-artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p "$STAGE_DIR"
+          # upload-artifact keeps directory structure relative to its search root;
+          # the release job uploads a flat dir, but look recursively so a future
+          # change of that layout cannot silently break the publish.
+          apk="$(find "$ARTIFACT_DIR" -name 'app-release.apk' -print -quit)"
+          [ -n "$apk" ] || { echo "::error::app-release.apk missing from the downloaded artifact"; exit 1; }
+          cp -f "$apk" "$STAGE_DIR/app-release.apk"
+          zip="$(find "$ARTIFACT_DIR" -name 'free-social-*.zip' -print -quit)"
+          [ -n "$zip" ] || { echo "::error::free-social-*.zip missing from the downloaded artifact"; exit 1; }
+          cp -f "$zip" "$STAGE_DIR/$(basename "$zip")"
+          ls -la "$STAGE_DIR"
+
+      - name: Publish downloads
+        env:
+          KIND: ${{ steps.kind.outputs.kind }}
+          VERSION: ${{ steps.kind.outputs.version }}
+          SHA: ${{ steps.kind.outputs.sha }}
+          TAG: ${{ inputs.tag_name }}
+          STAGE_DIR: ${{ runner.temp }}/site-artifacts
+        run: |
+          set -euo pipefail
+          [ -f tools/release/publish_downloads.sh ] || {
+            echo "::error::tools/release/publish_downloads.sh is missing"; exit 1;
+          }
+          # A nightly's site files are named nightly-<YYYYMMDD>-<sha>.  Pin that
+          # date to the tag, not to "today", so a re-run on a later UTC day keeps
+          # the tag date and the published filenames in agreement. The script keeps
+          # an already-recorded entry's date either way; this only seeds new ones.
+          if [ "$KIND" = "nightly" ]; then
+            d="${TAG#nightly-}"
+            d="${d%%-*}"
+            export PUBLISH_DATE="${d:0:4}-${d:4:2}-${d:6:2}"
+            echo "publish date: ${PUBLISH_DATE} (from ${TAG})"
+          fi
+          bash tools/release/publish_downloads.sh "$KIND" "$VERSION" "$SHA" "$STAGE_DIR"
+
+      - name: Commit published downloads
+        id: commit
+        env:
+          KIND: ${{ steps.kind.outputs.kind }}
+          VERSION: ${{ steps.kind.outputs.version }}
+          TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # Commit subject: the nightly tag for nightlies, the version for releases.
+          if [ "$KIND" = "nightly" ]; then label="$TAG"; else label="$VERSION"; fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          paths=(website/downloads website/index.html)
+          changes="$(git status --porcelain -- "${paths[@]}")"
+          if [ -n "$changes" ]; then
+            printf '%s\n' "$changes"
+            git add -A -- "${paths[@]}"
+            staged="$(git diff --cached --name-only)"
+            unexpected="$(printf '%s\n' "$staged" | grep -vE '^website/(downloads/|index\.html$)' || true)"
+            if [ -n "$unexpected" ]; then
+              echo "::error::refusing to commit paths outside website/downloads + website/index.html:"
+              printf '%s\n' "$unexpected" >&2
+              exit 1
+            fi
+            git commit -m "chore(site): publish ${label}"
+            if ! git push origin HEAD:master; then
+              echo "::warning::push rejected; rebasing once on origin/master and retrying"
+              git fetch origin master
+              git rebase origin/master
+              git push origin HEAD:master
+            fi
+          else
+            echo "::notice::website already up to date for ${label}; nothing to commit"
+          fi
+
+          commit="$(git rev-parse HEAD)"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "short=$(printf '%s' "$commit" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "site commit: ${commit}"
+
+  # The one image-build/publish definition in the repository:
+  # website-image.yml. This job only *calls* it — there is no docker login,
+  # buildx or push step anywhere in this file. It builds the commit that carries
+  # the freshly published downloads and gets the pushed tag back.
+  site-image:
+    needs: publish-site
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/website-image.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.publish-site.outputs.commit }}
+      tag: ${{ needs.publish-site.outputs.short }}
+
+  # Pulls that image on the docker host through Portainer's docker API proxy and
+  # swaps the live container: health-gated, with rollback to <container>-prev.
+  # See tools/release/deploy-site.sh. The image reference comes from the
+  # website-image workflow outputs, so the registry/repository name lives in
+  # exactly one place (env.IMAGE in website-image.yml).
+  deploy-site:
+    needs: [publish-site, site-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: site-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout deploy tooling
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Deploy site container through Portainer
+        env:
+          PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
+          PORTAINER_TOKEN: ${{ secrets.PORTAINER_TOKEN }}
+          CONTAINER: freesocial-web
+          IMAGE: ${{ needs.site-image.outputs.image }}:${{ needs.site-image.outputs.tag }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          [ -n "${PORTAINER_URL}" ] || { echo "::error::PORTAINER_URL secret is not set"; exit 1; }
+          [ -n "${PORTAINER_TOKEN}" ] || { echo "::error::PORTAINER_TOKEN secret is not set"; exit 1; }
+          [ -n "${IMAGE}" ] && [ "${IMAGE#:}" = "${IMAGE}" ] || { echo "::error::site-image workflow returned no image/tag"; exit 1; }
+          echo "deploying ${IMAGE} to ${CONTAINER}"
+          # --check is read-only (endpoint ping + current container state); the
+          # deploy below is the only mutating step in this pipeline.
+          bash tools/release/deploy-site.sh --check
+          bash tools/release/deploy-site.sh
+
