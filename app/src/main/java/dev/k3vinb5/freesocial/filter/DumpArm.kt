@@ -66,6 +66,17 @@ object DumpArm {
     fun isArmed(now: Long = System.currentTimeMillis()): Boolean = armedScreen(now) != null
 
     /**
+     * True while a capture owns the device: a manual 60 s arm waiting for its target window, or a
+     * guided session across detection + recording (120 s ceiling, refreshed per phase).
+     *
+     * Both enforcement engines stand down while this is true — filtering reads [isArmed] in
+     * `FilterService`, blocking reads this in `block.BlockService`. The capture has to see the
+     * target app exactly as the user does: a block screen over it (or a flash) would replace the
+     * tree the dump must record.
+     */
+    fun captureActive(now: Long = System.currentTimeMillis()): Boolean = isArmed(now)
+
+    /**
      * Claims the arm for one capture. Returns the screen label and clears the state, or null when
      * nothing (valid) is armed — a capture then must not run.
      */

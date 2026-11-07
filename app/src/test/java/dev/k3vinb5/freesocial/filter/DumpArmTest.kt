@@ -104,4 +104,34 @@ class DumpArmTest {
         assertFalse(DumpArm.isGuided(0))
         assertTrue(DumpArm.readyFor(YT, YT))
     }
+
+    @Test
+    fun `captureActive covers a manual arm and hands control back on expiry`() {
+        assertFalse("nothing armed", DumpArm.captureActive(0))
+
+        DumpArm.arm("TT · playback", now = 1_000)
+        assertTrue(DumpArm.captureActive(1_000))
+        assertTrue(DumpArm.captureActive(1_000 + DumpArm.EXPIRY_MS - 1))
+        assertFalse("the 60 s arm is dead", DumpArm.captureActive(1_000 + DumpArm.EXPIRY_MS))
+
+        // Ordered like BlockService sees it: pause while armed, resume once the capture consumed it.
+        DumpArm.arm("TT · playback", now = 5_000)
+        assertTrue(DumpArm.captureActive(6_000))
+        DumpArm.consume(6_000)
+        assertFalse(DumpArm.captureActive(6_001))
+    }
+
+    @Test
+    fun `captureActive covers the longer guided window and ends with the session`() {
+        DumpArm.armGuided("shorts_player", now = 1_000)
+        // Past the manual window, still inside detection + recording.
+        assertTrue(DumpArm.captureActive(1_000 + 61_000))
+        DumpArm.refreshGuided(now = 100_000)
+        assertTrue(DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
+        assertFalse(DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS))
+
+        DumpArm.armGuided("home", now = 200_000)
+        DumpArm.cancel()
+        assertFalse(DumpArm.captureActive(200_000))
+    }
 }

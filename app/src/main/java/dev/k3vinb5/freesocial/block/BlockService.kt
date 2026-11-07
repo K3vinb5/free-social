@@ -13,6 +13,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.filter.DumpArm
 import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.BlockActivity
 import java.time.ZonedDateTime
@@ -63,6 +64,10 @@ class BlockService : AccessibilityService() {
 
     private fun handlePackage(packageName: String?) {
         try {
+            // Same pause as filtering: a pending arm or a running guided capture needs the target
+            // app on screen and un-blocked, otherwise the dump records the block screen instead of
+            // the surface. DumpArm clears itself (consume / cancel / expiry), which resumes this.
+            if (DumpArm.captureActive()) return
             val repo = settings ?: return
             val target = BlockGate.resolveTarget(packageName) ?: return
             val decision = gate.decide(
