@@ -1282,6 +1282,67 @@ contrast: `before-rapid-transcript.txt` = 4 escapes / 2 flashes / 1 suppressed.
   state is SKIP. Filed as OpenProject #146 (Free Social); a fix needs a capture-settle/dedupe change outside
   this branch's file scope.
 
+## "Use built-in rules" — PASS (2026-11-07, first device proof)
+
+`RuleCatalog.revertOverride()` + its button shipped in `e1bf545` but had never been exercised on a
+device: subsection 3 above found the button absent from the installed APK, and 7.3 only noted it
+"was not shown and none was needed". This run opened an override deliberately, then reverted it with
+the button (**closing the open item**).
+
+Device: Reno4 5G, app 0.4.1, pt-PT, override active from an import in the same session.
+
+* **Dialog**: title *Use built-in rules*, body *Your imported rules will be removed. Free Social
+  will use its built-in rules.*, `Cancel` / `Use built-in rules`
+  (`reverse/runtime-reno/heal/driver/01-revert-dialog.png`).
+* **Confirm** → banner *Your imported rules were removed — built-in rules are active.*,
+  `files/` back to `profileInstalled` only (`rules-override.json` gone), `Rules in use` reads
+  **`Built-in rules`**, the button disappears, `RuleCatalog: engine cache dropped — the override
+  applies on the next event` (`driver/01-reverted.png`, `driver/01-reverted-source.png`,
+  `driver/02-ab2-reverted.png`).
+* **Live A/B, same PID, no restart** — the Reels tab scanned by `FilterService`:
+
+  | state | engine line |
+  | --- | --- |
+  | override (built-in minus one enabled rule) | `rules=3/9, matched=1` |
+  | after **Use built-in rules** | `rules=4/9, matched=2` |
+
+  (`driver/01-ab2-disabled.png`, `driver/03-ab2-reverted.png`)
+
+## Heal-from-dump marathon — 2026-11-07
+
+Full pass of `docs/rules/CAPTURE.md` on the device, no APK rebuild and no process restart between
+the steps. Scripted end to end from 2026-11-07:
+`uv run tools/device/drive.py run heal_from_dump` → **PASS** (57 steps, 342.9 s,
+`reverse/runtime-reno/driver-20261107-201720/heal_from_dump/`).
+
+| step | result | what proved it |
+| --- | --- | --- |
+| 1 capture | PASS | IG Reels tab + IG Home + YT Home dumps, `surfaceVerified=true`, nodes listed |
+| 2 analyse | PASS | the dump lists `ig_reels_tab · reels_tab` (+ `ig_clips_viewer`) with anchor evidence |
+| 3 break | PASS | exported document, `clips_tab` → `clips_tab_gone`, imported: cache drop, the same dump loses the rule, live `matched=2 → 1` |
+| 4 heal | PASS | corrected anchor imported: cache drop, rule matches again, live `matched=1 → 2`, same PID |
+| 5 revert | PASS | the section above |
+
+Three defects found and fixed on the same branch (details in
+`reverse/runtime-reno/heal/REPORT.md`, `tools/device/scenarios/heal_from_dump.py`,
+`RuleInspectorHealTest`):
+
+* **A** `RuleInspectorScreen.kt:319-322` — Export wrote `filesDir/rules-override.json` with a bare
+  `writeText`, so the screen still read *Built-in rules* and hid *Use built-in rules* while a file
+  that would be loaded at the next start was on disk. Fixed by publishing the document through
+  `RuleCatalog.applyOverride` and refreshing the screen.
+* **B** `RuleInspectorScreen.kt:329` — the import picker was launched via
+  `ActivityResultContracts.OpenDocument`, whose base type is the wildcard; ColorOS DocumentsUI then
+  lists no `application/json` row at all, so the exported document could not be imported. Fixed by
+  launching `ACTION_OPEN_DOCUMENT` with base type `application/json` and no `EXTRA_MIME_TYPES`
+  (measured: `am start -a OPEN_DOCUMENT -t application/json` lists the file immediately).
+* **C** `RuleInspectorScreen.kt:219` — the three app chips split the row into equal thirds and
+  "Instagram" wrapped to "Instagra / m"; the chip now takes a compact padding/label style.
+
+Device limitation reconfirmed, not a regression: the accessibility tree handed to a third-party
+service on this build is decor-only (D8), so dumps are graft views — IG Home 4 walked + 5 grafted
+nodes while `uiautomator dump` of the same screen has 112.
+
 ## Restored state
 
 `budget_limit_minutes=20`, `schedule_enabled=true` with `420/1350` untouched, `filtering_enabled=true`,
