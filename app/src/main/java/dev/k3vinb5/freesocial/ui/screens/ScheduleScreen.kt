@@ -31,11 +31,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.core.DaySchedule
 import dev.k3vinb5.freesocial.settings.SettingsRepository
+import dev.k3vinb5.freesocial.ui.components.Caption
 import dev.k3vinb5.freesocial.ui.components.HorizontalGap
 import dev.k3vinb5.freesocial.ui.components.SectionCard
-import dev.k3vinb5.freesocial.ui.components.Stepper
-import dev.k3vinb5.freesocial.ui.components.SwitchRow
 import dev.k3vinb5.freesocial.ui.components.TextButton
 import dev.k3vinb5.freesocial.ui.components.TimeChip
 import dev.k3vinb5.freesocial.ui.components.TopBar
@@ -54,7 +54,10 @@ private val WEEKDAYS = listOf(
 
 private data class TimeEdit(val weekday: Int, val bedtime: Boolean)
 
-/** F11 — per-weekday nightly lock window. */
+/**
+ * F11 — per-weekday sleep window. Mandatory: no master switch, and every day is bedtime -> wake
+ * exactly, never shorter than six hours (validated live in the picker and again in the repository).
+ */
 @Composable
 fun ScheduleScreen(
     settings: SettingsRepository,
@@ -64,6 +67,7 @@ fun ScheduleScreen(
 ) {
     var editing by remember { mutableStateOf<TimeEdit?>(null) }
     val window = settings.tonightLockWindow(now)
+    val minimumMinutes = DaySchedule.MIN_WINDOW_MINUTES
 
     Column(
         modifier = modifier
@@ -80,11 +84,16 @@ fun ScheduleScreen(
         ) {
             HorizontalGap(16.dp)
             SectionCard {
-                SwitchRow(
-                    title = stringResource(R.string.schedule_master_title),
-                    subtitle = stringResource(R.string.schedule_master_subtitle),
-                    checked = settings.scheduleEnabled,
-                    onCheckedChange = settings::updateScheduleEnabled,
+                Text(
+                    text = stringResource(R.string.schedule_always_on),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = FsColors.TextPrimary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.schedule_minimum_explainer, durationLabel(minimumMinutes)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FsColors.TextTertiary,
                 )
             }
 
@@ -95,55 +104,34 @@ fun ScheduleScreen(
                     label = stringResource(WEEKDAYS[weekday - 1]),
                     bedtime = SettingsRepository.formatClock(day.bedtimeMinutes),
                     wake = SettingsRepository.formatClock(day.wakeMinutes),
+                    duration = durationLabel(day.windowMinutes),
                     onEditBedtime = { editing = TimeEdit(weekday, bedtime = true) },
                     onEditWake = { editing = TimeEdit(weekday, bedtime = false) },
                 )
                 Spacer(Modifier.height(8.dp))
             }
 
-            HorizontalGap(4.dp)
-            StepperRow(
-                label = stringResource(R.string.schedule_wind_down),
-                value = stringResource(R.string.schedule_minutes_value, settings.windDownMinutes),
-                onDecrease = { settings.updateWindDown(settings.windDownMinutes - STEP_MINUTES) },
-                onIncrease = { settings.updateWindDown(settings.windDownMinutes + STEP_MINUTES) },
-                decreaseEnabled = settings.windDownMinutes > 0,
-                increaseEnabled = settings.windDownMinutes < SettingsRepository.MAX_MINUTES,
-            )
-            Spacer(Modifier.height(8.dp))
-            StepperRow(
-                label = stringResource(R.string.schedule_morning_lock),
-                value = stringResource(R.string.schedule_minutes_value, settings.morningLockMinutes),
-                onDecrease = { settings.updateMorningLock(settings.morningLockMinutes - STEP_MINUTES) },
-                onIncrease = { settings.updateMorningLock(settings.morningLockMinutes + STEP_MINUTES) },
-                decreaseEnabled = settings.morningLockMinutes > 0,
-                increaseEnabled = settings.morningLockMinutes < SettingsRepository.MAX_MINUTES,
-            )
-
             HorizontalGap(16.dp)
-            val off = window == null
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(if (off) FsColors.Surface else FsColors.PrimaryContainer),
+                    .background(FsColors.PrimaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (window == null) {
-                        stringResource(R.string.schedule_preview_off)
-                    } else {
-                        stringResource(
-                            R.string.schedule_preview,
-                            SettingsRepository.formatClock(window.startMinutes),
-                            SettingsRepository.formatClock(window.endMinutes),
-                        )
-                    },
+                    text = stringResource(
+                        R.string.schedule_preview,
+                        SettingsRepository.formatClock(window.startMinutes),
+                        SettingsRepository.formatClock(window.endMinutes),
+                    ),
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (off) FsColors.TextTertiary else FsColors.Primary,
+                    color = FsColors.Primary,
                 )
             }
+            HorizontalGap(16.dp)
+            Caption(stringResource(R.string.schedule_caption, durationLabel(minimumMinutes)))
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -156,14 +144,17 @@ fun ScheduleScreen(
                 if (current.bedtime) R.string.time_bedtime else R.string.time_wake,
             ),
             initialMinutes = if (current.bedtime) day.bedtimeMinutes else day.wakeMinutes,
+            bedtimeMinutes = day.bedtimeMinutes,
+            wakeMinutes = day.wakeMinutes,
+            editingBedtime = current.bedtime,
             onDismiss = { editing = null },
             onConfirm = { minutes ->
-                if (current.bedtime) {
+                val saved = if (current.bedtime) {
                     settings.setBedtimeMinutes(current.weekday, minutes)
                 } else {
                     settings.setWakeMinutes(current.weekday, minutes)
                 }
-                editing = null
+                if (saved) editing = null
             },
         )
     }
@@ -174,73 +165,61 @@ private fun DayRow(
     label: String,
     bedtime: String,
     wake: String,
+    duration: String,
     onEditBedtime: () -> Unit,
     onEditWake: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(FsColors.Card)
-            .height(52.dp)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = FsColors.TextSecondary,
-            modifier = Modifier.widthIn(min = 36.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Spacer(Modifier.weight(1f))
-        TimeChip(text = bedtime, onClick = onEditBedtime)
-        Text(
-            text = "→",
-            style = MaterialTheme.typography.bodyMedium,
-            color = FsColors.TextTertiary,
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
-        TimeChip(text = wake, onClick = onEditWake)
-    }
-}
-
-@Composable
-private fun StepperRow(
-    label: String,
-    value: String,
-    onDecrease: () -> Unit,
-    onIncrease: () -> Unit,
-    decreaseEnabled: Boolean,
-    increaseEnabled: Boolean,
-) {
-    SectionCard {
-        Row(
-            modifier = Modifier.height(36.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = FsColors.TextPrimary,
-                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = FsColors.TextSecondary,
+                modifier = Modifier.widthIn(min = 36.dp),
             )
-            Stepper(
-                value = value,
-                onDecrease = onDecrease,
-                onIncrease = onIncrease,
-                decreaseEnabled = decreaseEnabled,
-                increaseEnabled = increaseEnabled,
+            Spacer(Modifier.weight(1f))
+            TimeChip(text = bedtime, onClick = onEditBedtime)
+            Text(
+                text = "→",
+                style = MaterialTheme.typography.bodyMedium,
+                color = FsColors.TextTertiary,
+                modifier = Modifier.padding(horizontal = 8.dp),
             )
+            TimeChip(text = wake, onClick = onEditWake)
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = duration,
+            style = MaterialTheme.typography.bodySmall,
+            color = FsColors.TextTertiary,
+        )
     }
 }
 
+/** "8h 30m" from a minute count; used for the live readout and the six-hour floor. */
+@Composable
+private fun durationLabel(minutes: Int): String =
+    stringResource(R.string.schedule_duration, minutes / 60, minutes % 60)
+
+/**
+ * One clock picker with a live window readout. The OK action only exists while the candidate
+ * window (this pick combined with the other end) clears the six-hour floor; otherwise the dialog
+ * shows the same readout plus an inline explanation of why it cannot be saved.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ClockPickerDialog(
     title: String,
     initialMinutes: Int,
+    bedtimeMinutes: Int,
+    wakeMinutes: Int,
+    editingBedtime: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit,
 ) {
@@ -249,6 +228,12 @@ private fun ClockPickerDialog(
         initialMinute = initialMinutes % 60,
         is24Hour = true,
     )
+    val picked = pickerState.hour * 60 + pickerState.minute
+    val candidateBedtime = if (editingBedtime) picked else bedtimeMinutes
+    val candidateWake = if (editingBedtime) wakeMinutes else picked
+    val candidateMinutes = SettingsRepository.windowMinutesOf(candidateBedtime, candidateWake)
+    val valid = candidateMinutes >= DaySchedule.MIN_WINDOW_MINUTES
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -258,12 +243,46 @@ private fun ClockPickerDialog(
                 color = FsColors.TextPrimary,
             )
         },
-        text = { TimePicker(state = pickerState) },
+        text = {
+            Column {
+                TimePicker(state = pickerState)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(
+                        R.string.schedule_duration_readout,
+                        durationLabel(candidateMinutes),
+                        durationLabel(DaySchedule.MIN_WINDOW_MINUTES),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (valid) FsColors.TextTertiary else FsColors.Warning,
+                )
+                if (!valid) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.schedule_below_minimum,
+                            durationLabel(DaySchedule.MIN_WINDOW_MINUTES),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FsColors.Warning,
+                    )
+                }
+            }
+        },
         confirmButton = {
-            TextButton(
-                text = stringResource(R.string.action_ok),
-                onClick = { onConfirm(pickerState.hour * 60 + pickerState.minute) },
-            )
+            if (valid) {
+                TextButton(
+                    text = stringResource(R.string.action_ok),
+                    onClick = { onConfirm(picked) },
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.action_ok),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = FsColors.TextTertiary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
         },
         dismissButton = {
             TextButton(
@@ -274,5 +293,3 @@ private fun ClockPickerDialog(
         containerColor = FsColors.Surface,
     )
 }
-
-private const val STEP_MINUTES = 30

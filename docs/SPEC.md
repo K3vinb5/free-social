@@ -125,16 +125,20 @@ allowance across Instagram + YouTube + TikTok — *not* a per-app limit.
 This replaces per-app screen-time limits with what the user actually asked for: *access
 to all filtered content combined, for a configured amount of time daily*.
 
-### 2.3 Schedule (nightly lock window)
+### 2.3 Schedule (nightly sleep window)
 
-One model: per-weekday **bedtime** and **wake** (minutes from midnight), optional
-**wind-down** (start locking N minutes *before* bedtime) and **morning-lock** (stay
-locked N minutes *after* wake). The window wraps overnight (22:30→07:00 with 30 min
-wind-down and morning-lock = locked 22:00–07:30).
+One model: per-weekday **bedtime** and **wake** (minutes from midnight). The locked
+window is exactly bedtime → wake, with no margin settings. The window wraps overnight
+(default 22:30→07:00, i.e. 8 h 30 m).
 
+- **Mandatory, ≥6 h:** the schedule cannot be disabled (no master toggle, no prefs key
+  is read) and every day's window must be at least **6 hours**. The editor validates
+  the candidate live ("8h 30m · minimum 6h") and refuses to save a shorter window; the
+  repository rejects it too, and invalid stored days from older builds migrate to the
+  default night instead of crashing.
 - Effect while active: budget treated as exhausted (all direct surfaces escaped)
-  and Block-mode apps get the block screen. Independent axis: it applies even when the
-  master switch is off (as in the original).
+  and Block-mode apps get the block screen. Nothing overrides it: the filtering master
+  switch does not shorten or pause the window.
 - Mechanism: compute the window at every decision (timezone/DST-safe); one
   `AlarmManager.setExactAndAllowWhileIdle` at the next boundary flips state even if
   nothing else happens; screen-on/off, boot, time-change events also re-evaluate.
@@ -152,8 +156,9 @@ wind-down and morning-lock = locked 22:00–07:30).
 
 **Settings screens:** per-app rows for IG/YouTube/TikTok (Filter / Block / Allow) with
 per-surface toggles (feed suggestions, Reels tab, Shorts shelf, Shorts player, TikTok
-playback); budget stepper + "X min left today"; schedule editor (per-day bedtime/wake,
-wind-down, morning-lock); permissions page with live state and one-tap jumps; per-app
+playback); budget stepper + "X min left today"; schedule editor (per-day bedtime/wake with a
+live window length and the six-hour floor); permissions page with live state and
+one-tap jumps; per-app
 "rules last verified against version X" note + the rule inspector (§2.5).
 
 **Live status:** reactive re-checks (ContentObserver on enabled accessibility services,
@@ -204,8 +209,8 @@ v318, you have v322". We never need SocialLite again: it is not the source of ru
   check time, one exact alarm per boundary, broadcast on change.
 - **Rule inspector** (dev screen, §2.5).
 - Persistence: SharedPreferences, original key semantics where we reproduce a feature.
-- Testing: unit tests for the gate tree, schedule-window math (overnight wrap, wind-down,
-  per-day override, timezone change), and budget accounting (tick/reset/absolute mode).
+- Testing: unit tests for the gate tree, schedule-window math (overnight wrap, six-hour
+  floor, per-day override, timezone change), and budget accounting (tick/reset/absolute mode).
 
 ## 5. Platform constraints
 

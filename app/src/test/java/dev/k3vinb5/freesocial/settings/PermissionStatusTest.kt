@@ -4,7 +4,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -138,19 +137,12 @@ class PermissionStatusTest {
     }
 
     @Test
-    fun `disabled nightly lock never locks and offers no preview window`() {
+    fun `nightly schedule always locks and always offers a window`() {
         val settings = SettingsRepository(InMemoryPrefs())
-        // 23:00 sits inside the default 22:00–07:30 window.
+        // 23:00 sits inside the default 22:30–07:00 window, with no toggle to switch it off.
         assertTrue(settings.isLocked(noon(hour = 23)))
-        assertNotNull(settings.tonightLockWindow(noon()))
-
-        settings.updateScheduleEnabled(false)
-        assertFalse(settings.isLocked(noon(hour = 23)))
-        assertFalse(settings.isLocked(noon(day = 5, hour = 2)))
-        assertNull(settings.tonightLockWindow(noon()))
-
-        settings.updateScheduleEnabled(true)
-        assertTrue(settings.isLocked(noon(hour = 23)))
-        assertEquals(LockWindow(1320, 450), settings.tonightLockWindow(noon()))
+        assertTrue(settings.isLocked(noon(day = 5, hour = 2)))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon()))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon(day = 5, hour = 2)))
     }
 }

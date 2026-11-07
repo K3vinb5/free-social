@@ -26,12 +26,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.k3vinb5.freesocial.R
 import dev.k3vinb5.freesocial.settings.AppTarget
+import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.components.Caption
 import dev.k3vinb5.freesocial.ui.components.HorizontalGap
 import dev.k3vinb5.freesocial.ui.components.PrimaryButton
 import dev.k3vinb5.freesocial.ui.components.StatusDot
 import dev.k3vinb5.freesocial.ui.theme.FreeSocialTheme
 import dev.k3vinb5.freesocial.ui.theme.FsColors
+import java.time.ZonedDateTime
 
 /**
  * F13 — the block screen. Started by BlockService with `NEW_TASK|CLEAR_TASK`; declared
@@ -47,12 +49,18 @@ class BlockActivity : ComponentActivity() {
             packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME),
         )
         val reason = intent.getStringExtra(EXTRA_REASON)?.takeIf { it.isNotBlank() }
+        // No reason extra (defensive fallback): read the wake clock from the live schedule so the
+        // copy can never drift from a per-day override the way a hardcoded time did.
+        val wakeClock = SettingsRepository.formatClock(
+            SettingsRepository.from(this).scheduleState().nextWakeMinutes(ZonedDateTime.now()),
+        )
 
         setContent {
             FreeSocialTheme {
                 BlockScreen(
                     appLabel = stringResource(target?.nameRes ?: R.string.block_app_fallback),
                     reason = reason,
+                    fallbackBody = stringResource(R.string.block_screen_body, wakeClock),
                     onGoHome = ::goHome,
                 )
             }
@@ -79,11 +87,15 @@ class BlockActivity : ComponentActivity() {
     }
 }
 
-/** Centered block card; the body falls back to the schedule copy when no reason is supplied. */
+/**
+ * Centered block card. [reason] is the per-reason copy from BlockService; [fallbackBody] is used
+ * when no reason was supplied and carries the schedule's actual wake time.
+ */
 @Composable
 fun BlockScreen(
     appLabel: String,
     reason: String?,
+    fallbackBody: String,
     onGoHome: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -115,7 +127,7 @@ fun BlockScreen(
             )
             HorizontalGap(10.dp)
             Text(
-                text = reason ?: stringResource(R.string.block_screen_body),
+                text = reason ?: fallbackBody,
                 style = MaterialTheme.typography.bodyLarge,
                 color = FsColors.TextSecondary,
                 textAlign = TextAlign.Center,

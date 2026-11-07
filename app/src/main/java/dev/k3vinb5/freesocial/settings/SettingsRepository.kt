@@ -136,7 +136,7 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : PrefsStor
     }
 }
 
-/** The nightly lock window as wall-clock minutes from midnight ("22:00–07:30"). */
+/** The nighttime window as wall-clock minutes from midnight ("22:30–07:00"). */
 data class LockWindow(val startMinutes: Int, val endMinutes: Int)
 
 /**
@@ -201,19 +201,6 @@ class SettingsRepository(private val store: PrefsStore) {
     var githubStarCardDismissed by mutableStateOf(store.getBoolean(KEY_GITHUB_STAR_DISMISSED, false))
         private set
 
-    var scheduleEnabled by mutableStateOf(store.getBoolean(KEY_SCHEDULE_ENABLED, true))
-        private set
-
-    var windDownMinutes by mutableStateOf(
-        store.getInt(KEY_WIND_DOWN, ScheduleState.DEFAULT_WIND_DOWN_MINUTES).coerceIn(0, MAX_MINUTES),
-    )
-        private set
-
-    var morningLockMinutes by mutableStateOf(
-        store.getInt(KEY_MORNING_LOCK, ScheduleState.DEFAULT_MORNING_LOCK_MINUTES).coerceIn(0, MAX_MINUTES),
-    )
-        private set
-
     private val modes = mutableStateMapOf<AppTarget, AppMode>()
     private val surfaceStates = mutableStateMapOf<String, Boolean>()
     private val days = mutableStateMapOf<Int, DaySchedule>()
@@ -252,11 +239,9 @@ class SettingsRepository(private val store: PrefsStore) {
         budgetDate = store.getString(KEY_BUDGET_DATE)
         firstRunCompleted = store.getBoolean(KEY_FIRST_RUN, false)
         githubStarCardDismissed = store.getBoolean(KEY_GITHUB_STAR_DISMISSED, false)
-        scheduleEnabled = store.getBoolean(KEY_SCHEDULE_ENABLED, true)
-        windDownMinutes = store.getInt(KEY_WIND_DOWN, ScheduleState.DEFAULT_WIND_DOWN_MINUTES)
-            .coerceIn(0, MAX_MINUTES)
-        morningLockMinutes = store.getInt(KEY_MORNING_LOCK, ScheduleState.DEFAULT_MORNING_LOCK_MINUTES)
-            .coerceIn(0, MAX_MINUTES)
+        // Legacy keys (`schedule_enabled`, `wind_down_minutes`, `morning_lock_minutes`) are read
+        // nowhere on purpose: the schedule is mandatory and its window is exactly bedtime -> wake,
+        // so old installs simply stop seeing those values instead of crashing.
         AppTarget.entries.forEach { app ->
             modes[app] = AppMode.fromStorage(store.getString(modeKey(app)))
             app.surfaces.forEach { surface ->
@@ -265,13 +250,22 @@ class SettingsRepository(private val store: PrefsStore) {
             }
         }
         for (weekday in 1..7) {
-            days[weekday] = DaySchedule(
-                bedtimeMinutes = store.getInt(bedtimeKey(weekday), ScheduleState.DEFAULT_BEDTIME_MINUTES)
-                    .coerceIn(0, 24 * 60 - 1),
-                wakeMinutes = store.getInt(wakeKey(weekday), ScheduleState.DEFAULT_WAKE_MINUTES)
-                    .coerceIn(0, 24 * 60 - 1),
-            )
+            days[weekday] = readDay(weekday)
         }
+    }
+
+    /**
+     * Reads one weekday, migrating sub-six-hour values from older builds to the default night.
+     * Persisted state must never hand an invalid day to [ScheduleState], which rejects it.
+     */
+    private fun readDay(weekday: Int): DaySchedule {
+        val stored = DaySchedule(
+            bedtimeMinutes = store.getInt(bedtimeKey(weekday), ScheduleState.DEFAULT_BEDTIME_MINUTES)
+                .coerceIn(0, 24 * 60 - 1),
+            wakeMinutes = store.getInt(wakeKey(weekday), ScheduleState.DEFAULT_WAKE_MINUTES)
+                .coerceIn(0, 24 * 60 - 1),
+        )
+        return if (stored.meetsMinimum) stored else defaultDay()
     }
 
     // --- First run + permissions ---------------------------------------------------------
@@ -365,54 +359,41 @@ class SettingsRepository(private val store: PrefsStore) {
 
     // --- Schedule ------------------------------------------------------------------------
 
-    fun updateScheduleEnabled(enabled: Boolean) {
-        scheduleEnabled = enabled
-        store.putBoolean(KEY_SCHEDULE_ENABLED, enabled)
-    }
-
-    fun daySchedule(weekday: Int): DaySchedule = days[weekday] ?: ScheduleState().daySchedule(weekday)
-
-    fun setBedtimeMinutes(weekday: Int, minutes: Int) {
-        val current = daySchedule(weekday)
-        val updated = current.copy(bedtimeMinutes = minutes.coerceIn(0, 24 * 60 - 1))
-        days[weekday] = updated
-        store.putInt(bedtimeKey(weekday), updated.bedtimeMinutes)
-    }
-
-    fun setWakeMinutes(weekday: Int, minutes: Int) {
-        val current = daySchedule(weekday)
-        val updated = current.copy(wakeMinutes = minutes.coerceIn(0, 24 * 60 - 1))
-        days[weekday] = updated
-        store.putInt(wakeKey(weekday), updated.wakeMinutes)
-    }
-
-    fun updateWindDown(minutes: Int) {
-        val clamped = minutes.coerceIn(0, MAX_MINUTES)
-        windDownMinutes = clamped
-        store.putInt(KEY_WIND_DOWN, clamped)
-    }
-
-    fun updateMorningLock(minutes: Int) {
-        val clamped = minutes.coerceIn(0, MAX_MINUTES)
-        morningLockMinutes = clamped
-        store.putInt(KEY_MORNING_LOCK, clamped)
-    }
-
-    fun scheduleState(): ScheduleState = ScheduleState(
-        days = (1..7).associateWith { daySchedule(it) },
-        windDownMinutes = windDownMinutes,
-        morningLockMinutes = morningLockMinutes,
-    )
-
-    /** True only while the master "Nightly lock" switch is on and a window covers [now]. */
-    fun isLocked(now: ZonedDateTime): Boolean = scheduleEnabled && scheduleState().isLocked(now)
+    fun daySchedule(weekday: Int): DaySchedule = days[weekday] ?: defaultDay()
 
     /**
-     * The window that covers [now] if one is active, otherwise the next one to start ("tonight");
-     * null while the master switch is off, so every preview reads as an off state.
+     * Saves a new bedtime for [weekday]. Returns false and changes nothing when the resulting
+     * window would be shorter than [DaySchedule.MIN_WINDOW_MINUTES]; the editor also blocks that,
+     * but this is the one gate every write path (UI, tests, future callers) goes through.
      */
-    fun tonightLockWindow(now: ZonedDateTime): LockWindow? {
-        if (!scheduleEnabled) return null
+    fun setBedtimeMinutes(weekday: Int, minutes: Int): Boolean =
+        saveDay(weekday, daySchedule(weekday).copy(bedtimeMinutes = minutes.coerceIn(0, 24 * 60 - 1)))
+
+    /** Saves a new wake time for [weekday]; see [setBedtimeMinutes] for the floor rule. */
+    fun setWakeMinutes(weekday: Int, minutes: Int): Boolean =
+        saveDay(weekday, daySchedule(weekday).copy(wakeMinutes = minutes.coerceIn(0, 24 * 60 - 1)))
+
+    private fun saveDay(weekday: Int, candidate: DaySchedule): Boolean {
+        if (!candidate.meetsMinimum) return false
+        days[weekday] = candidate
+        store.putInt(bedtimeKey(weekday), candidate.bedtimeMinutes)
+        store.putInt(wakeKey(weekday), candidate.wakeMinutes)
+        return true
+    }
+
+    fun scheduleState(): ScheduleState = ScheduleState(days = (1..7).associateWith { daySchedule(it) })
+
+    /**
+     * Whether the nightly window covers [now]. Always evaluated: the schedule has no off switch,
+     * and no other setting can shorten or disable it.
+     */
+    fun isLocked(now: ZonedDateTime): Boolean = scheduleState().isLocked(now)
+
+    /**
+     * The window that covers [now] if one is active, otherwise the next one to start ("tonight").
+     * Never null — the schedule is always on.
+     */
+    fun tonightLockWindow(now: ZonedDateTime): LockWindow {
         val today = now.toLocalDate()
         val candidates = listOf(today.minusDays(1), today, today.plusDays(1)).map { day ->
             windowBounds(day, daySchedule(day.dayOfWeek.value), now.zone)
@@ -431,11 +412,11 @@ class SettingsRepository(private val store: PrefsStore) {
         zone: ZoneId,
     ): Pair<ZonedDateTime, ZonedDateTime> {
         val start = lockDay.atStartOfDay()
-            .plusMinutes((schedule.bedtimeMinutes - windDownMinutes).toLong())
+            .plusMinutes(schedule.bedtimeMinutes.toLong())
             .atZone(zone)
         val endDay = if (schedule.wakeMinutes > schedule.bedtimeMinutes) lockDay else lockDay.plusDays(1)
         val end = endDay.atStartOfDay()
-            .plusMinutes((schedule.wakeMinutes + morningLockMinutes).toLong())
+            .plusMinutes(schedule.wakeMinutes.toLong())
             .atZone(zone)
         return start to end
     }
@@ -447,7 +428,6 @@ class SettingsRepository(private val store: PrefsStore) {
         const val GITHUB_REPO_URL = "https://github.com/K3vinb5/free-social"
         const val MIN_BUDGET = 0
         const val MAX_BUDGET = 240
-        const val MAX_MINUTES = 180
 
         const val KEY_FILTERING = "filtering_enabled"
         const val KEY_FIRST_RUN = "first_run_completed"
@@ -455,9 +435,14 @@ class SettingsRepository(private val store: PrefsStore) {
         const val KEY_BUDGET_LIMIT = "budget_limit_minutes"
         const val KEY_BUDGET_USED = "budget_used_seconds"
         const val KEY_BUDGET_DATE = "budget_date"
-        const val KEY_SCHEDULE_ENABLED = "schedule_enabled"
-        const val KEY_WIND_DOWN = "wind_down_minutes"
-        const val KEY_MORNING_LOCK = "morning_lock_minutes"
+        /**
+         * Prefs written by older builds. Nothing reads them — the schedule is mandatory and the
+         * window is exactly bedtime -> wake — but they are named here so a migration test can
+         * prove old values are ignored rather than crashing.
+         */
+        const val LEGACY_KEY_SCHEDULE_ENABLED = "schedule_enabled"
+        const val LEGACY_KEY_WIND_DOWN = "wind_down_minutes"
+        const val LEGACY_KEY_MORNING_LOCK = "morning_lock_minutes"
 
         /** Accessibility component class names the services are (or will be) declared with. */
         const val FILTER_SERVICE_CLASS = "dev.k3vinb5.freesocial.filter.FilterService"
@@ -527,5 +512,19 @@ class SettingsRepository(private val store: PrefsStore) {
         }
 
         private fun clockOf(instant: ZonedDateTime): Int = instant.hour * 60 + instant.minute
+
+        /** The 22:30–07:00 default night; also the migration target for invalid stored days. */
+        fun defaultDay(): DaySchedule =
+            DaySchedule(ScheduleState.DEFAULT_BEDTIME_MINUTES, ScheduleState.DEFAULT_WAKE_MINUTES)
+
+        /** Pure window length for a candidate pair, for editor validation before anything is saved. */
+        fun windowMinutesOf(bedtimeMinutes: Int, wakeMinutes: Int): Int = DaySchedule(
+            bedtimeMinutes.coerceIn(0, 24 * 60 - 1),
+            wakeMinutes.coerceIn(0, 24 * 60 - 1),
+        ).windowMinutes
+
+        /** True when the candidate window would satisfy the six-hour floor. */
+        fun isValidWindow(bedtimeMinutes: Int, wakeMinutes: Int): Boolean =
+            windowMinutesOf(bedtimeMinutes, wakeMinutes) >= DaySchedule.MIN_WINDOW_MINUTES
     }
 }
