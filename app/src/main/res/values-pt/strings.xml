@@ -165,7 +165,7 @@
     <string name="surface_name_reels_viewer">Leitor de Reels</string>
     <string name="surface_name_reels_tab">Separador Reels</string>
     <string name="surface_name_shorts_player">Leitor de Shorts</string>
-    <string name="surface_name_for_you_playback">Reprodução For You</string>
+    <string name="surface_name_for_you_playback">Reprodução Para ti</string>
 
     <!-- Surfaces & rules (F14) -->
     <string name="inspector_captured">Ecrãs a capturar</string>

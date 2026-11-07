@@ -3,7 +3,6 @@ package dev.k3vinb5.freesocial.ui
 import android.content.Intent
 import dev.k3vinb5.freesocial.R
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,9 +11,9 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
 /**
- * The escape flash contract (2026-11-05): reason mapping, the manifest declaration, and the launch
- * flags. The manifest is read as XML (the unit-test cousin of `aapt2 xmltree`) and the launch code
- * as text, so a `CLEAR_TASK` creeping back into the flash path fails here.
+ * The escape flash contract (2026-11-05): reason mapping, the manifest declaration (`aapt2 xmltree`
+ * read as XML, not source text), the D12 timing seam, and the launch flags. Behaviour lives on pure
+ * seams so none of it depends on Robolectric.
  */
 class ContentFlashTest {
 
@@ -56,6 +55,31 @@ class ContentFlashTest {
     @Test
     fun `flash lasts about two seconds`() {
         assertTrue(ContentFlashActivity.FLASH_DURATION_MS in 2_000L..2_500L)
+    }
+
+    // --- Manifest -------------------------------------------------------------------------
+
+    private fun flashActivity(): Element {
+        assertTrue("${manifest.path} is missing", manifest.isFile)
+        val doc = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+            .newDocumentBuilder()
+            .parse(manifest)
+        val activities = doc.getElementsByTagName("activity")
+        val matches = (0 until activities.length)
+            .map { activities.item(it) as Element }
+            .filter { it.getAttributeNS(androidNs, "name") == ".ui.ContentFlashActivity" }
+        assertEquals("exactly one ContentFlashActivity entry", 1, matches.size)
+        return matches.single()
+    }
+
+    @Test
+    fun `flash activity declaration is unexported singleInstance and not a task of its own`() {
+        val activity = flashActivity()
+        assertEquals("false", activity.getAttributeNS(androidNs, "exported"))
+        assertEquals("singleInstance", activity.getAttributeNS(androidNs, "launchMode"))
+        assertEquals("true", activity.getAttributeNS(androidNs, "excludeFromRecents"))
+        assertTrue("taskAffinity must be declared", activity.hasAttributeNS(androidNs, "taskAffinity"))
+        assertEquals("", activity.getAttributeNS(androidNs, "taskAffinity"))
     }
 
     // --- D12 timing contract (pure seam, no Robolectric) ----------------------------------

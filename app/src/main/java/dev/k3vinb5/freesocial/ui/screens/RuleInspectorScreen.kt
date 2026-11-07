@@ -532,13 +532,21 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Session surfaces carry the stable slug; the copy must show the localized label. The canonical
+ * English name is only a fallback for custom surfaces the registry does not know.
+ */
+@Composable
+private fun sessionSurfaceLabel(session: GuidedCapture.Session): String =
+    CaptureSurfaces.nameRes(session.surface)?.let { stringResource(it) } ?: session.surfaceName
+
 /** The live capture card: phase, plain-language instruction, and an in-app Stop. */
 @Composable
 private fun CaptureStatus(session: GuidedCapture.Session?, onStop: () -> Unit) {
     if (session == null) return
     val text = when (session.phase) {
-        CapturePhase.WAITING -> stringResource(R.string.inspector_capture_waiting, session.surfaceName)
-        CapturePhase.RECORDING -> stringResource(R.string.inspector_capture_recording, session.surfaceName)
+        CapturePhase.WAITING -> stringResource(R.string.inspector_capture_waiting, sessionSurfaceLabel(session))
+        CapturePhase.RECORDING -> stringResource(R.string.inspector_capture_recording, sessionSurfaceLabel(session))
         CapturePhase.FINISHED -> when (session.outcome) {
             CaptureOutcome.COMPLETE -> pluralStringResource(
                 R.plurals.inspector_capture_done,
