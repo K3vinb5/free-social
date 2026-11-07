@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,25 +43,68 @@ import dev.k3vinb5.freesocial.ui.theme.FsColors
  * It finishes itself (or on tap/Back/onStop), and FilterService launches it `NEW_TASK`-only so the
  * escape that just landed the user on the feed/Home is never stomped. Declared singleInstance,
  * excluded from recents, empty task affinity — same isolation as [BlockActivity], minus CLEAR_TASK.
+ *
+ * D12 (2026-11-07): the 2.2 s is the time the user can actually *see*, so the auto-dismiss is armed
+ * on the first window focus, not in `onCreate` (a cold Compose launch measured 1.537 s on the
+ * Reno4, which left ~0.65 s of the promised flash). A [HARD_STOP_MS] cap armed at create keeps a
+ * flash that somehow never gains focus from lingering, and `onNewIntent` re-arms the window so a
+ * reused singleInstance instance cannot swallow a second escape's flash.
  */
 class ContentFlashActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val autoDismiss = Runnable { finish() }
+    private val hardStop = Runnable { finish() }
+
+    /** Newest copy; a second escape delivered to the live instance updates it instead of being lost. */
+    private val copy = mutableStateOf(ContentFlash.copy(ContentFlash.Reason.BUDGET))
+    private var focused = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val copy = ContentFlash.copy(ContentFlash.reasonFrom(intent.getStringExtra(EXTRA_REASON)))
+        copy.value = copyFrom(intent)
         setContent {
             FreeSocialTheme {
-                ContentFlashScreen(copy = copy, onDismiss = ::dismissNow)
+                ContentFlashScreen(copy = copy.value, onDismiss = ::dismissNow)
             }
         }
+        // Hard cap: even a flash that never receives focus (e.g. the launch is dropped and the
+        // activity comes up behind) cannot outlive this.
+        handler.postDelayed(hardStop, HARD_STOP_MS)
+    }
+
+    /** The first frame is on screen: the promised 2.2 s starts now. */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        focused = hasFocus
+        if (hasFocus) armVisibleWindow()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        copy.value = copyFrom(intent)
+        // singleInstance reuses the live window: refresh the copy and restart the visible 2.2 s.
+        if (focused) {
+            armVisibleWindow()
+        } else {
+            handler.removeCallbacks(hardStop)
+            handler.postDelayed(hardStop, HARD_STOP_MS)
+        }
+    }
+
+    private fun armVisibleWindow() {
+        handler.removeCallbacks(autoDismiss)
+        handler.removeCallbacks(hardStop)
         handler.postDelayed(autoDismiss, FLASH_DURATION_MS)
     }
 
+    private fun copyFrom(intent: Intent?) =
+        ContentFlash.copy(ContentFlash.reasonFrom(intent?.getStringExtra(EXTRA_REASON)))
+
     private fun dismissNow() {
         handler.removeCallbacks(autoDismiss)
+        handler.removeCallbacks(hardStop)
         finish()
     }
 
@@ -71,15 +115,18 @@ class ContentFlashActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(autoDismiss)
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
     companion object {
         const val EXTRA_REASON = "flash_reason"
 
-        /** Short enough to read in passing, long enough to be noticed. */
+        /** Short enough to read in passing, long enough to be noticed — measured from first focus. */
         const val FLASH_DURATION_MS = 2_200L
+
+        /** Absolute cap from create, in case the window never gains focus. */
+        const val HARD_STOP_MS = 4_000L
     }
 }
 

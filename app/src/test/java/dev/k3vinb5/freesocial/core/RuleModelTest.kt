@@ -172,16 +172,17 @@ class RuleModelTest {
     }
 
     @Test
-    fun `shipped asset covers the eight filter surfaces`() {
+    fun `shipped asset covers every filter surface`() {
         val asset = java.io.File("src/main/assets/rules.json").readText()
         val set = loadRuleSet(asset)
-        assertEquals(8, set.rules.size)
+        assertEquals(9, set.rules.size)
         assertEquals(
             setOf(
                 "com.instagram.android" to "feed_reel_cell",
                 "com.instagram.android" to "reels_tab",
                 "com.instagram.android" to "clips_viewer",
                 "com.instagram.android" to "dm_carve_out",
+                "com.instagram.android" to "dm_reel_carve_out",
                 "com.google.android.youtube" to "shorts_shelf",
                 "com.google.android.youtube" to "shorts_player",
                 "com.zhiliaoapp.musically" to "playback",
@@ -190,7 +191,7 @@ class RuleModelTest {
             set.rules.map { it.appPackage to it.surface }.toSet(),
         )
         assertEquals(listOf(1, 2), set.rules.map { it.layer }.distinct().sorted())
-        assertEquals(2, set.rules.count { it.action == Action.SKIP })
+        assertEquals(3, set.rules.count { it.action == Action.SKIP })
 
         // DIRECT-ENGAGEMENT policy: the two passive rules stay as documentation but never act.
         assertEquals(2, set.rules.count { it.action == Action.SCROLL_PAST })
@@ -204,7 +205,7 @@ class RuleModelTest {
             set.rules.filter { it.action == Action.SCROLL_PAST }.map { it.surface }.toSet(),
         )
         assertEquals(0, set.rules.count { it.enabled && it.action == Action.SCROLL_PAST })
-        assertEquals(6, set.rules.count { it.enabled })
+        assertEquals(7, set.rules.count { it.enabled })
         // No in-app surface may leave the app.
         assertEquals(0, set.rules.count { it.action == Action.REDIRECT_HOME })
         // The Reels tab only matches while it is actually selected (Reels screen), not on every tab bar.

@@ -34,7 +34,7 @@ class LocaleProofRulesTest {
     @Test
     fun `every enabled rule carries a locale-proof criterion`() {
         val enabled = rules.filter { it.enabled }
-        assertEquals(6, enabled.size)
+        assertEquals(7, enabled.size)
         for (entry in enabled) {
             assertTrue(
                 "rule '${entry.id}' has no locale-proof criterion: ${entry.match}",

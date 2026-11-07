@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -100,6 +101,17 @@ class FilterService : AccessibilityService() {
         // D8 layer (a): re-assert the capture flags at bind time. The XML declaration was compiled
         // but evidently not in effect on the runtime child links.
         safe { reassertCaptureFlags() }
+        // D12: the flash activity start is allowed on this device because of the overlay appop
+        // ("Background activity start ... allowed because SYSTEM_ALERT_WINDOW permission is
+        // granted"), not the accessibility binding. Say so once when it is missing instead of
+        // letting every flash disappear silently.
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(
+                TAG,
+                "SYSTEM_ALERT_WINDOW is not granted — the escape flash may be dropped by " +
+                    "background-activity-start restrictions",
+            )
+        }
         val deps = engine(force = true)
         if (deps == null) {
             val error = bootstrap.lastError
@@ -392,7 +404,10 @@ class FilterService : AccessibilityService() {
         }
         // Episode tracking uses every surface the capture shows, before any gating: a surface that
         // disappeared ends its escape episode, so a re-entry is always a fresh, deterministic entry.
-        arbiter.observe(hits.map { "$appPackage/${it.rule.surface}" }.toSet())
+        val surfaces = hits.map { it.rule.surface }.toSet()
+        arbiter.observe(surfaces.map { "$appPackage/$it" }.toSet())
+        // D12: the flash is scoped to that same episode — a re-entry must explain itself again.
+        flashPolicy.observe(appPackage, surfaces)
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -424,29 +439,58 @@ class FilterService : AccessibilityService() {
             infoOnce("throttled", "$appPackage/$surfaceKey: duplicate action for the current surface episode")
             return
         }
-        val escapedAction = hit.rule.action in ESCAPE_ACTIONS
+        val escapedAction = RuleGate.isEscapeAction(hit.rule.action)
         val acted = perform(hit, captured, appPackage)
         arbiter.confirm(surfaceKey, appPackage, escapedAction, acted)
-        // FLASH (2026-11-05): only a confirmed escape action flashes. Passive surfaces never reach
-        // ESCAPE, an in-budget PAY returns above, the duplicate/throttled repeat returned already,
-        // an armed capture returns before the gate, and BlockService's app blocking never comes here.
-        if (acted && escapedAction) safe { flashEscape(appPackage, exhausted, locked) }
+        // FLASH (2026-11-05, D12): only a confirmed escape action flashes. Passive surfaces never
+        // reach ESCAPE, an in-budget PAY returns above, the duplicate/throttled repeat returned
+        // already, an armed capture returns before the gate, and BlockService's app blocking never
+        // comes here.
+        if (acted && escapedAction) safe { flashEscape(appPackage, surfaceKey, exhausted, locked) }
     }
 
     /**
      * Shows the 2.2 s "Free Social blocked this" flash after a real escape — the one place in the
-     * engine that launches it. Rate-limited per package so rapid follow-up escapes of the same
-     * episode cannot stack; the intent is `NEW_TASK` only, so the navigation the escape just
-     * produced (feed/Home) is never cleared. Failures are swallowed: a flash is never load-bearing.
+     * engine that launches it.
+     *
+     * D12 (2026-11-07): the rate limit is scoped to the escape *episode* (see [FlashPolicy]), so a
+     * re-entry within 3 s of the previous flash is explained again; only a repeat inside the same
+     * episode is suppressed, and that suppression is logged plainly instead of through the 10 s
+     * diagnostic limiter (a muted flash used to look like no flash at all).
+     *
+     * The intent is `NEW_TASK` only, so the navigation the escape just produced (feed/Home) is
+     * never cleared. A launch failure is logged for what it is and retried once: a flash is never
+     * load-bearing, but it must never vanish silently either.
      */
-    private fun flashEscape(appPackage: String, budgetExhausted: Boolean, scheduleLocked: Boolean) {
-        if (!flashPolicy.shouldFlash(appPackage, SystemClock.elapsedRealtime())) {
-            infoOnce("flash throttled", "$appPackage: escape flash suppressed (one per ${FlashPolicy.WINDOW_MS} ms)")
+    private fun flashEscape(
+        appPackage: String,
+        surface: String,
+        budgetExhausted: Boolean,
+        scheduleLocked: Boolean,
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (!flashPolicy.shouldFlash(appPackage, surface, now)) {
+            Log.i(TAG, "$appPackage/$surface: escape flash suppressed (repeat within ${FlashPolicy.WINDOW_MS} ms)")
             return
         }
         val reason = ContentFlash.reasonFor(budgetExhausted, scheduleLocked)
-        startActivity(ContentFlash.intent(this, reason))
-        Log.i(TAG, "escape flash $appPackage reason=$reason")
+        launchFlash(reason, "$appPackage/$surface", attempt = 1)
+    }
+
+    /** Starts the flash activity; one bounded retry, every failure logged with its own line. */
+    private fun launchFlash(reason: ContentFlash.Reason, label: String, attempt: Int) {
+        try {
+            startActivity(ContentFlash.intent(this, reason))
+            Log.i(TAG, "escape flash $label reason=$reason")
+        } catch (t: Throwable) {
+            Log.w(TAG, "escape flash launch failed $label (attempt $attempt)", t)
+            if (attempt < FLASH_LAUNCH_ATTEMPTS) {
+                handler.postDelayed(
+                    { safe { launchFlash(reason, label, attempt + 1) } },
+                    FLASH_LAUNCH_RETRY_MS,
+                )
+            }
+        }
     }
 
     /**
@@ -891,7 +935,8 @@ class FilterService : AccessibilityService() {
         private const val PROBE_WINDOW_MS = 10_000L
 
         /** R3: actions that change the screen asynchronously; a confirmed one starts an escape episode. */
-        private val ESCAPE_ACTIONS = setOf(Action.BACK, Action.TAP_HOME_TAB, Action.REDIRECT_HOME)
+        private const val FLASH_LAUNCH_ATTEMPTS = 2
+        private const val FLASH_LAUNCH_RETRY_MS = 250L
 
         /** R4: retry a ghost armed dump within the 60 s arm (4 × 600 ms covers the launch fill). */
         private const val DUMP_RETRY_MAX = 4

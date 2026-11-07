@@ -58,6 +58,42 @@ class ContentFlashTest {
         assertTrue(ContentFlashActivity.FLASH_DURATION_MS in 2_000L..2_500L)
     }
 
+    // --- D12 timing contract --------------------------------------------------------------
+
+    @Test
+    fun `a flash can never outlive its hard stop`() {
+        assertTrue(
+            "the cap must be longer than the promised window",
+            ContentFlashActivity.HARD_STOP_MS > ContentFlashActivity.FLASH_DURATION_MS,
+        )
+        assertTrue(
+            "the cap must absorb at least the measured 1.537 s cold launch",
+            ContentFlashActivity.HARD_STOP_MS - ContentFlashActivity.FLASH_DURATION_MS >= 1_500L,
+        )
+        val create = bodyOf(codeOf(flashSource), "override fun onCreate")
+        assertTrue(
+            "onCreate arms the absolute cap",
+            create.contains("postDelayed(hardStop, HARD_STOP_MS)"),
+        )
+    }
+
+    @Test
+    fun `the visible window starts at first focus instead of onCreate`() {
+        val source = codeOf(flashSource)
+        val create = bodyOf(source, "override fun onCreate")
+        assertFalse(
+            "arming the auto-dismiss in onCreate is the 0.65 s-visible defect",
+            create.contains("postDelayed(autoDismiss"),
+        )
+        val focus = bodyOf(source, "override fun onWindowFocusChanged")
+        assertTrue("the first focus arms the window", focus.contains("if (hasFocus) armVisibleWindow()"))
+        val arm = bodyOf(source, "private fun armVisibleWindow")
+        assertTrue("armVisibleWindow posts the promised duration", arm.contains("postDelayed(autoDismiss, FLASH_DURATION_MS)"))
+        assertTrue("the visible window cancels the hard stop", arm.contains("removeCallbacks(hardStop)"))
+        val newIntent = bodyOf(source, "override fun onNewIntent")
+        assertTrue("a reused singleInstance instance still re-arms", newIntent.contains("armVisibleWindow()"))
+    }
+
     // --- Manifest -------------------------------------------------------------------------
 
     private fun flashActivity(): Element {
@@ -90,6 +126,15 @@ class ContentFlashTest {
         .replace(Regex("(?s)/\\*.*?\\*/"), "")
         .replace(Regex("(?m)//.*$"), "")
 
+    /** One declaration's body in [source], up to the next class-level member. */
+    private fun bodyOf(source: String, signature: String): String {
+        val start = source.indexOf(signature)
+        assertTrue("missing '$signature' in the flash source", start >= 0)
+        val rest = source.substring(start + signature.length)
+        val next = Regex("\\n    (override fun|private fun|fun |companion object)").find(rest)
+        return if (next == null) rest else rest.substring(0, next.range.first)
+    }
+
     @Test
     fun `flash launches with NEW_TASK only`() {
         val source = codeOf(flashSource)
@@ -98,14 +143,17 @@ class ContentFlashTest {
     }
 
     @Test
-    fun `single call site in FilterService never clears the task`() {
+    fun `the engine has one launch expression and reports both outcomes`() {
         val source = codeOf(serviceSource)
         assertTrue("FilterService must launch the flash", source.contains("ContentFlash.intent("))
         assertEquals(
-            "exactly one flash launch site",
+            "exactly one flash launch expression (the retry re-enters launchFlash)",
             1,
             Regex("ContentFlash\\.intent\\(").findAll(source).count(),
         )
         assertFalse(source.contains("CLEAR_TASK"))
+        // D12: a failed launch and a same-episode suppression are both stated in logcat.
+        assertTrue("failed launches must be logged", source.contains("escape flash launch failed"))
+        assertTrue("suppression must not hide behind infoOnce", source.contains("escape flash suppressed"))
     }
 }
