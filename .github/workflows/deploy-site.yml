@@ -1,0 +1,76 @@
+name: Deploy site
+
+# Deploy the site container — the ONLY place the deploy step exists. Two triggers:
+#   * workflow_dispatch: a human wants the current (or a specific) image live
+#     without cutting a release — `gh workflow run deploy-site.yml -f tag=<tag>`;
+#   * workflow_call: build-release.yml's `deploy-site` job hands over the image
+#     it just built (`secrets: inherit`).
+# The mutating logic itself is tools/release/deploy-site.sh (rollback-safe);
+# this workflow only wires inputs, secrets and the read-only pre-check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (latest, or a short sha built by website-image.yml)"
+        required: false
+        default: "latest"
+  workflow_call:
+    inputs:
+      image:
+        description: "Full image ref (registry/repo:tag) built by website-image.yml"
+        required: true
+        type: string
+    secrets:
+      PORTAINER_URL:
+        required: true
+      PORTAINER_TOKEN:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: site-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout deploy tooling
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Resolve image
+        id: img
+        env:
+          CALLED_IMAGE: ${{ inputs.image }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CALLED_IMAGE}" ]; then
+            echo "image=${CALLED_IMAGE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=ghcr.io/k3vinb5/free-social-website:${TAG:-latest}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy site container through Portainer
+        env:
+          PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
+          PORTAINER_TOKEN: ${{ secrets.PORTAINER_TOKEN }}
+          CONTAINER: freesocial-web
+          IMAGE: ${{ steps.img.outputs.image }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          [ -n "${PORTAINER_URL}" ] || { echo "::error::PORTAINER_URL secret is not set"; exit 1; }
+          [ -n "${PORTAINER_TOKEN}" ] || { echo "::error::PORTAINER_TOKEN secret is not set"; exit 1; }
+          [ -n "${IMAGE}" ] && [ "${IMAGE#:}" = "${IMAGE}" ] || { echo "::error::no image to deploy"; exit 1; }
+          echo "deploying ${IMAGE} to ${CONTAINER}"
+          # --check is read-only (endpoint ping + current container state); the
+          # deploy below is the only mutating step.
+          bash tools/release/deploy-site.sh --check
+          bash tools/release/deploy-site.sh

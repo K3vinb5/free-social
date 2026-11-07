@@ -368,36 +368,8 @@ jobs:
   # exactly one place (env.IMAGE in website-image.yml).
   deploy-site:
     needs: [publish-site, site-image]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: read
-    concurrency:
-      group: site-deploy
-      cancel-in-progress: false
-    steps:
-      - name: Checkout deploy tooling
-        uses: actions/checkout@v4
-        with:
-          ref: master
-
-      - name: Deploy site container through Portainer
-        env:
-          PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
-          PORTAINER_TOKEN: ${{ secrets.PORTAINER_TOKEN }}
-          CONTAINER: freesocial-web
-          IMAGE: ${{ needs.site-image.outputs.image }}:${{ needs.site-image.outputs.tag }}
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REGISTRY_USER: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          [ -n "${PORTAINER_URL}" ] || { echo "::error::PORTAINER_URL secret is not set"; exit 1; }
-          [ -n "${PORTAINER_TOKEN}" ] || { echo "::error::PORTAINER_TOKEN secret is not set"; exit 1; }
-          [ -n "${IMAGE}" ] && [ "${IMAGE#:}" = "${IMAGE}" ] || { echo "::error::site-image workflow returned no image/tag"; exit 1; }
-          echo "deploying ${IMAGE} to ${CONTAINER}"
-          # --check is read-only (endpoint ping + current container state); the
-          # deploy below is the only mutating step in this pipeline.
-          bash tools/release/deploy-site.sh --check
-          bash tools/release/deploy-site.sh
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      image: ${{ needs.site-image.outputs.image }}:${{ needs.site-image.outputs.tag }}
+    secrets: inherit
 

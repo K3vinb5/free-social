@@ -126,3 +126,10 @@ envelope on this instance, not the 201 the Docker API documents. Treat any 2xx a
 success on the mutating calls; `tools/release/deploy-site.sh` does after the first
 real deploy taught us. (Its rollback handled the misread correctly — the old
 container was restored — but the deploy itself had already been declared failed.)
+
+## Deploy the site without a release (2026-11-07)
+
+`gh workflow run deploy-site.yml -f tag=<tag>` swaps the live container to an
+already-built image (`latest`, or a short sha from website-image.yml) — no release,
+no version bump. The same workflow is the pipeline's deploy job (workflow_call), so
+the mutating step exists in exactly one place: tools/release/deploy-site.sh.
