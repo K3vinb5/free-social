@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.k3vinb5.freesocial.R
@@ -186,7 +187,7 @@ private fun DayRow(
             Spacer(Modifier.weight(1f))
             TimeChip(text = bedtime, onClick = onEditBedtime)
             Text(
-                text = "→",
+                text = stringResource(R.string.time_range_separator),
                 style = MaterialTheme.typography.bodyMedium,
                 color = FsColors.TextTertiary,
                 modifier = Modifier.padding(horizontal = 8.dp),
@@ -226,7 +227,8 @@ private fun ClockPickerDialog(
     val pickerState = rememberTimePickerState(
         initialHour = initialMinutes / 60,
         initialMinute = initialMinutes % 60,
-        is24Hour = true,
+        // The device's own 12/24-hour preference, not a hardcoded 24-hour clock.
+        is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current),
     )
     val picked = pickerState.hour * 60 + pickerState.minute
     val candidateBedtime = if (editingBedtime) picked else bedtimeMinutes

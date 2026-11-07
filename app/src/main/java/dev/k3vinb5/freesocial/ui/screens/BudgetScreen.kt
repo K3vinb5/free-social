@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -54,9 +55,9 @@ fun BudgetScreen(
         limitMinutes = limit,
     )
     val statusText = if (status == HubStatus.PAUSED_BUDGET) {
-        stringResource(R.string.budget_status_paused_budget, remaining)
+        pluralStringResource(R.plurals.budget_status_paused_budget, remaining, remaining)
     } else {
-        stringResource(hubPillRes(status))
+        hubPillText(status, remaining)
     }
     val statusColor = when (status) {
         HubStatus.FILTERING -> FsColors.Success

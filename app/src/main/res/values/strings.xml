@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  English is the default locale (values/). Every user-facing string lives here; log lines and
+  rule/dump payloads deliberately stay untranslated. Add a locale by copying this file into
+  values-<bcp47>/ and translating it: the completeness test (LocaleResourcesTest) fails until
+  every key and every format placeholder matches. See docs/dev/LOCALES.md.
+
+  Mark a string translatable="false" only for symbols/brand marks that must not change.
+-->
 <resources>
     <string name="app_name">Free Social</string>
 
@@ -8,6 +16,11 @@
     <string name="action_cancel">Cancel</string>
     <string name="stepper_decrease">Decrease</string>
     <string name="stepper_increase">Increase</string>
+    <string name="stepper_minus" translatable="false">−</string>
+    <string name="stepper_plus" translatable="false">+</string>
+    <string name="separator_dot" translatable="false"> · </string>
+    <string name="time_range_separator" translatable="false">→</string>
+    <string name="welcome_monogram" translatable="false">fs</string>
 
     <!-- Hub (F6) -->
     <string name="hub_status_on">Filtering on</string>
@@ -18,7 +31,11 @@
     <string name="hub_master_subtitle">All three apps · short-video surfaces</string>
     <string name="hub_apps_section">Apps</string>
     <string name="hub_budget_row">Reels &amp; Shorts budget</string>
-    <string name="hub_min_left">%1$d min left</string>
+    <!-- A count: singular/plural per locale (pt "falta/faltam", es "queda/quedan"). -->
+    <plurals name="hub_min_left">
+        <item quantity="one">%1$d min left</item>
+        <item quantity="other">%1$d min left</item>
+    </plurals>
     <string name="hub_schedule_row">Schedule</string>
     <string name="hub_schedule_value">On · %1$s–%2$s</string>
     <string name="hub_permissions_row">Permissions</string>
@@ -153,16 +170,29 @@
     <string name="flash_caption_budget">You can watch again after the budget resets.</string>
     <string name="flash_caption_sleep">Short videos are back after sleep mode ends.</string>
 
+    <!-- Capture surface names (shown in notifications and the inspector) -->
+    <string name="surface_name_home_feed">Home feed</string>
+    <string name="surface_name_reels_viewer">Reels viewer</string>
+    <string name="surface_name_reels_tab">Reels tab</string>
+    <string name="surface_name_shorts_player">Shorts player</string>
+    <string name="surface_name_for_you_playback">For You playback</string>
+
     <!-- Surfaces & rules (F14) -->
     <string name="inspector_captured">Screens to capture</string>
     <string name="inspector_nodes">— nodes</string>
     <string name="inspector_capture_nodes">Capture nodes</string>
-    <string name="inspector_markers">%1$d surface markers</string>
+    <plurals name="inspector_markers">
+        <item quantity="one">%1$d surface marker</item>
+        <item quantity="other">%1$d surface markers</item>
+    </plurals>
     <string name="inspector_no_markers">No markers — import rules for this app first</string>
     <string name="inspector_dumps">Saved dumps</string>
     <string name="inspector_dumps_housekeeping">Old captures are removed automatically (keeps the newest 25 per surface, 14 days)</string>
     <string name="inspector_no_dumps">No dumps yet. Tap “Capture nodes” above; the app opens the right screen for you.</string>
-    <string name="inspector_nodes_count">%1$d nodes</string>
+    <plurals name="inspector_nodes_count">
+        <item quantity="one">%1$d node</item>
+        <item quantity="other">%1$d nodes</item>
+    </plurals>
     <string name="inspector_dump_subtitle">%1$s · %2$s</string>
     <string name="inspector_dump_saved">Dump saved: %1$s</string>
     <string name="inspector_dump_share">Share dump</string>
@@ -181,7 +211,10 @@
     <string name="inspector_import">Import rules</string>
     <string name="inspector_exported">Rules exported to %1$s</string>
     <string name="inspector_export_shared">Rules ready — pick a text app to edit them, then Import to apply.</string>
-    <string name="inspector_import_ok">Rules imported — %1$d active</string>
+    <plurals name="inspector_import_ok">
+        <item quantity="one">Rules imported — %1$d active</item>
+        <item quantity="other">Rules imported — %1$d active</item>
+    </plurals>
     <string name="inspector_import_rejected">Rules rejected — the current rules stay active: %1$s</string>
     <string name="inspector_import_failed">Could not read the selected file.</string>
     <string name="inspector_override_error">Override not applied: %1$s</string>
@@ -197,7 +230,10 @@
     <string name="inspector_not_verified">Not verified yet</string>
     <string name="inspector_capture_waiting">Looking for %1$s — open the app and navigate there (30 s).</string>
     <string name="inspector_capture_recording">Recording %1$s — about 15 s left, it stops by itself.</string>
-    <string name="inspector_capture_done">Capture complete — %1$d nodes.</string>
+    <plurals name="inspector_capture_done">
+        <item quantity="one">Capture complete — %1$d node.</item>
+        <item quantity="other">Capture complete — %1$d nodes.</item>
+    </plurals>
     <string name="inspector_capture_timeout">Surface not detected — capture cancelled.</string>
     <string name="inspector_capture_cancelled">Capture cancelled.</string>
     <string name="inspector_capture_failed">Capture failed — no readable window was found.</string>
@@ -212,8 +248,14 @@
     <string name="capture_notif_recording">Recording %1$s %2$s — scroll/do the thing ~15 s (auto-stops)</string>
     <string name="capture_notif_detected">Recording %1$s — about %2$d s left (auto-stops)</string>
     <string name="capture_notif_stop">Stop now</string>
-    <string name="capture_notif_complete">Capture complete — %1$d nodes</string>
-    <string name="capture_notif_surface_lost">Surface left — capture stopped at %1$d nodes</string>
+    <plurals name="capture_notif_complete">
+        <item quantity="one">Capture complete — %1$d node</item>
+        <item quantity="other">Capture complete — %1$d nodes</item>
+    </plurals>
+    <plurals name="capture_notif_surface_lost">
+        <item quantity="one">Surface left — capture stopped at %1$d node</item>
+        <item quantity="other">Surface left — capture stopped at %1$d nodes</item>
+    </plurals>
     <string name="capture_notif_not_detected">Surface not detected — navigate to %1$s; capture cancelled</string>
     <string name="capture_notif_cancelled">Capture cancelled — no dump was written</string>
     <string name="capture_notif_failed">Capture failed — no readable window</string>
@@ -228,15 +270,23 @@
     <string name="block_service_summary">Blocks Instagram, YouTube and TikTok entirely while their mode is Block</string>
     <string name="block_service_description">Watches which app comes to the front and shows the block screen for apps you set to Block, and during your nightly lock window. It reads package names only, never screen content.</string>
 
+    <string name="dump_share_subject">Free Social dump — %1$s</string>
+
     <!-- Track B: dump delete (Rule Inspector). Append-only block; keep new keys inside it. -->
     <string name="inspector_dumps_delete_hint">Delete removes the file from this device. Sharing keeps a copy wherever you send it.</string>
     <string name="inspector_dump_delete">Delete dump</string>
     <string name="inspector_dump_delete_confirm">Delete this dump? The file is removed from this device.</string>
     <string name="inspector_dumps_delete_all">Delete all dumps</string>
-    <string name="inspector_dumps_delete_all_confirm">Delete all %1$d dumps? This also removes the newest capture of each surface, which is otherwise kept automatically.</string>
+    <plurals name="inspector_dumps_delete_all_confirm">
+        <item quantity="one">Delete %1$d dump? This also removes the newest capture of each surface, which is otherwise kept automatically.</item>
+        <item quantity="other">Delete all %1$d dumps? This also removes the newest capture of each surface, which is otherwise kept automatically.</item>
+    </plurals>
     <string name="inspector_delete_dialog_title">Delete dumps</string>
     <string name="inspector_delete_confirm">Delete</string>
-    <string name="inspector_dumps_deleted">Deleted %1$d dump(s).</string>
+    <plurals name="inspector_dumps_deleted">
+        <item quantity="one">Deleted %1$d dump.</item>
+        <item quantity="other">Deleted %1$d dumps.</item>
+    </plurals>
     <string name="inspector_dumps_delete_failed">Could not delete the dump.</string>
 
     <!-- Track C: mandatory sleep schedule (>=6 h nightly window, no off switch) -->
@@ -251,11 +301,17 @@
          is actually gated: the sleep window is active, or the daily budget is spent. While budget
          remains nothing is filtered, so the hub pill says it is paused and how much time is left.
          The service-off copy must never reuse the word "paused" — that word now means "budget left". -->
-    <string name="hub_status_paused_budget">Paused · %1$d min left</string>
+    <plurals name="hub_status_paused_budget">
+        <item quantity="one">Paused · %1$d min left</item>
+        <item quantity="other">Paused · %1$d min left</item>
+    </plurals>
     <string name="hub_status_paused_service">Service off — not filtering</string>
     <string name="hub_helper_paused_budget">Shorts &amp; reels play freely until your daily budget runs out.</string>
     <string name="chip_filter_budget_paused">Filter · budget left</string>
     <string name="chip_filter_service_off">Filter · service off</string>
     <string name="chip_filter_off">Filter · off</string>
-    <string name="budget_status_paused_budget">Filtering paused · %1$d min left</string>
+    <plurals name="budget_status_paused_budget">
+        <item quantity="one">Filtering paused · %1$d min left</item>
+        <item quantity="other">Filtering paused · %1$d min left</item>
+    </plurals>
 </resources>

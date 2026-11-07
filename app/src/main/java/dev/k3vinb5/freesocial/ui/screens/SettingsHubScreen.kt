@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -89,13 +90,30 @@ internal fun hubStatus(
 internal fun budgetSpent(usedSeconds: Long, limitMinutes: Int): Boolean =
     usedSeconds >= limitMinutes.coerceAtLeast(0).toLong() * SECONDS_PER_MINUTE
 
-/** The pill copy for a status; the budget-paused one takes the remaining minutes as its argument. */
-internal fun hubPillRes(status: HubStatus): Int = when (status) {
-    HubStatus.FILTERING -> R.string.hub_status_on
-    HubStatus.PAUSED_BUDGET -> R.string.hub_status_paused_budget
-    HubStatus.PAUSED_SERVICE -> R.string.hub_status_paused_service
-    HubStatus.OFF -> R.string.hub_status_off
+/**
+ * Pill copy: a plain string, or a count-bearing plural (the budget-paused state). Kept as a
+ * sealed type so the budget count can never accidentally be resolved as a plain string.
+ */
+internal sealed interface HubPill {
+    data class Text(val res: Int) : HubPill
+    data class Count(val res: Int) : HubPill
 }
+
+/** The pill copy for a status; [HubPill.Count] takes the remaining minutes as its argument. */
+internal fun hubPillCopy(status: HubStatus): HubPill = when (status) {
+    HubStatus.FILTERING -> HubPill.Text(R.string.hub_status_on)
+    HubStatus.PAUSED_BUDGET -> HubPill.Count(R.plurals.hub_status_paused_budget)
+    HubStatus.PAUSED_SERVICE -> HubPill.Text(R.string.hub_status_paused_service)
+    HubStatus.OFF -> HubPill.Text(R.string.hub_status_off)
+}
+
+/** Resolves [hubPillCopy] against resources; shared by the hub and the budget screen. */
+@Composable
+internal fun hubPillText(status: HubStatus, remainingMinutes: Int): String =
+    when (val pill = hubPillCopy(status)) {
+        is HubPill.Count -> pluralStringResource(pill.res, remainingMinutes, remainingMinutes)
+        is HubPill.Text -> stringResource(pill.res)
+    }
 
 /** The helper line under the master switch. Only the budget-paused state has one to explain. */
 internal fun hubHelperRes(status: HubStatus): Int? = when (status) {
@@ -182,11 +200,7 @@ fun SettingsHubScreen(
         HubStatus.PAUSED_BUDGET, HubStatus.PAUSED_SERVICE -> FsColors.Warning
         HubStatus.OFF -> FsColors.TextTertiary
     }
-    val pillText = if (status == HubStatus.PAUSED_BUDGET) {
-        stringResource(hubPillRes(status), settings.remainingMinutesCeil(now))
-    } else {
-        stringResource(hubPillRes(status))
-    }
+    val pillText = hubPillText(status, settings.remainingMinutesCeil(now))
 
     Column(
         modifier = modifier
@@ -274,7 +288,11 @@ fun SettingsHubScreen(
 
             ListRow(
                 title = stringResource(R.string.hub_budget_row),
-                value = stringResource(R.string.hub_min_left, settings.remainingMinutesCeil(now)),
+                value = pluralStringResource(
+                    R.plurals.hub_min_left,
+                    settings.remainingMinutesCeil(now),
+                    settings.remainingMinutesCeil(now),
+                ),
                 chevron = true,
                 onClick = onOpenBudget,
             )

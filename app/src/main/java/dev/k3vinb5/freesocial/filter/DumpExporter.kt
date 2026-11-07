@@ -3,6 +3,7 @@ package dev.k3vinb5.freesocial.filter
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import dev.k3vinb5.freesocial.R
 import java.io.File
 import java.time.Instant
 import java.time.ZonedDateTime
@@ -283,10 +284,10 @@ object DumpExporter {
         null
     }
 
-    fun shareIntent(document: DumpDocument, jsonText: String): Intent =
+    fun shareIntent(context: Context, document: DumpDocument, jsonText: String): Intent =
         Intent(Intent.ACTION_SEND)
             .setType("text/plain")
-            .putExtra(Intent.EXTRA_SUBJECT, "Free Social dump — ${document.appPackage}")
+            .putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.dump_share_subject, document.appPackage))
             .putExtra(Intent.EXTRA_TEXT, jsonText)
 
     /** `[l,t][r,b]`, the bounds format `uiautomator dump` emits. */

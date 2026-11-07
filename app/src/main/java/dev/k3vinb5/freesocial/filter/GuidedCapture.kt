@@ -172,7 +172,7 @@ object GuidedCapture {
             ctx.getString(
                 R.string.capture_notif_recording,
                 ctx.getString(app.nameRes),
-                name,
+                surfaceLabel(ctx, surface),
             ),
             ongoing = true,
             withStop = true,
@@ -191,6 +191,10 @@ object GuidedCapture {
             else -> Unit
         }
     }
+
+    /** Localized surface label for notifications; custom surfaces fall back to their slug. */
+    private fun surfaceLabel(context: Context, surface: String): String =
+        CaptureSurfaces.nameRes(surface)?.let(context::getString) ?: CaptureSurfaces.displayName(surface)
 
     /** Launches the target app's main activity; false when the app has no launcher. */
     fun launchTarget(context: Context, app: AppTarget): Boolean = runCatching {
@@ -219,7 +223,7 @@ object GuidedCapture {
                         ctx,
                         ctx.getString(
                             R.string.capture_notif_detected,
-                            active.surfaceName,
+                            surfaceLabel(ctx, active.surface),
                             RECORD_MS / 1000,
                         ),
                         ongoing = true,
@@ -247,7 +251,10 @@ object GuidedCapture {
         if (reason == CaptureOutcome.TIMEOUT || reason == CaptureOutcome.CANCELLED) {
             session = active.copy(phase = CapturePhase.FINISHED, outcome = reason)
             val text = if (reason == CaptureOutcome.TIMEOUT) {
-                ctx.getString(R.string.capture_notif_not_detected, active.surfaceName)
+                ctx.getString(
+                    R.string.capture_notif_not_detected,
+                    surfaceLabel(ctx, active.surface),
+                )
             } else {
                 ctx.getString(R.string.capture_notif_cancelled)
             }
@@ -294,9 +301,17 @@ object GuidedCapture {
                 "${document.nodeCount} nodes, verified=${document.surfaceVerified}, file=${session?.dumpName}",
         )
         val text = if (reason == CaptureOutcome.SURFACE_LOST) {
-            ctx.getString(R.string.capture_notif_surface_lost, document.nodeCount)
+            ctx.resources.getQuantityString(
+                R.plurals.capture_notif_surface_lost,
+                document.nodeCount,
+                document.nodeCount,
+            )
         } else {
-            ctx.getString(R.string.capture_notif_complete, document.nodeCount)
+            ctx.resources.getQuantityString(
+                R.plurals.capture_notif_complete,
+                document.nodeCount,
+                document.nodeCount,
+            )
         }
         notify(ctx, text, ongoing = false, withStop = false)
     }

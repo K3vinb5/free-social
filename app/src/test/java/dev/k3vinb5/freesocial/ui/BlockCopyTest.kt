@@ -46,7 +46,7 @@ class BlockCopyTest {
         val fakeNow = ZonedDateTime.of(2026, 11, 12, 2, 0, 0, 0, lisbon) // Thursday
 
         assertTrue("the fake clock is inside the override window", schedule.isLocked(fakeNow))
-        val clock = SettingsRepository.formatClock(schedule.nextWakeMinutes(fakeNow))
+        val clock = SettingsRepository.formatClock(schedule.nextWakeMinutes(fakeNow), java.util.Locale.UK)
 
         assertEquals("08:15", clock)
         assertEquals(
@@ -62,6 +62,6 @@ class BlockCopyTest {
         val fakeNow = ZonedDateTime.of(2026, 11, 12, 2, 0, 0, 0, lisbon)
 
         assertTrue(schedule.isLocked(fakeNow))
-        assertEquals("07:00", SettingsRepository.formatClock(schedule.nextWakeMinutes(fakeNow)))
+        assertEquals("07:00", SettingsRepository.formatClock(schedule.nextWakeMinutes(fakeNow), java.util.Locale.UK))
     }
 }

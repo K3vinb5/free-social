@@ -132,7 +132,7 @@ private fun ColumnScope.WelcomeStep(onStart: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "fs",
+            text = stringResource(R.string.welcome_monogram),
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = FsColors.OnPrimary,
