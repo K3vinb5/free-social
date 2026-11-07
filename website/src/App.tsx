@@ -1,12 +1,12 @@
 import { Hero } from "./components/Hero";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
-import { Behaviour } from "./sections/Behaviour";
+import { Day } from "./sections/Day";
 import { Download } from "./sections/Download";
 import { HonestRules } from "./sections/HonestRules";
 import { Limits } from "./sections/Limits";
 import { Privacy } from "./sections/Privacy";
-import { Setup } from "./sections/Setup";
+import { WhatItDoes } from "./sections/WhatItDoes";
 
 /**
  * The whole page. Rendered to a string at build time (src/entry-server.tsx) into
@@ -18,8 +18,8 @@ export function App() {
       <SiteHeader />
       <main id="main">
         <Hero />
-        <Setup />
-        <Behaviour />
+        <WhatItDoes />
+        <Day />
         <HonestRules />
         <Privacy />
         <Limits />

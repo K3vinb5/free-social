@@ -18,40 +18,41 @@ export function Limits() {
           <li>
             <div className="limit__h">
               <span className="limit__n">01</span>
-              <h3>Rules drift after app updates</h3>
+              <h3>App updates can loosen it</h3>
             </div>
             <p>
-              An app update renames a view and the rule stops matching: the reel shows, and the app
-              tells you why instead of pretending. Fixing it takes a node capture, not a new release
-              — but it is maintenance, and calling it magic would be a lie.
+              When Instagram, YouTube or TikTok changes how a screen is built, a rule can stop
+              matching and a reel can get through. The app tells you, and fixing it takes about a
+              minute on the phone — not a new download. It is maintenance, and calling it magic
+              would be a lie.
             </p>
           </li>
           <li>
             <div className="limit__h">
               <span className="limit__n">02</span>
-              <h3>Battery savers kill accessibility services</h3>
+              <h3>Your phone can switch it off</h3>
             </div>
             <p>
-              Some Android builds freeze background services within minutes of the screen going off.
-              Free Social asks for a battery exemption once, then shows a persistent banner when
-              enforcement is degraded. It cannot force the issue, and it will not claim to.
+              Aggressive battery savers freeze background apps within minutes of the screen going
+              off. Free Social asks once to be exempt and shows a banner when the filter is not
+              running. It cannot overrule your phone, and it will not pretend to.
             </p>
           </li>
           <li>
             <div className="limit__h">
               <span className="limit__n">03</span>
-              <h3>Sideload only</h3>
+              <h3>You install it yourself</h3>
             </div>
             <p>
-              No Play Store listing. You install an APK and grant a permission that reads as
-              alarming — because it is powerful. You give it to three apps, and you can revoke it in
-              Settings whenever you like.
+              There is no Play Store listing. You install an APK and grant a permission that reads
+              as alarming — because it is powerful. You give it to three apps, and you can take it
+              back in Settings whenever you like.
             </p>
           </li>
           <li>
             <div className="limit__h">
               <span className="limit__n">04</span>
-              <h3>It filters short video, not the feed</h3>
+              <h3>It handles short video, not the feed</h3>
             </div>
             <p>
               Your feed, DMs, comments and search are untouched, on purpose. This is not a

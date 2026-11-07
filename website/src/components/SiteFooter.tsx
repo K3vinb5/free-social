@@ -10,18 +10,18 @@ export function SiteFooter() {
               Free Social
             </p>
             <p className="foot__tag">
-              An accessibility filter for the three apps that eat the evening. Built by one person,
-              in the open, for Android.
+              A small Android app that takes the endless part out of Instagram, YouTube and TikTok.
+              Free, open source, and completely offline.
             </p>
           </div>
           <div>
             <h4>Product</h4>
             <ul>
               <li>
-                <a href="#how">How it works</a>
+                <a href="#features">What it does</a>
               </li>
               <li>
-                <a href="#features">Features</a>
+                <a href="#how">A day with it</a>
               </li>
               <li>
                 <a href="#rules">Honest rules</a>

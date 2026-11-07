@@ -12,10 +12,10 @@ export function SiteHeader() {
           </a>
           <ul className="nav__links">
             <li>
-              <a href="#how">How it works</a>
+              <a href="#features">What it does</a>
             </li>
             <li>
-              <a href="#features">Features</a>
+              <a href="#how">A day with it</a>
             </li>
             <li>
               <a href="#rules">Honest rules</a>
