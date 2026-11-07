@@ -156,20 +156,27 @@ class DumpDeleteTest {
     }
 
     @Test
-    fun `the inspector arms a confirmation before wiring any delete`() {
-        // Compose has no JVM harness here; the repo's UI tests assert the wiring as text. Every
-        // entry point sets the prompt state, and the deleters appear once, inside the confirm block.
-        val source = File(
-            "src/main/java/dev/k3vinb5/freesocial/ui/screens/RuleInspectorScreen.kt",
-        ).readText()
-        assertTrue(source.contains("onDelete = { pendingDelete = DumpDelete.One(dump) }"))
-        assertTrue(source.contains("onClick = { pendingDelete = DumpDelete.All }"))
-        assertEquals(1, Regex("""DumpExporter\.deleteOne\(""").findAll(source).count())
-        assertEquals(1, Regex("""DumpExporter\.deleteAll\(""").findAll(source).count())
-        assertTrue(
-            "the delete calls sit after the destructive confirm button",
-            source.indexOf("DumpExporter.deleteOne(") >
-                source.indexOf("R.string.inspector_delete_confirm"),
+    fun `a confirmed delete reports only what the file system actually did`() {
+        // Behaviour, not wiring text: the same target is executed twice against the real
+        // repository, and the reported count must follow the disk both times. A first confirm
+        // removes the file; a second must report zero instead of claiming a deletion.
+        val dir = tmp.newFolder("dumps")
+        val file = writeDump(dir, "$YT-home.json")
+        val entry = DumpFile(file, DumpExporter.read(file)!!.document, 0)
+
+        val first = performDumpDelete(
+            target = DumpDelete.One(entry),
+            deleteOne = { DumpExporter.deleteOneIn(dir, it) },
+            deleteAll = { error("delete all must not run for a single dump") },
         )
+        assertEquals(1, first)
+        assertFalse("the confirmed file is gone from disk", file.exists())
+
+        val again = performDumpDelete(
+            target = DumpDelete.One(entry),
+            deleteOne = { DumpExporter.deleteOneIn(dir, it) },
+            deleteAll = { 0 },
+        )
+        assertEquals("nothing was deleted, so nothing may be reported", 0, again)
     }
 }

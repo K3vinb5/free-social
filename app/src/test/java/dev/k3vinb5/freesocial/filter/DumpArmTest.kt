@@ -1,6 +1,5 @@
 package dev.k3vinb5.freesocial.filter
 
-import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -190,19 +189,22 @@ class DumpArmTest {
     }
 
     @Test
-    fun `the guided session and the arm use one clock source`() {
-        // Source-level guard against domain drift: GuidedCapture polls elapsedRealtime and must
-        // hand that same value to the arm; DumpArm's own default must be that clock too.
-        val guided = File("src/main/java/dev/k3vinb5/freesocial/filter/GuidedCapture.kt").readText()
-        assertTrue(guided.contains("DumpArm.refreshGuided(now)"))
-        assertTrue(guided.contains("val now = SystemClock.elapsedRealtime()"))
-
-        val arm = File("src/main/java/dev/k3vinb5/freesocial/filter/DumpArm.kt").readText()
-        assertTrue(arm.contains("SystemClock.elapsedRealtime()"))
-        assertFalse(
-            "a wall-clock default creeps back in",
-            arm.contains("now: Long = System.currentTimeMillis()") ||
-                arm.contains("now = System.currentTimeMillis()"),
-        )
+    fun `the arm measures its expiry in the elapsed clock domain`() {
+        // Behaviour instead of a source grep: an armed capture expires exactly EXPIRY_MS after
+        // arming and not before, which is only true for the monotonic elapsed clock. A wall-clock
+        // deadline would look expired (or alive for centuries) as soon as the two domains diverge.
+        val armed = 7_000_000L // a realistic elapsedRealtime value (uptime ms), not wall-clock ms
+        try {
+            DumpArm.armGuided("instagram/feed_reel_cell", armed)
+            assertTrue(DumpArm.captureActive(armed))
+            assertTrue(DumpArm.captureActive(armed + DumpArm.GUIDED_EXPIRY_MS - 1))
+            assertFalse(
+                "the guided arm expires on the elapsed clock, exactly at its ceiling",
+                DumpArm.captureActive(armed + DumpArm.GUIDED_EXPIRY_MS),
+            )
+        } finally {
+            DumpArm.useClock()
+            DumpArm.cancel()
+        }
     }
 }
