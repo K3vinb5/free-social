@@ -53,7 +53,20 @@
         "classNameRegex": "android\\.widget\\.EditText"
       },
       "action": "SKIP",
-      "notes": "IG DM carve-out: an open DM thread keeps its composer (id row_thread_composer_edittext, class EditText, hint \"Message…\"). SKIP outranks every neutralisation in RuleGate, so shared reels playing inside a thread are left alone. Evidence 234329-ig_dm_thread: thread with two shared reels on screen plus composer and direct_thread_* chrome; inbox bar direct_inbox_action_bar seen in 234011 (screenshot black: IG Direct is FLAG_SECURE). LOCALE-PROOF: the composer id + EditText class identify the thread on any UI language; the localized hint \"Message…\" is not used as a key.",
+      "notes": "IG DM carve-out: an open DM thread keeps its composer (id row_thread_composer_edittext, class EditText, hint \"Message…\"). SKIP outranks every neutralisation in RuleGate, so shared reels playing inside a thread are left alone. Evidence 234329-ig_dm_thread: thread with two shared reels on screen plus composer and direct_thread_* chrome; inbox bar direct_inbox_action_bar seen in 234011 (screenshot black: IG Direct is FLAG_SECURE). RE-VERIFIED 2026-11-07 on Reno4 / IG 454.0.0.54.77 / pt-PT: the thread still exposes the composer (hint \"Enviar mensagem…\") and the engine logs gate=SKIP (reverse/runtime-reno/flash-dm/04-ig-dm-thread.xml, 04-logcat-thread.txt); the DM list and the thread-with-keyboard expose it too. The reel opened *from* a thread is a different screen (no thread composer) and is covered by ig_dm_reel_carve_out. LOCALE-PROOF: the composer id + EditText class identify the thread on any UI language; the localized hint \"Message…\" is not used as a key.",
+      "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
+    },
+    {
+      "id": "ig_dm_reel_carve_out",
+      "appPackage": "com.instagram.android",
+      "surface": "dm_reel_carve_out",
+      "layer": 2,
+      "match": {
+        "viewId": "com.instagram.android:id/reply_bar_edittext",
+        "classNameRegex": "android\\.widget\\.AutoCompleteTextView"
+      },
+      "action": "SKIP",
+      "notes": "IG DM carve-out, shared-reel screen (D13, 2026-11-07): tapping a shared reel inside a DM thread opens com.instagram.modal.TransparentModalActivity, whose tree has clips_viewer_view_pager (so ig_clips_viewer would escape it) and the DM reply composer reply_bar_edittext inside reel_viewer_message_composer, but NOT row_thread_composer_edittext — ig_dm_carve_out cannot see it. This SKIP rule shields that state, so the user can reply to the shared reel at 0 budget. Evidence: reverse/runtime-reno/flash-dm/12-ig-dm-reel-uia.xml and 08-ig-dm-reel-dump.json (53 nodes, pt-PT hint \"Responde à tua própria mensagem\", not a key) vs the pre-fix escape in 05-logcat.txt. NEGATIVE CONTROL: the normal Reels viewer (10-ig-reels-viewer-inbudget.xml) has clips_viewer_view_pager and no reply_bar_* node, so a non-DM viewer is never carved out and still escapes at 0 budget. LOCALE-PROOF: view id + AutoCompleteTextView class only.",
       "verifiedAgainstAppVersion": "Instagram 454.0.0.54.77"
     },
     {

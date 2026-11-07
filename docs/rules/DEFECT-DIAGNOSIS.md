@@ -743,3 +743,131 @@ D10's repository-level `observe()`/`reload()` covers the budget fields (`budgetL
 gate reads, for every surface. One seam, all settings.
 
 Tests: `SettingsRepositoryTest` (`budget limit written by one instance is seen by another`).
+
+## D12 — the escape flash is not shown for a new escape episode
+
+### Observed (user, 2026-11-06)
+
+*"our flash with our message doesn't always happen"* — the 2.2 s "Free Social blocked this" screen
+sometimes does not appear after the engine kicks the user out of Reels/Shorts.
+
+### Repro on the phone (unfixed 0.4.1 build, budget 0 / limit 0, IG 454.0.0.54.77)
+
+Four consecutive Reels entries at 0 budget, each a fresh episode, produced four escape actions but
+only **two** flashes (`reverse/runtime-reno/flash-dm/before-rapid-transcript.txt`):
+
+```
+ep0: FLASH appeared +1.84s        ep1: NO FLASH after entry (checked 6 s)
+ep2: FLASH appeared +10.32s       ep3: NO FLASH after entry (checked 6 s)
+escapes=4  flash_log=3 (2 shown + 1 suppressed)
+```
+
+`reverse/runtime-reno/flash-dm/before-rapid-service.log` holds the corresponding engine lines:
+`neutralising com.instagram.android/reels_tab via TAP_HOME_TAB` four times, `escape flash … reason=BUDGET`
+twice and exactly one `escape flash suppressed (one per 3000 ms)` line.
+
+### Root cause — (a) the throttle window is package-global and survives the episode boundary
+
+`FlashPolicy` keys the window on the package only and measures it from the last *shown* flash
+(`filter/FlashPolicy.kt:13-23`). `FilterService.flashEscape` consults it (`filter/FilterService.kt:442-450`)
+and nothing clears the timestamp when the escape episode ends. The arbiter's episode semantics
+(`filter/EscapeGuard.kt:33-39`: a surface that disappears from a capture ends its episode, so the
+next entry is a fresh, deterministic escape — `scan()` line 395) only guard the *action*, never the
+flash. So a genuine new episode inside 3 s of the previous flash (ep1/ep3 above) is silently muted.
+
+### Same-class findings swept while here
+
+- **(b) incomplete escape-action set.** `ESCAPE_ACTIONS` (`filter/FilterService.kt:894`) is
+  `{BACK, TAP_HOME_TAB, REDIRECT_HOME}`, but `RuleGate.ACTION_PRIORITY` (`filter/RuleGate.kt:151-156`)
+  can also choose `CLICK_VIEW_ID` as the escape. A CLICK_VIEW_ID escape would act and never flash
+  (latent: no shipped rule uses it today). The set must be derived from one definition.
+- **(c) background-activity starts are not the cause here, but the path is unguarded.** The launch
+  is honoured on this device — `ActivityTaskManager: Background activity start for
+  dev.k3vinb5.freesocial allowed because SYSTEM_ALERT_WINDOW permission is granted`, and
+  `Displayed dev.k3vinb5.freesocial/.ui.ContentFlashActivity: +1s537ms`
+  (`reverse/runtime-reno/flash-dm/02-logcat-after-tap.txt`). Note the exemption is the overlay
+  appop, not the accessibility binding, so revoking "display over other apps" would mute every
+  flash — and `startActivity` runs inside `safe{}` (`filter/FilterService.kt:433,872-878`), which
+  only logs a generic `filter engine error`. A failed launch must be logged for what it is.
+- **Suppression is invisible in logcat.** The muted flash is logged through `infoOnce` (the 10 s
+  `diagLimiter`, `filter/FilterService.kt:58-59,203-209`): two suppressed flashes produced one
+  line, which is why this defect looked like "no flash at all" rather than "throttled".
+- **The 2.2 s starts at `onCreate`, not at first frame.** `ui/ContentFlashActivity.kt:59` arms the
+  auto-dismiss in `onCreate`, before the Compose window is drawn; with the measured 1.537 s launch
+  latency the user sees ~0.65 s of the promised 2.2 s — the same symptom ("didn't happen") on a
+  slow launch, and a second-class citizen of this path.
+
+### Fix
+
+- `FlashPolicy` takes the escaped surface, so a flash is throttled only inside one surface episode;
+  `observe(package, visibleSurfaces)` drops the episode as soon as that surface leaves the capture
+  (the same rule the arbiter uses), so a re-entry always flashes.
+- `RuleGate.isEscapeAction(action)` is the single definition (`SKIP`/`SCROLL_PAST` false, every
+  actionable escape true, exhaustive `when`); the service uses it for both the arbiter and the flash.
+- The flash launch is explicit: success at `Log.i`, any throw at `Log.w "escape flash launch
+  failed"` plus one bounded retry, and a connect-time warning when `SYSTEM_ALERT_WINDOW` is not
+  granted. Suppression is logged unconditionally (at most once per episode).
+- `ContentFlashActivity` arms the 2.2 s from the first window focus (with a 4 s hard stop so it can
+  never get stuck) and re-arms on `onNewIntent`, so singleInstance reuse cannot swallow a flash.
+
+Tests: `FlashPolicyTest` (episode scoping, all escape actions, throttle window), `RuleGateTest`
+(`isEscapeAction`), `ContentFlashTest` (timing contract).
+
+### Addendum — the episode boundary trusted stale scans (review, 2026-11-07)
+
+The first fix ended an episode as soon as the escaped surface was absent from a capture
+(`FlashPolicy.observe`, fed by `hits.map { rule.surface }` at `FilterService.kt:424`), but the
+engine routinely produces empty or view-id-less captures — the very shapes it logs at
+`FilterService.kt:553` (`nodes<=1`) and `:557` (`withIds==0`) — and in those every viewId-keyed rule
+misses. "The surface left the screen" and "this capture matched nothing" were therefore the same
+input, so one stale scan ended the episode mid-screen and the next escape on the same surface
+flashed again inside the same visible episode (the stacked flash D12 removed). The boundary now
+requires evidence: `scan()` derives the capture-quality signal it already logs (node count,
+view-id count) and calls `FlashPolicy.observe(..., captureValid = nodes > 1 && withIds > 0)`; an
+untrusted capture makes no boundary decision. A trustworthy capture that keeps the surface holds
+the episode, a different direct surface ends it immediately (unchanged), and only **two consecutive**
+trustworthy captures with no matched surface end it (one stale-but-readable scan is not a
+departure). A `TYPE_WINDOW_STATE_CHANGED` to another package ends every other package's episode via
+`FlashPolicy.onPackageChanged` (our own flash activity is excluded — it launches over the escaped
+app and must not fake a boundary). No time window was reintroduced; `FlashPolicyTest` covers the
+stale-scan guard, the two-miss departure, the different-surface end and the package change.
+
+## D13 — the IG DM carve-out did not cover the reel opened from a DM thread
+
+### Observed (user, 2026-11-06)
+
+*"at least in Instagram that's still not happening"* — with the budget spent, IG DMs still get
+escaped.
+
+### Repro and root cause (Reno4, IG 454.0.0.54.77, pt-PT, budget 0)
+
+- Plain DM thread: composer `row_thread_composer_edittext` + `android.widget.EditText` is present
+  (`reverse/runtime-reno/flash-dm/04-ig-dm-thread.xml`), the engine logs `1 hit(s) but gate=SKIP`
+  (`04-logcat-thread.txt`). The shipped `ig_dm_carve_out` works *there*.
+- Tapping a shared reel inside the thread opens `com.instagram.modal.TransparentModalActivity`.
+  That tree exposes `clips_viewer_view_pager` **and** `reply_bar_edittext`
+  (`android.widget.AutoCompleteTextView`, inside `reel_viewer_message_composer`), and **no**
+  `row_thread_composer_edittext`
+  (`reverse/runtime-reno/flash-dm/12-ig-dm-reel-uia.xml`, `08-ig-dm-reel-dump.json`, 53 nodes).
+  The only carve-out anchor therefore misses, and the engine escapes:
+  `neutralising com.instagram.android/clips_viewer via BACK` + `escape flash … reason=BUDGET`
+  (`05-logcat.txt`).
+- Negative control: the normal Reels viewer (in budget, paused) has `clips_viewer_view_pager` and
+  **no** `reply_bar_*` / DM composer (`10-ig-reels-viewer-inbudget.xml`), so the re-anchor cannot
+  shield a non-DM viewer.
+
+### TikTok (same sweep)
+
+- Plain chat thread: `ui_slot_input_layout_redesign`, no `player_view`, no `udm`
+  (`17-tt-dm-thread.xml`) — nothing is a short-video surface there, so no carve-out is needed.
+- Video opened from the thread (`DetailActivity`): `player_view` + `udm` (Button, pt-PT "Enviar
+  mensagem para Carol...") are both present (`18-tt-dm-video.xml`) and the engine logs
+  `2 hit(s) but gate=SKIP` — `tiktok_dm_carve_out` still holds.
+
+### Fix
+
+New `ig_dm_reel_carve_out` SKIP rule anchored on `id/reply_bar_edittext` +
+`android.widget.AutoCompleteTextView` (locale-proof: id + class; the pt-PT hint "Responde à tua
+própria mensagem" is not used), leaving `ig_dm_carve_out` for the thread itself.
+
+Tests: `RuleGateTest` (DM reel tree → SKIP; normal viewer → ESCAPE), `LocaleProofRulesTest` count.

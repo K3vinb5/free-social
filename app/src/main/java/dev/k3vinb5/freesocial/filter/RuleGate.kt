@@ -155,6 +155,17 @@ object RuleGate {
         Action.REDIRECT_HOME to 3,
     )
 
+    /**
+     * D12: the single definition of "this action takes the user off the surface". Every action the
+     * gate can choose as an escape must flash once confirmed — the 2026-11-05 set only listed
+     * BACK/TAP_HOME_TAB/REDIRECT_HOME, so a CLICK_VIEW_ID escape would have acted silently.
+     * Exhaustive on purpose: a new [Action] forces a deliberate decision here.
+     */
+    fun isEscapeAction(action: Action): Boolean = when (action) {
+        Action.SKIP, Action.SCROLL_PAST -> false
+        Action.BACK, Action.TAP_HOME_TAB, Action.CLICK_VIEW_ID, Action.REDIRECT_HOME -> true
+    }
+
     fun decide(
         hits: List<RuleHit>,
         budgetExhausted: Boolean,

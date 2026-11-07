@@ -128,7 +128,7 @@ class DirectEngagementPolicyTest {
         assertEquals(GateOutcome.NONE, RuleGate.decide(hits, budgetExhausted = true, scheduleLocked = true))
 
         val enabled = rules.filter { it.enabled }
-        assertEquals(6, enabled.size)
+        assertEquals(7, enabled.size)
         assertTrue(
             "every enabled non-carve-out rule is a direct-engagement surface",
             enabled.filter { it.action != Action.SKIP }.all {

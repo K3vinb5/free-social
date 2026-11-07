@@ -2,12 +2,14 @@ package dev.k3vinb5.freesocial.filter
 
 import dev.k3vinb5.freesocial.core.Action
 import dev.k3vinb5.freesocial.core.MatchSpec
+import dev.k3vinb5.freesocial.core.loadRuleSet
 import dev.k3vinb5.freesocial.settings.AppTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class RuleGateTest {
 
@@ -232,5 +234,94 @@ class RuleGateTest {
         }
         assertFalse(SurfacePolicy.countsAgainstBudget(AppTarget.YOUTUBE, YT, "shorts_player", countingOff))
         assertTrue(SurfacePolicy.countsAgainstBudget(AppTarget.INSTAGRAM, IG, "clips_viewer", countingOff))
+    }
+
+    // --- D12: one escape-action definition ------------------------------------------------
+
+    @Test
+    fun `every actionable escape is an escape action and the shield is not`() {
+        assertTrue(RuleGate.isEscapeAction(Action.BACK))
+        assertTrue(RuleGate.isEscapeAction(Action.TAP_HOME_TAB))
+        assertTrue(RuleGate.isEscapeAction(Action.CLICK_VIEW_ID))
+        assertTrue(RuleGate.isEscapeAction(Action.REDIRECT_HOME))
+        assertFalse(RuleGate.isEscapeAction(Action.SKIP))
+        assertFalse(RuleGate.isEscapeAction(Action.SCROLL_PAST))
+    }
+
+    @Test
+    fun `every action the gate can choose flashes`() {
+        // ACTION_PRIORITY is the set `chosen` can return; each of those must flash once confirmed.
+        val chosenActions = listOf(
+            Action.TAP_HOME_TAB,
+            Action.BACK,
+            Action.CLICK_VIEW_ID,
+            Action.REDIRECT_HOME,
+        )
+        for (action in chosenActions) {
+            assertTrue("$action is choosable and must flash", RuleGate.isEscapeAction(action))
+        }
+    }
+
+    // --- D13: the shipped IG DM carve-outs, against the real catalog ----------------------
+
+    private val shipped: RuleSetMatcher =
+        RuleSetMatcher(loadRuleSet(File("src/main/assets/rules.json").readText()).rules)
+
+    private fun igTree(vararg ids: String): NodeSnapshot =
+        node(children = ids.map { node(viewId = "$IG:id/$it", className = classOf(it)) })
+
+    private fun classOf(id: String): String = when (id) {
+        "reply_bar_edittext" -> "android.widget.AutoCompleteTextView"
+        "row_thread_composer_edittext" -> "android.widget.EditText"
+        "clips_viewer_view_pager" -> "androidx.viewpager.widget.ViewPager"
+        else -> "android.widget.FrameLayout"
+    }
+
+    @Test
+    fun `the DM thread is carved out while the budget is spent`() {
+        val hits = shipped.hits(AppTarget.INSTAGRAM, IG, igTree("row_thread_composer_edittext"))
+        assertEquals(listOf("dm_carve_out"), hits.map { it.rule.surface })
+        assertEquals(GateOutcome.SKIP, RuleGate.decide(hits, budgetExhausted = true, scheduleLocked = false))
+        assertNull(RuleGate.chosen(hits, budgetExhausted = true, scheduleLocked = false))
+    }
+
+    @Test
+    fun `a reel opened from a DM thread is carved out even though the thread composer is gone`() {
+        // The exact D13 tree: the shared-reel screen has the viewer pager and the DM reply bar,
+        // but no row_thread_composer_edittext (12-ig-dm-reel-uia.xml).
+        val hits = shipped.hits(
+            AppTarget.INSTAGRAM,
+            IG,
+            igTree("clips_viewer_view_pager", "reply_bar_edittext"),
+        )
+        assertEquals(
+            setOf("clips_viewer", "dm_reel_carve_out"),
+            hits.map { it.rule.surface }.toSet(),
+        )
+        assertEquals("SKIP outranks the escape at 0 budget", GateOutcome.SKIP, RuleGate.decide(hits, true, false))
+        assertNull(RuleGate.chosen(hits, true, false))
+    }
+
+    @Test
+    fun `the plain Reels viewer is not carved out and still escapes at 0 budget`() {
+        // NEGATIVE CONTROL: 10-ig-reels-viewer-inbudget.xml — same pager, no reply_bar_* node.
+        val hits = shipped.hits(AppTarget.INSTAGRAM, IG, igTree("clips_viewer_view_pager"))
+        assertTrue("no SKIP rule may match the ordinary viewer", hits.none { it.rule.action == Action.SKIP })
+        assertEquals(GateOutcome.ESCAPE, RuleGate.decide(hits, budgetExhausted = true, scheduleLocked = false))
+        assertEquals(Action.BACK, RuleGate.chosen(hits, true, false)?.rule?.action)
+    }
+
+    @Test
+    fun `the TikTok DM-opened video is carved out`() {
+        // 18-tt-dm-video.xml: player_view + udm (Button) in the same DetailActivity tree.
+        val tree = node(
+            children = listOf(
+                node(viewId = "$TT:id/player_view", className = "android.widget.FrameLayout"),
+                node(viewId = "$TT:id/udm", className = "android.widget.Button"),
+            ),
+        )
+        val hits = shipped.hits(AppTarget.TIKTOK, TT, tree)
+        assertEquals(setOf("playback", "dm_carve_out"), hits.map { it.rule.surface }.toSet())
+        assertEquals(GateOutcome.SKIP, RuleGate.decide(hits, budgetExhausted = true, scheduleLocked = false))
     }
 }

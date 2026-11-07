@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -100,6 +101,17 @@ class FilterService : AccessibilityService() {
         // D8 layer (a): re-assert the capture flags at bind time. The XML declaration was compiled
         // but evidently not in effect on the runtime child links.
         safe { reassertCaptureFlags() }
+        // D12: the flash activity start is allowed on this device because of the overlay appop
+        // ("Background activity start ... allowed because SYSTEM_ALERT_WINDOW permission is
+        // granted"), not the accessibility binding. Say so once when it is missing instead of
+        // letting every flash disappear silently.
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(
+                TAG,
+                "SYSTEM_ALERT_WINDOW is not granted — the escape flash may be dropped by " +
+                    "background-activity-start restrictions",
+            )
+        }
         val deps = engine(force = true)
         if (deps == null) {
             val error = bootstrap.lastError
@@ -127,6 +139,12 @@ class FilterService : AccessibilityService() {
             // (dev.k3vinb5.freesocial) and system packages — and before the engine/target gates,
             // because "foreign content stripped but own windows rich" is the discrimination.
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) safe { probeActiveRoot(pkg, event) }
+            // D12 addendum: a window-state change to another package ends every other package's
+            // flash episode — that app is no longer the visible window. Our own flash activity is
+            // the exception: it launches over the escaped app and must not fake a boundary.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName) {
+                safe { flashPolicy.onPackageChanged(pkg) }
+            }
             // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
             if (captureArmedDumpIfRequested(event, pkg)) return
             // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
@@ -381,7 +399,18 @@ class FilterService : AccessibilityService() {
             subtreeLookups = CaptureAnchors.idsFor(appPackage),
         )
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
-        diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
+        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
+        val withIds = nodes.count { it.viewId != null }
+        diagnose(
+            appPackage,
+            captured,
+            app,
+            deps.ruleCount,
+            hits.size,
+            scanProbe(windows, appPackage),
+            nodes.size,
+            withIds,
+        )
         // Policy 5: while the rule inspector has a capture armed/active the engine touches nothing
         // (no escapes, no scroll, no taps), so the user can navigate freely. DumpArm clears itself
         // when the capture completes or the 60 s arm expires, which restores enforcement.
@@ -392,7 +421,12 @@ class FilterService : AccessibilityService() {
         }
         // Episode tracking uses every surface the capture shows, before any gating: a surface that
         // disappeared ends its escape episode, so a re-entry is always a fresh, deterministic entry.
-        arbiter.observe(hits.map { "$appPackage/${it.rule.surface}" }.toSet())
+        val surfaces = hits.map { it.rule.surface }.toSet()
+        arbiter.observe(surfaces.map { "$appPackage/$it" }.toSet())
+        // D12 addendum: empty and view-id-less captures are not evidence of departure — every
+        // viewId-keyed rule misses in them, so the flash episode must survive rather than end on a
+        // stale scan (that restart was the stacked-flash bug). Only a readable tree may decide.
+        flashPolicy.observe(appPackage, surfaces, captureValid = nodes.size > 1 && withIds > 0)
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -424,35 +458,67 @@ class FilterService : AccessibilityService() {
             infoOnce("throttled", "$appPackage/$surfaceKey: duplicate action for the current surface episode")
             return
         }
-        val escapedAction = hit.rule.action in ESCAPE_ACTIONS
+        val escapedAction = RuleGate.isEscapeAction(hit.rule.action)
         val acted = perform(hit, captured, appPackage)
         arbiter.confirm(surfaceKey, appPackage, escapedAction, acted)
-        // FLASH (2026-11-05): only a confirmed escape action flashes. Passive surfaces never reach
-        // ESCAPE, an in-budget PAY returns above, the duplicate/throttled repeat returned already,
-        // an armed capture returns before the gate, and BlockService's app blocking never comes here.
-        if (acted && escapedAction) safe { flashEscape(appPackage, exhausted, locked) }
+        // FLASH (2026-11-05, D12): only a confirmed escape action flashes. Passive surfaces never
+        // reach ESCAPE, an in-budget PAY returns above, the duplicate/throttled repeat returned
+        // already, an armed capture returns before the gate, and BlockService's app blocking never
+        // comes here.
+        if (acted && escapedAction) safe { flashEscape(appPackage, surfaceKey, exhausted, locked) }
     }
 
     /**
      * Shows the 2.2 s "Free Social blocked this" flash after a real escape — the one place in the
-     * engine that launches it. Rate-limited per package so rapid follow-up escapes of the same
-     * episode cannot stack; the intent is `NEW_TASK` only, so the navigation the escape just
-     * produced (feed/Home) is never cleared. Failures are swallowed: a flash is never load-bearing.
+     * engine that launches it.
+     *
+     * D12 (2026-11-07): the rate limit is scoped to the escape *episode* (see [FlashPolicy]), so a
+     * re-entry within 3 s of the previous flash is explained again; only a repeat inside the same
+     * episode is suppressed, and that suppression is logged plainly instead of through the 10 s
+     * diagnostic limiter (a muted flash used to look like no flash at all).
+     *
+     * The intent is `NEW_TASK` only, so the navigation the escape just produced (feed/Home) is
+     * never cleared. A launch failure is logged for what it is and retried once: a flash is never
+     * load-bearing, but it must never vanish silently either.
      */
-    private fun flashEscape(appPackage: String, budgetExhausted: Boolean, scheduleLocked: Boolean) {
-        if (!flashPolicy.shouldFlash(appPackage, SystemClock.elapsedRealtime())) {
-            infoOnce("flash throttled", "$appPackage: escape flash suppressed (one per ${FlashPolicy.WINDOW_MS} ms)")
+    private fun flashEscape(
+        appPackage: String,
+        surface: String,
+        budgetExhausted: Boolean,
+        scheduleLocked: Boolean,
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (!flashPolicy.shouldFlash(appPackage, surface, now)) {
+            Log.i(TAG, "$appPackage/$surface: escape flash suppressed (repeat within ${FlashPolicy.WINDOW_MS} ms)")
             return
         }
         val reason = ContentFlash.reasonFor(budgetExhausted, scheduleLocked)
-        startActivity(ContentFlash.intent(this, reason))
-        Log.i(TAG, "escape flash $appPackage reason=$reason")
+        launchFlash(reason, "$appPackage/$surface", attempt = 1)
+    }
+
+    /** Starts the flash activity; one bounded retry, every failure logged with its own line. */
+    private fun launchFlash(reason: ContentFlash.Reason, label: String, attempt: Int) {
+        try {
+            startActivity(ContentFlash.intent(this, reason))
+            Log.i(TAG, "escape flash $label reason=$reason")
+        } catch (t: Throwable) {
+            Log.w(TAG, "escape flash launch failed $label (attempt $attempt)", t)
+            if (attempt < FLASH_LAUNCH_ATTEMPTS) {
+                handler.postDelayed(
+                    { safe { launchFlash(reason, label, attempt + 1) } },
+                    FLASH_LAUNCH_RETRY_MS,
+                )
+            }
+        }
     }
 
     /**
      * D5(d): once per 10 s, per target package — how big the tree was and how much of it carries
      * view ids, plus how many rules matched. `nodes>0 && viewIds==0` is the H2 signature (the OS
      * stripped view ids); `nodes==0` is a capture problem; both are stated explicitly.
+     *
+     * The counts are also the capture-quality signal for the D12 episode boundary ([scan] passes
+     * them to [FlashPolicy.observe]): an empty or id-less tree must never end an episode.
      *
      * D8: the same line carries `rootChildCount` and `idProbe`, the same root shape the ghost-tree
      * probe reports, so the scan path and the window-state probe agree.
@@ -464,16 +530,16 @@ class FilterService : AccessibilityService() {
         rules: Int,
         hits: Int,
         probe: String,
+        nodes: Int,
+        withIds: Int,
     ) {
         if (!diagLimiter.allow("scan:$appPackage", SystemClock.elapsedRealtime())) return
-        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
-        val withIds = nodes.count { it.viewId != null }
         Log.i(
             TAG,
             ScanDiagnostics.line(
                 appPackage = appPackage,
                 appName = app.name,
-                nodes = nodes.size,
+                nodes = nodes,
                 withViewIds = withIds,
                 matchedRules = ruleMatcher.rulesFor(app, appPackage).size,
                 totalRules = rules,
@@ -483,7 +549,7 @@ class FilterService : AccessibilityService() {
                 probe = probe,
             ),
         )
-        if (nodes.size <= 1) {
+        if (nodes <= 1) {
             warnOnce("empty tree:$appPackage", "scan saw an EMPTY $appPackage tree — capture or window access is broken")
         } else if (withIds == 0) {
             warnOnce(
@@ -891,7 +957,8 @@ class FilterService : AccessibilityService() {
         private const val PROBE_WINDOW_MS = 10_000L
 
         /** R3: actions that change the screen asynchronously; a confirmed one starts an escape episode. */
-        private val ESCAPE_ACTIONS = setOf(Action.BACK, Action.TAP_HOME_TAB, Action.REDIRECT_HOME)
+        private const val FLASH_LAUNCH_ATTEMPTS = 2
+        private const val FLASH_LAUNCH_RETRY_MS = 250L
 
         /** R4: retry a ghost armed dump within the 60 s arm (4 × 600 ms covers the launch fill). */
         private const val DUMP_RETRY_MAX = 4

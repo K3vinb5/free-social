@@ -791,7 +791,7 @@ defines, each with its evidence.
 | Nightly lock + exact-alarm boundary flip | PASS | Wave B: 0 s drift, re-armed; waveB-flip.mp4 |
 | Doze survival | PASS | Wave B B3: services bound, PID stable, ACTIVE |
 | Hub enforcement truth + Permissions 4/4 | PASS | items 11 / setup pass; banner live |
-| TikTok DM carve-out (over-block check) | UNVERIFIED (locale-gap) | dm_carveout_structural: FYP undumpable → no semantic route to inbox; 26 scan lines / 0 rule actions (no accidental firing); carve-out anchor is structural (`udm`+Button, RULES.md). Needs a DM deep-link route or one hand-run. |
+| TikTok DM carve-out (over-block check) | **PASS** (re-verified 2026-11-07) | Live 0-budget run on Reno4 / TikTok 47.6.3 / pt-PT: DM thread `ui_slot_input_layout_redesign`, no `player_view`; shared-video `DetailActivity` exposes `player_view` + `video_seek_bar` **and** the composer `udm` (Button, "Enviar mensagem para Carol…"), and the engine logs `2 hit(s) but gate=SKIP (budget=true)` on every scan — no `neutralising`, no flash (`reverse/runtime-reno/flash-dm/after-tt-dm-thread.xml`, `after-tt-dm-video.xml` 163 nodes, `after-tt-dm-logcat.txt`, screenshot `after-tt-dm-video.png`). Residual: the very first capture after a cold app-switch resume can be a partial tree (3–19 nodes) without `udm` and escapes once before the composer renders (observed 16:50:22 in the same slice; filed as a ticket). Steady state is SKIP. |
 | Capture notification visibility | DEVICE QUIRK | ColorOS never renders the posted capture notification in the shade (record exists: channel=node_capture); opening the shade ends capture ("Surface left"). In-app step card is the visible guide on this device. |
 
 Fixes landed this day (all committed): D9 gate root cause + direct-engagement
@@ -1228,3 +1228,61 @@ Restore order matters and was followed exactly: **first** the allowance back to 
 * Process: pid `5586`, `versionName 0.4.0`, `lastUpdateTime 09:21:40`.
 * No source file changed and no git commit — only this document and
   `reverse/runtime-reno/verify-030/1xx-*` evidence.
+
+# D12 + D13 after-fix re-verification — Reno4 (branch `fix/flash-and-dm-carveout`, 2026-11-07)
+
+Device: OPPO Reno4 5G (USB, serial in `FS_DEVICE_SERIAL`; never committed), Android 13 / SDK 33,
+1080×2400, pt-PT. APK built from this branch (`./gradlew test assembleDebug`, 276 tests green).
+Apps: Instagram **454.0.0.54.77**, TikTok **47.6.3**. Budget set through Free Social's own stepper
+(0 min, `budget_used_seconds` > 0 ⇒ exhausted); the two retired passive rules stay disabled and
+were not touched. Evidence: `reverse/runtime-reno/flash-dm/after-*` (gitignored).
+
+## D12 — one flash per escape episode — PASS
+
+Four consecutive 0-budget Reels entries, each a fresh episode (dismiss the flash, re-enter):
+
+```
+ep0: FLASH appeared +1.83s (entry->flash 1.71s)  screenshot=after-rapid-ep0.png
+ep1: FLASH appeared +4.44s (entry->flash 1.07s)  screenshot=after-rapid-ep1.png
+ep2: FLASH appeared +6.69s (entry->flash 0.80s)  screenshot=after-rapid-ep2.png
+ep3: FLASH appeared +8.75s (entry->flash 0.78s)  screenshot=after-rapid-ep3.png
+escapes=4 flash_log=4 suppressed=0
+```
+
+Engine lines (`after-rapid-service.log`): `neutralising com.instagram.android/reels_tab via
+TAP_HOME_TAB` ×4, `escape flash com.instagram.android/reels_tab reason=BUDGET` ×4, **zero**
+`escape flash suppressed`. Screenshots show the copy on screen well inside the 2.2 s visible window
+(the D12 timing fix arms the window on first focus; the old build showed ~0.65 s). BEFORE for
+contrast: `before-rapid-transcript.txt` = 4 escapes / 2 flashes / 1 suppressed.
+
+## D13 — IG DM carve-out, thread and DM-opened reel — PASS
+
+* Thread: `after-ig-dm-thread.xml` has `row_thread_composer_edittext` (`android.widget.EditText`,
+  pt-PT hint "Enviar mensagem…"); engine logs `1 hit(s) but gate=SKIP` (`after-ig-dm-logcat.txt`).
+* Reel opened from the thread (`com.instagram.modal.TransparentModalActivity`):
+  `after-ig-dm-reel.xml` has `clips_viewer_view_pager` **and**
+  `reply_bar_edittext` (`android.widget.AutoCompleteTextView`, inside
+  `reel_viewer_message_composer`) and **no** `row_thread_composer_edittext`; the engine logs
+  `2 hit(s) but gate=SKIP (budget=true)` on every scan, with no `neutralising` and no flash.
+  Screenshot is black/empty: IG Direct is FLAG_SECURE (recorded in RULES.md).
+* Negative control (pre-fix dump `10-ig-reels-viewer-inbudget.xml`): the ordinary viewer has the
+  pager and no `reply_bar_*`, so the new SKIP rule cannot shield a non-DM viewer; `RuleGateTest`
+  asserts ESCAPE for that tree at 0 budget.
+
+## D13 — TikTok DM carve-out — PASS (steady state), one residual first-capture race
+
+* Thread: `after-tt-dm-thread.xml` has `ui_slot_input_layout_redesign` and no `player_view`.
+* Shared video opened from the thread (`DetailActivity`): `after-tt-dm-video.xml` (163 nodes) has
+  `player_view` [0,110][1080,2121], `video_seek_bar` and the composer `udm` (Button, pt-PT
+  "Enviar mensagem para Carol…"); engine logs `2 hit(s) but gate=SKIP (budget=true)` on every scan
+  (`after-tt-dm-logcat.txt`, screenshot `after-tt-dm-video.png`), no `neutralising`, no flash.
+* **Residual, not fixed here:** the first capture after a cold app-switch resume can be a partial
+  tree (3–19 nodes) that exposes `player_view` before TikTok renders `udm`; one scan then sees
+  `matched=1` and escapes + flashes once (`16:50:22` in `after-tt-dm-logcat-full.txt`). Steady
+  state is SKIP. Filed as OpenProject #146 (Free Social); a fix needs a capture-settle/dedupe change outside
+  this branch's file scope.
+
+## Restored state
+
+`budget_limit_minutes=20`, `schedule_enabled=true` with `420/1350` untouched, `filtering_enabled=true`,
+both accessibility components enabled and bound; phone left on the launcher.

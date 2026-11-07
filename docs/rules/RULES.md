@@ -56,14 +56,17 @@ was using the phone mid-capture). Deleted at the end of this run.
 | `ig_reels_tab` | `reels_tab` (1) | `233005`, `233528`, `234011` | `id/clips_tab`, content-desc `Reels`, class `FrameLayout`, `selected: true` | Instagram 454.0.0.54.77 | TAP_HOME_TAB |
 | `ig_clips_viewer` | `clips_viewer` (2) | `233528` (full tree captured while the viewer played) | `id/clips_viewer_view_pager` + class `androidx.viewpager.widget.ViewPager` | Instagram 454.0.0.54.77 | BACK |
 | `ig_dm_carve_out` | `dm_carve_out` (2) | `234329` (+ `234011`) | `id/row_thread_composer_edittext` + class `EditText` | Instagram 454.0.0.54.77 | SKIP |
+| `ig_dm_reel_carve_out` | `dm_reel_carve_out` (2) | `12-ig-dm-reel-uia` (+ negative control `10-ig-reels-viewer-inbudget`) | `id/reply_bar_edittext` + class `android.widget.AutoCompleteTextView` | Instagram 454.0.0.54.77 | SKIP |
 | `yt_shorts_shelf` | `shorts_shelf` (1) | `234610` (en-US), `pt-yt-home3` (pt-PT) | content-desc `^Shorts$` / `- play Short$` / ` – reproduzir Short$` + class `android.view.ViewGroup` | YouTube 21.43.523 | SCROLL_PAST |
 | `yt_shorts_player` | `shorts_player` (2) | `234810` | `id/reel_recycler` + class `android.support.v7.widget.RecyclerView` | YouTube 21.43.523 | BACK |
 | `tiktok_playback` | `playback` (2) | `234958` (video) vs `235543` (photo), `235326` (live, negative); Reno4 audit `anchor-audit/tt-a`,`tt-b`,`tt-c` (video: **no surface node**) vs `tt-d` (photo) | **proof** `id/player_view` alone; content-desc FYP chrome (`For You`, `Like video.`, …) is a hint only | TikTok 47.6.3 | BACK |
 | `tiktok_dm_carve_out` | `dm_carve_out` (2) | `001928` (DM video) + `001335` (thread) | `id/udm` + class `android.widget.Button` ("Message <name>...") | TikTok 47.6.3 | SKIP |
 
-All eight surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
+All nine surfaces are verified against a live dump of the current build (no `UNVERIFIED` rules
 in this revision). Locale coverage is partial: only the YouTube shelf has a non-English dump
-(pt-PT, see *Locale variants*); IG and TikTok are EN-only. Rules are version-stamped; a mismatch
+(pt-PT, see *Locale variants*); IG and TikTok are EN-only, except the two DM carve-outs, whose
+anchors are locale-proof ids + classes re-checked on the pt-PT Reno4 (`12-ig-dm-reel-uia`,
+`18-tt-dm-video`). Rules are version-stamped; a mismatch
 with the installed app should be surfaced in the UI as "rules last verified against …" (SPEC §2.5).
 
 ## Locale-proof anchors (rule #271, 2026-11-05)
@@ -92,6 +95,7 @@ Enforcement is in code, not prose:
 | `ig_reels_tab` | `com.instagram.android:id/clips_tab` + `android.widget.FrameLayout` + `selected=true` | `233528-ig_reels_tab.xml` (selected); `233005-ig_home.xml`, `234011-ig_dm_inbox2.xml` (selected=false, negative) | content-desc `Reels` |
 | `ig_clips_viewer` | `com.instagram.android:id/clips_viewer_view_pager` + `androidx.viewpager.widget.ViewPager` | `233528-ig_reels_tab.xml` | — |
 | `ig_dm_carve_out` | `com.instagram.android:id/row_thread_composer_edittext` + `android.widget.EditText` | `234329-ig_dm_thread.xml` | `Message…` (not authored as a criterion) |
+| `ig_dm_reel_carve_out` | `com.instagram.android:id/reply_bar_edittext` + `android.widget.AutoCompleteTextView` | `12-ig-dm-reel-uia.xml`; `10-ig-reels-viewer-inbudget.xml` (negative control, no `reply_bar_*`) | pt-PT hint `Responde à tua própria mensagem` (not authored as a criterion) |
 | `yt_shorts_player` | `com.google.android.youtube:id/reel_recycler` + `android.support.v7.widget.RecyclerView` | `234810-yt_shorts_player.xml`, `170126-yt_shorts.xml` | — |
 | `tiktok_playback` | `com.zhiliaoapp.musically:id/player_view` (id alone — the video-surface class was dropped 2026-11-06) | `234958-tt_consent_check.xml` (Pixel, video); `reverse/runtime-reno/anchor-audit/tt-a-fresh-swipe.json`, `tt-b-midplay.json`, `tt-c-tap-focus.json` (Reno4, video, **no surface node at all**), `tt-d-photo-post.json` (photo control); `235326-tt_fyp_next.xml` (live: `SurfaceView`, no `player_view`, negative) | FYP chrome descriptions (`For You`, `Like video.`, …) |
 | `tiktok_dm_carve_out` | `com.zhiliaoapp.musically:id/udm` + `android.widget.Button` | `001928-tt_dm_video_paused.xml`, `001335-tt_activity_carol.xml` | `Message <name>…` (observed, not a key) |
@@ -133,6 +137,7 @@ is mis-anchored (the fix is the anchor, never relaxing `isVisibleToUser`).
 | `ig_reels_tab` | `id/clips_tab` + `selected:true` | **Yes** — the bottom-nav tab never hides; `selected` is true only while the Reels screen is up (`233528` vs `233005`/`234011`), so it also cannot match on the feed. |
 | `ig_clips_viewer` | `id/clips_viewer_view_pager` | **Yes** — the viewer's own pager container, present for as long as the viewer is open (`233528`); it is a container, not a control. |
 | `ig_dm_carve_out` | `id/row_thread_composer_edittext` | **Yes** — the thread composer is thread chrome, present for the whole thread (`234329`); it is what keeps shared reels in a DM usable. |
+| `ig_dm_reel_carve_out` | `id/reply_bar_edittext` + class `AutoCompleteTextView` | **Yes** — the DM reply bar sits in `reel_viewer_message_composer` for as long as the shared reel is open (`12-ig-dm-reel-uia`); the ordinary Reels viewer has no `reply_bar_*` node (`10-ig-reels-viewer-inbudget`), so the shield cannot leak onto a non-DM viewer. |
 | `yt_shorts_shelf` | content-desc `^Shorts$` / ` - play Short$` / ` – reproduzir Short$` | **Yes** — the shelf header and cards stay visible while the shelf does. The header is only 58 px tall, which used to make the *gesture* useless; the gesture is now framed on the shelf's scroll container (see deviation 3), so a short anchor no longer matters. |
 | `yt_shorts_player` | `id/reel_recycler` | **Yes** — the Shorts player's pager container (`234810`), present for as long as the player is. |
 | `tiktok_playback` | `id/player_view` (id alone since 2026-11-06) | **Yes, with a recorded trade-off** — the player viewport is present for every FYP post and absent on LIVE (`235326`). It also covers photo posts (`tt-d-photo-post.json`), accepted per the anchor-audit note above; the alternative discriminators (`video_seek_bar`/`vrp`) are `isVisibleToUser=false` during clean playback (D2a) and would leak at exhaustion. FYP chrome strings are hints only. |
