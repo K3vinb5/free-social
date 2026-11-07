@@ -314,4 +314,11 @@
         <item quantity="one">Filtering paused · %1$d min left</item>
         <item quantity="other">Filtering paused · %1$d min left</item>
     </plurals>
+
+    <!-- Track: onboarding auto-advance (setup-advance). A wizard step whose live condition flips
+         while the app was in the background shows this ✓ label for the beat (~650 ms) before it
+         moves on, so the user sees *why* it advanced. This is the only new copy: each step's
+         existing On / Waiting… / Allowed / Needed line already names the missing permission, and
+         a return without a grant must leave that line (and the manual Next) untouched. -->
+    <string name="status_granted">✓ Granted</string>
 </resources>

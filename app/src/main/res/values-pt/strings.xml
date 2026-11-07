@@ -301,4 +301,8 @@
         <item quantity="one">Filtragem em pausa · falta %1$d min</item>
         <item quantity="other">Filtragem em pausa · faltam %1$d min</item>
     </plurals>
+
+    <!-- Track: onboarding auto-advance (setup-advance). Ver o comentário em values/strings.xml:
+         a única frase nova é o ✓ mostrado durante a pausa antes de o passo avançar sozinho. -->
+    <string name="status_granted">✓ Permitido</string>
 </resources>
