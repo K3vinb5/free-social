@@ -68,7 +68,7 @@ export function Hero() {
                 width={820}
                 height={1645}
                 decoding="async"
-                alt="Free Social home screen: the three apps, 20 minutes of Reels and Shorts budget left, schedule and permissions."
+                alt="Free Social home screen: the status pill reads Paused · 20 min left, each app shows Filter · budget left, the budget row shows 20 min left, with schedule and permissions below."
               />
             </figure>
             <figure className="phone phone--r">

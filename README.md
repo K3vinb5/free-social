@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/design/renders/runtime/01-hub.png" width="300" alt="Free Social settings hub">
+  <img src="docs/design/renders/runtime/01-hub.png" width="300" alt="Free Social settings hub: the status pill reads Paused · 20 min left while the daily budget remains, and each app shows Filter · budget left">
 </p>
 
 <h1 align="center">Free Social</h1>

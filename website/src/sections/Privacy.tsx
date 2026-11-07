@@ -31,10 +31,11 @@ export function Privacy() {
               <strong>Nothing is collected, so there is nothing to delete.</strong>
             </p>
             <p>
-              The app asks Android for a few narrow things: to read the screen of three apps, to
-              draw a brief overlay, to wake on schedule, to show a notification while you fix a
-              rule, and — optionally — to stay awake in the background. It does not ask for the
-              internet.
+              The app asks Android for a few narrow things: to look at the screen in front — the
+              three apps' view trees to find reels and Shorts, and a structural check on any other
+              app — to draw a brief overlay, to wake on schedule, to show a notification while you
+              fix a rule, and — optionally — to stay awake in the background. It does not ask for
+              the internet.
             </p>
             <p className="privacy__foot">
               No contacts, no location, no storage, no camera, no microphone, no advertising ID.
@@ -58,8 +59,12 @@ export function Privacy() {
                   Reading the screen <span className="badge">filter</span>
                 </dt>
                 <dd className="ledger__v">
-                  Looks at the view while Instagram, YouTube or TikTok is open, only to recognise a
-                  reel or a Short. Nothing is recorded or kept.
+                  Every window change hands the service the screen in front. For Instagram, YouTube
+                  and TikTok it reads the view tree to find a reel or a Short; for every other app
+                  it only checks the tree's shape — whether the screen is readable at all — so it
+                  can warn you when Android or the phone's software starts hiding content from
+                  accessibility. Other apps are never matched or acted on, and no text, screenshots
+                  or history are stored.
                 </dd>
               </div>
               <div className="ledger__row">
