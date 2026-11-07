@@ -46,8 +46,20 @@ import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
 import java.time.ZonedDateTime
 
-/** What the hub's top pill is allowed to claim, given the master switch and the live service state. */
-internal enum class HubEnforcement { ON, PAUSED, OFF }
+/** What the hub's top pill is allowed to claim, given live enforcement and the short-video budget. */
+internal enum class HubStatus {
+    /** Short video is really gated right now: the sleep window covers now, or the budget is spent. */
+    FILTERING,
+
+    /** Nothing is gated yet — the daily allowance still has time left. */
+    PAUSED_BUDGET,
+
+    /** The accessibility service is off: nothing is filtered at all. */
+    PAUSED_SERVICE,
+
+    /** The user turned filtering off with the master switch. */
+    OFF,
+}
 
 /** Which persistent banner the hub shows, if any (SPEC §2.4). */
 internal enum class HubBanner { NONE, SERVICE_OFF, ENGINE_STALE }
@@ -55,15 +67,56 @@ internal enum class HubBanner { NONE, SERVICE_OFF, ENGINE_STALE }
 /**
  * The pill/banner decision, pure so the truth table is testable without Android (SPEC §2.4:
  * the pill reflects LIVE enforcement, not just the master switch).
+ *
+ * "Filtering on" is only honest when short video is actually gated: the nightly window is active
+ * or the daily allowance is used up. While budget remains the pill says it is paused and how much
+ * time is left — the gate itself is unchanged (`FilterService.isBudgetExhausted`: lock OR spent).
  */
-internal fun hubEnforcement(masterEnabled: Boolean, serviceEnabled: Boolean): HubEnforcement = when {
-    !masterEnabled -> HubEnforcement.OFF
-    serviceEnabled -> HubEnforcement.ON
-    else -> HubEnforcement.PAUSED
+internal fun hubStatus(
+    masterEnabled: Boolean,
+    serviceEnabled: Boolean,
+    locked: Boolean,
+    usedSeconds: Long,
+    limitMinutes: Int,
+): HubStatus = when {
+    !masterEnabled -> HubStatus.OFF
+    !serviceEnabled -> HubStatus.PAUSED_SERVICE
+    locked || budgetSpent(usedSeconds, limitMinutes) -> HubStatus.FILTERING
+    else -> HubStatus.PAUSED_BUDGET
 }
 
-/** A degraded state must show the persistent banner: master on but nothing is being filtered. */
-internal fun hubEnforcementDegraded(state: HubEnforcement): Boolean = state == HubEnforcement.PAUSED
+/** True at exactly the limit, matching [dev.k3vinb5.freesocial.core.ShortVideoBudget.isExhausted]. */
+internal fun budgetSpent(usedSeconds: Long, limitMinutes: Int): Boolean =
+    usedSeconds >= limitMinutes.coerceAtLeast(0).toLong() * SECONDS_PER_MINUTE
+
+/** The pill copy for a status; the budget-paused one takes the remaining minutes as its argument. */
+internal fun hubPillRes(status: HubStatus): Int = when (status) {
+    HubStatus.FILTERING -> R.string.hub_status_on
+    HubStatus.PAUSED_BUDGET -> R.string.hub_status_paused_budget
+    HubStatus.PAUSED_SERVICE -> R.string.hub_status_paused_service
+    HubStatus.OFF -> R.string.hub_status_off
+}
+
+/** The helper line under the master switch. Only the budget-paused state has one to explain. */
+internal fun hubHelperRes(status: HubStatus): Int? = when (status) {
+    HubStatus.PAUSED_BUDGET -> R.string.hub_helper_paused_budget
+    else -> null
+}
+
+/** The trailing chip on an app row: the configured mode, unless enforcement changes what it means. */
+internal enum class AppRowChip { MODE, BUDGET_PAUSED, SERVICE_OFF, OFF }
+
+/**
+ * An app configured to filter must not show the green "Filtering" chip while the budget still has
+ * time left — the row would claim exactly what the hub pill just stopped claiming.
+ */
+internal fun appRowChip(mode: AppMode, status: HubStatus): AppRowChip = when {
+    mode != AppMode.FILTER -> AppRowChip.MODE
+    status == HubStatus.PAUSED_BUDGET -> AppRowChip.BUDGET_PAUSED
+    status == HubStatus.PAUSED_SERVICE -> AppRowChip.SERVICE_OFF
+    status == HubStatus.OFF -> AppRowChip.OFF
+    else -> AppRowChip.MODE
+}
 
 /**
  * D7: the banner decision. Master off means the user turned filtering off, so no banner. A disabled
@@ -115,15 +168,24 @@ fun SettingsHubScreen(
         Unit
     }
 
-    // Live truth: the master switch alone does not mean anything is actually filtered.
-    val enforcement = hubEnforcement(
+    // Live truth: the master switch alone does not mean anything is being filtered. While the
+    // daily budget still has time left, short video plays freely — so the pill must say so.
+    val status = hubStatus(
         masterEnabled = settings.filteringEnabled,
         serviceEnabled = settings.permissionStatus.filterService,
+        locked = settings.isLocked(now),
+        usedSeconds = settings.usedSecondsToday(now),
+        limitMinutes = settings.budgetLimitMinutes,
     )
-    val pill = when (enforcement) {
-        HubEnforcement.ON -> R.string.hub_status_on to FsColors.Success
-        HubEnforcement.PAUSED -> R.string.hub_status_paused to FsColors.Warning
-        HubEnforcement.OFF -> R.string.hub_status_off to FsColors.TextTertiary
+    val pillColor = when (status) {
+        HubStatus.FILTERING -> FsColors.Success
+        HubStatus.PAUSED_BUDGET, HubStatus.PAUSED_SERVICE -> FsColors.Warning
+        HubStatus.OFF -> FsColors.TextTertiary
+    }
+    val pillText = if (status == HubStatus.PAUSED_BUDGET) {
+        stringResource(hubPillRes(status), settings.remainingMinutesCeil(now))
+    } else {
+        stringResource(hubPillRes(status))
     }
 
     Column(
@@ -135,8 +197,8 @@ fun SettingsHubScreen(
             title = stringResource(R.string.app_name),
             actions = {
                 StatusPill(
-                    text = stringResource(pill.first),
-                    color = pill.second,
+                    text = pillText,
+                    color = pillColor,
                 )
             },
         )
@@ -154,6 +216,10 @@ fun SettingsHubScreen(
                     checked = settings.filteringEnabled,
                     onCheckedChange = settings::updateFiltering,
                 )
+            }
+            hubHelperRes(status)?.let { helper ->
+                HorizontalGap(8.dp)
+                Caption(stringResource(helper))
             }
 
             val banner = hubBanner(
@@ -184,14 +250,20 @@ fun SettingsHubScreen(
                     onClick = { onOpenApp(app) },
                     trailing = {
                         val mode = settings.modeFor(app)
-                        if (enforcement != HubEnforcement.ON && mode == AppMode.FILTER) {
-                            // Configured to filter, but enforcement is not running right now.
-                            StatusPill(
-                                text = stringResource(R.string.chip_filter_paused),
+                        when (appRowChip(mode, status)) {
+                            AppRowChip.MODE -> StateChip(mode)
+                            AppRowChip.BUDGET_PAUSED -> StatusPill(
+                                text = stringResource(R.string.chip_filter_budget_paused),
                                 color = FsColors.Warning,
                             )
-                        } else {
-                            StateChip(mode)
+                            AppRowChip.SERVICE_OFF -> StatusPill(
+                                text = stringResource(R.string.chip_filter_service_off),
+                                color = FsColors.Warning,
+                            )
+                            AppRowChip.OFF -> StatusPill(
+                                text = stringResource(R.string.chip_filter_off),
+                                color = FsColors.TextTertiary,
+                            )
                         }
                     },
                 )
@@ -292,3 +364,10 @@ private fun GithubStarCard(onStar: () -> Unit, onDismiss: () -> Unit) {
         }
     }
 }
+
+/**
+ * One minute in seconds for the display-only budget comparison. It mirrors
+ * `ShortVideoBudget.isExhausted` (spent at exactly the limit) and the unit test pins that
+ * boundary; the engine keeps its own copy and is not shared with the UI layer.
+ */
+private const val SECONDS_PER_MINUTE = 60L

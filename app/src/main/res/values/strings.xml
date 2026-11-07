@@ -12,10 +12,8 @@
     <!-- Hub (F6) -->
     <string name="hub_status_on">Filtering on</string>
     <string name="hub_status_off">Filtering off</string>
-    <string name="hub_status_paused">Service off — Filtering paused</string>
     <string name="hub_banner_service_off">The filter service is off — nothing is being filtered. Enable it in Permissions.</string>
     <string name="hub_banner_engine_stale">The filter engine stopped reporting — nothing is being filtered. Open Permissions and restart the filter service.</string>
-    <string name="chip_filter_paused">Filter · paused</string>
     <string name="hub_master_title">Filtering</string>
     <string name="hub_master_subtitle">All three apps · short-video surfaces</string>
     <string name="hub_apps_section">Apps</string>
@@ -248,4 +246,16 @@
     <string name="schedule_duration_readout">%1$s · minimum %2$s</string>
     <string name="schedule_below_minimum">Not saved: a window under %1$s is not a night\'s sleep. Move bedtime earlier or wake later.</string>
     <string name="schedule_caption">During these hours the budget counts as spent and Block-mode apps show the block screen. Minimum window: %1$s.</string>
+
+    <!-- Track: budget-honest status (budget-ux). "Filtering on" is only honest while short video
+         is actually gated: the sleep window is active, or the daily budget is spent. While budget
+         remains nothing is filtered, so the hub pill says it is paused and how much time is left.
+         The service-off copy must never reuse the word "paused" — that word now means "budget left". -->
+    <string name="hub_status_paused_budget">Paused · %1$d min left</string>
+    <string name="hub_status_paused_service">Service off — not filtering</string>
+    <string name="hub_helper_paused_budget">Shorts &amp; reels play freely until your daily budget runs out.</string>
+    <string name="chip_filter_budget_paused">Filter · budget left</string>
+    <string name="chip_filter_service_off">Filter · service off</string>
+    <string name="chip_filter_off">Filter · off</string>
+    <string name="budget_status_paused_budget">Filtering paused · %1$d min left</string>
 </resources>
