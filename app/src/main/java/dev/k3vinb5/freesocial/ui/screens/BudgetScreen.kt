@@ -29,6 +29,7 @@ import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.components.Caption
 import dev.k3vinb5.freesocial.ui.components.HorizontalGap
 import dev.k3vinb5.freesocial.ui.components.SectionCard
+import dev.k3vinb5.freesocial.ui.components.StatusPill
 import dev.k3vinb5.freesocial.ui.components.Stepper
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
@@ -44,6 +45,24 @@ fun BudgetScreen(
 ) {
     val limit = settings.budgetLimitMinutes
     val remaining = settings.remainingMinutesCeil(now)
+    // Same truth as the hub pill: filtering is only on when the budget is spent or the window locks.
+    val status = hubStatus(
+        masterEnabled = settings.filteringEnabled,
+        serviceEnabled = settings.permissionStatus.filterService,
+        locked = settings.isLocked(now),
+        usedSeconds = settings.usedSecondsToday(now),
+        limitMinutes = limit,
+    )
+    val statusText = if (status == HubStatus.PAUSED_BUDGET) {
+        stringResource(R.string.budget_status_paused_budget, remaining)
+    } else {
+        stringResource(hubPillRes(status))
+    }
+    val statusColor = when (status) {
+        HubStatus.FILTERING -> FsColors.Success
+        HubStatus.PAUSED_BUDGET, HubStatus.PAUSED_SERVICE -> FsColors.Warning
+        HubStatus.OFF -> FsColors.TextTertiary
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -62,6 +81,9 @@ fun BudgetScreen(
                 remainingMinutes = remaining,
                 limitMinutes = limit,
             )
+
+            HorizontalGap(16.dp)
+            StatusPill(text = statusText, color = statusColor)
 
             HorizontalGap(24.dp)
             SectionCard(modifier = Modifier.fillMaxWidth()) {
