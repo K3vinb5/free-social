@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from driver.selectors import by_desc, by_id, by_text, matches  # noqa: E402
-from driver.xmlnodes import parse_xml  # noqa: E402
+from driver.selectors import by_desc, by_id, by_text, matches, select_target  # noqa: E402
+from driver.xmlnodes import Node, parse_xml  # noqa: E402
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>
 <hierarchy rotation="0">
@@ -51,3 +51,39 @@ class SelectorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelectTargetTest(unittest.TestCase):
+    """`pick="last"` resolves a dialog's copy of a label by bounds, never by coordinates."""
+
+    # The two copies of "Use built-in rules": the screen's button and, below it, the dialog's.
+    BUTTON = (132, 990, 517, 1049)
+    CONFIRM = (604, 1305, 900, 1351)
+
+    def setUp(self):
+        def label(bounds):
+            return Node(
+                index=0,
+                class_name="android.widget.TextView",
+                package="dev.k3vinb5.freesocial",
+                resource_id="",
+                text="Use built-in rules",
+                content_desc="",
+                bounds=bounds,
+            )
+
+        self.candidates = [label(self.BUTTON), label(self.CONFIRM)]
+
+    def test_first_keeps_dump_order(self):
+        self.assertEqual(select_target(self.candidates).bounds, self.BUTTON)
+
+    def test_last_takes_the_lowest_match(self):
+        self.assertEqual(select_target(self.candidates, "last").bounds, self.CONFIRM)
+
+    def test_empty_candidates_raise(self):
+        with self.assertRaises(IndexError):
+            select_target([], "last")
+
+    def test_unknown_pick_is_rejected(self):
+        with self.assertRaises(ValueError):
+            select_target(self.candidates, "middle")

@@ -89,6 +89,50 @@ private fun importDocumentIntent(): Intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
     .setType(IMPORT_BASE_TYPE)
     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
+/** Which banner the Export button leaves on screen. */
+internal enum class ExportMessage { EXPORTED, REJECTED }
+
+/**
+ * What pressing **Export rules** must do after publishing the effective rules to the override
+ * path, decided from the catalog's result alone so it can be tested without a screen.
+ *
+ * [adopted] gates the catalog refresh: only an adopted document may make the screen read
+ * *Your override* and offer *Use built-in rules*. [openPicker] gates the "save a copy elsewhere"
+ * picker — a document that was **not** adopted must never be offered for saving as if it had been,
+ * and must never leave an "exported" banner behind (device regression, 2026-11-07: the failure
+ * banner was overwritten by the picker callback's success text).
+ */
+internal data class ExportEffect(
+    val adopted: Boolean,
+    val openPicker: Boolean,
+    val message: ExportMessage,
+)
+
+internal fun exportEffect(result: RuleCatalog.ApplyResult): ExportEffect = when (result) {
+    is RuleCatalog.ApplyResult.Ok ->
+        ExportEffect(adopted = true, openPicker = true, message = ExportMessage.EXPORTED)
+    is RuleCatalog.ApplyResult.Invalid ->
+        ExportEffect(adopted = false, openPicker = false, message = ExportMessage.REJECTED)
+    is RuleCatalog.ApplyResult.Failed ->
+        ExportEffect(adopted = false, openPicker = false, message = ExportMessage.REJECTED)
+}
+
+/** The validator's / file system's reason for a rejected document, or null on success. */
+internal fun RuleCatalog.ApplyResult.errorOrNull(): String? = when (this) {
+    is RuleCatalog.ApplyResult.Ok -> null
+    is RuleCatalog.ApplyResult.Invalid -> error
+    is RuleCatalog.ApplyResult.Failed -> error
+}
+
+/** Which banner the Import picker leaves on screen; only [IMPORTED] may claim the rules changed. */
+internal enum class RuleApplyMessage { IMPORTED, REJECTED }
+
+internal fun RuleCatalog.ApplyResult.importMessage(): RuleApplyMessage = when (this) {
+    is RuleCatalog.ApplyResult.Ok -> RuleApplyMessage.IMPORTED
+    is RuleCatalog.ApplyResult.Invalid -> RuleApplyMessage.REJECTED
+    is RuleCatalog.ApplyResult.Failed -> RuleApplyMessage.REJECTED
+}
+
 /**
  * F14 — surfaces & rules.
  *
@@ -207,15 +251,20 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             message = if (text == null) {
                 context.getString(R.string.inspector_import_failed)
             } else {
-                when (val applied = RuleCatalog.applyOverride(context, text)) {
-                    is RuleCatalog.ApplyResult.Ok -> {
+                val applied = RuleCatalog.applyOverride(context, text)
+                when (applied.importMessage()) {
+                    RuleApplyMessage.IMPORTED -> {
                         refreshCatalog()
-                        context.getString(R.string.inspector_import_ok, applied.rules.size)
+                        context.getString(
+                            R.string.inspector_import_ok,
+                            (applied as RuleCatalog.ApplyResult.Ok).rules.size,
+                        )
                     }
-                    is RuleCatalog.ApplyResult.Invalid ->
-                        context.getString(R.string.inspector_import_rejected, applied.error)
-                    is RuleCatalog.ApplyResult.Failed ->
-                        context.getString(R.string.inspector_import_rejected, applied.error)
+                    RuleApplyMessage.REJECTED ->
+                        context.getString(
+                            R.string.inspector_import_rejected,
+                            applied.errorOrNull().orEmpty(),
+                        )
                 }
             }
         }
@@ -340,22 +389,25 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         // so the screen state matches the disk (source=OVERRIDE, import time, the
                         // "Use built-in rules" button) instead of claiming "Built-in rules" while
                         // a file is on disk that shadows them at the next process start.
-                        val path = RuleCatalog.overridePath(context)
-                        message = when (
-                            val written = RuleCatalog.applyOverride(
-                                context,
-                                RuleCatalog.exportText(context),
+                        val applied = RuleCatalog.applyOverride(
+                            context,
+                            RuleCatalog.exportText(context),
+                        )
+                        val effect = exportEffect(applied)
+                        if (effect.adopted) refreshCatalog()
+                        message = when (effect.message) {
+                            ExportMessage.EXPORTED -> context.getString(
+                                R.string.inspector_exported,
+                                RuleCatalog.overridePath(context),
                             )
-                        ) {
-                            is RuleCatalog.ApplyResult.Ok ->
-                                context.getString(R.string.inspector_exported, path)
-                            is RuleCatalog.ApplyResult.Invalid ->
-                                context.getString(R.string.inspector_import_rejected, written.error)
-                            is RuleCatalog.ApplyResult.Failed ->
-                                context.getString(R.string.inspector_import_rejected, written.error)
+                            ExportMessage.REJECTED -> context.getString(
+                                R.string.inspector_import_rejected,
+                                applied.errorOrNull().orEmpty(),
+                            )
                         }
-                        refreshCatalog()
-                        exportLauncher.launch(RuleOverride.FILE_NAME)
+                        // A document that was not adopted is not offered for saving as if it
+                        // had been: the failure banner stays the last thing the user sees.
+                        if (effect.openPicker) exportLauncher.launch(RuleOverride.FILE_NAME)
                     },
                 )
                 SecondaryButton(

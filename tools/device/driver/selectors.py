@@ -89,3 +89,21 @@ def by_desc(value: str, match: str = "exact", index: int = 0) -> Selector:
 
 def by_class(value: str, match: str = "exact", index: int = 0) -> Selector:
     return Selector(cls=value, match=match, index=index)
+
+
+def select_target(nodes: list[Node], pick: str = "first") -> Node:
+    """Choose one node among already-matched candidates.
+
+    ``pick="first"`` keeps dump order (the screen's own copy of a label). ``pick="last"`` takes
+    the candidate **lowest on screen**, which is the dialog's copy when the same label also
+    exists on the screen behind the dialog (measured on the "use built-in rules" confirm, whose
+    two matches differ only by their bounds). Choosing by bounds keeps the primitive semantic:
+    callers name the instance they want, never coordinates.
+    """
+    if not nodes:
+        raise IndexError("no candidate nodes to choose from")
+    if pick == "first":
+        return nodes[0]
+    if pick == "last":
+        return max(nodes, key=lambda n: n.bounds[1])
+    raise ValueError(f"unknown pick={pick!r} (expected 'first' or 'last')")

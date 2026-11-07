@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-from .selectors import Selector, matches
+from .selectors import Selector, matches, select_target
 from .xmlnodes import Node, parse_xml
 
 # No device address is ever hardcoded here: pick the target at run time from an
@@ -359,15 +359,28 @@ class Device:
             )
 
     # -------------------------------------------------------------- actions
-    def tap(self, selector: Selector, nodes: list[Node] | None = None) -> Node:
+    def tap(self, selector: Selector, nodes: list[Node] | None = None, pick: str = "first") -> Node:
+        """Tap the node [selector] resolves, bounds read from this dump.
+
+        ``pick="last"`` taps the *lowest* match instead of the first: a dialog's confirm button
+        repeats the label of the button that opened it, and that repeat is below it. The guard
+        always scans the whole hierarchy, so a consent/login wall still aborts the step.
+        """
         nodes = nodes if nodes is not None else self.dump()
         self._guard(nodes)
-        node = self.find_one(selector, nodes)
+        if pick == "first":
+            node = self.find_one(selector, nodes)
+        else:
+            found = self.find(selector, nodes)
+            if len(found) <= selector.index:
+                self._fail(f"no node matches {selector} (found {len(found)} visible nodes)")
+            node = select_target(found[selector.index:], pick)
         x, y = node.center
         proc = self._adb("shell", "input", "tap", str(x), str(y))
         if proc.returncode != 0 or "error" in (proc.stdout + proc.stderr).lower():
             self._fail(f"input tap failed at {x},{y} for {selector}")
-        self._record(f"tap {selector}", f"ok center={x},{y} node={node.label(50)}")
+        suffix = "" if pick == "first" else f" pick={pick}"
+        self._record(f"tap {selector}{suffix}", f"ok center={x},{y} node={node.label(50)}")
         return node
 
     def long_press(self, selector: Selector, duration_ms: int = 1000) -> Node:

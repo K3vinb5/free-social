@@ -84,15 +84,10 @@ def _confirm_revert(d):
     policy.scroll_until(d, REVERT, max_swipes=10)
     d.tap(REVERT)
     d.wait(1.5)
-    # The dialog's confirm button carries the same label as the screen button: the dialog's
-    # copy is the lower of the two visible nodes.
-    candidates = [n for n in d.dump() if (n.text or "") == "Use built-in rules"]
-    if len(candidates) < 2:
-        raise AssertionError("the 'use built-in rules' confirmation dialog did not open")
-    confirm = max(candidates, key=lambda n: n.bounds[1])
-    x = (confirm.bounds[0] + confirm.bounds[2]) // 2
-    y = (confirm.bounds[1] + confirm.bounds[3]) // 2
-    d.shell("input", "tap", str(x), str(y))
+    # The dialog's confirm button carries the same label as the screen button; `pick="last"`
+    # taps the lowest match (the dialog's copy) through the semantic primitive, so the bounds
+    # still come from the live dump and the consent-wall guard still runs.
+    d.tap(REVERT, pick="last")
     d.wait(2.0)
 
 
@@ -299,7 +294,7 @@ def run(d):
     d.tap(EXPORT)
     d.wait(3.0)
     if d.current_package() == "com.google.android.documentsui":
-        d.shell("input", "keyevent", "KEYCODE_BACK")
+        d.back()
         d.wait(1.5)
     base_document = _override_text(d)
     policy.save_lines(d, "override-exported.json", base_document.splitlines())

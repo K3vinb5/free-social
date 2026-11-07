@@ -1,71 +1,170 @@
 package dev.k3vinb5.freesocial.ui.screens
 
-import java.io.File
+import dev.k3vinb5.freesocial.core.Action
+import dev.k3vinb5.freesocial.core.MatchSpec
+import dev.k3vinb5.freesocial.core.Rule
+import dev.k3vinb5.freesocial.filter.RuleCatalog
+import dev.k3vinb5.freesocial.filter.RuleOverride
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Regression pins for the heal-from-dump loop on the Rule Inspector, both found on device on
- * 2026-11-07 (`reverse/runtime-reno/heal/REPORT.md`, bugs A and B).
+ * The heal loop's failure modes, pinned on the decisions the Rule Inspector makes (found on device
+ * 2026-11-07, `reverse/runtime-reno/heal/REPORT.md`, bugs A/B and the export-overwrites-failure
+ * defect).
  *
- * The screen is Compose, so the observable contract is the handler wiring; the pure behaviour it
- * delegates to ([dev.k3vinb5.freesocial.filter.RuleCatalog.applyOverride],
- * [dev.k3vinb5.freesocial.filter.RuleOverride.parse]) is covered by `RuleOverrideTest` and the
- * device run.
+ * The screen is Compose, so the contract under test is the pure seam it delegates to: which
+ * [ExportEffect] a catalog result produces, and which [RuleCatalog.Adoption.Decision] a parsed
+ * document plus a write outcome produces. Behaviour, not source text: a screen that refreshed the
+ * catalog or opened the picker on a rejected document fails here.
  */
 class RuleInspectorHealTest {
 
-    private fun screenSource(): String =
-        File("src/main/java/dev/k3vinb5/freesocial/ui/screens/RuleInspectorScreen.kt").readText()
+    private val rule = Rule(
+        id = "ig_reels_tab",
+        appPackage = "com.instagram.android",
+        surface = "reels_tab",
+        layer = 1,
+        match = MatchSpec(viewId = "com.instagram.android:id/clips_tab"),
+        action = Action.TAP_HOME_TAB,
+    )
 
-    /** The `onClick` body of the "Export rules" button. */
-    private fun exportHandler(): String = screenSource()
-        .substringAfter("text = stringResource(R.string.inspector_export)")
-        .substringBefore("text = stringResource(R.string.inspector_import)")
+    private fun parsed(text: String = VALID_DOCUMENT): RuleOverride.Parse = RuleOverride.parse(text)
+
+    /** Locale policy (rule #271): a localized string alone can never be the only anchor. */
+    private val invalidDocument = """
+        {
+          "schemaVersion": 1,
+          "rules": [
+            {
+              "id": "ig_reels_tab",
+              "appPackage": "com.instagram.android",
+              "surface": "reels_tab",
+              "layer": 1,
+              "match": { "textRegex": "(?i)^reels${'$'}" },
+              "action": "TAP_HOME_TAB"
+            }
+          ]
+        }
+    """.trimIndent()
+
+    // --- Export: adoption, picker and banner ------------------------------------------------
 
     @Test
-    fun `export publishes the document through the catalog so the screen state matches the disk`() {
-        val export = exportHandler()
+    fun `a published document is adopted, refreshes rules-in-use and opens the picker`() {
+        val effect = exportEffect(RuleCatalog.ApplyResult.Ok(listOf(rule)))
 
-        // Device bug A: the handler wrote filesDir/rules-override.json with a bare writeText, so a
-        // file that *is* loaded at the next process start existed while the screen still read
-        // "Built-in rules" and hid both the import time and "Use built-in rules".
-        assertTrue(
-            "the export must adopt the document it writes",
-            export.contains("RuleCatalog.applyOverride("),
-        )
-        assertFalse(
-            "a bare override-file write leaves the screen on the built-in source",
-            export.contains("overrideFile(") || export.contains(".writeText("),
-        )
-        assertTrue(
-            "the screen must re-read the catalog after publishing the file",
-            export.contains("refreshCatalog()"),
+        assertTrue("the override becomes the active rule set", effect.adopted)
+        assertTrue("the user can save a copy elsewhere", effect.openPicker)
+        assertEquals(ExportMessage.EXPORTED, effect.message)
+        assertNull(
+            "a success carries no failure reason",
+            RuleCatalog.ApplyResult.Ok(listOf(rule)).errorOrNull(),
         )
     }
 
     @Test
-    fun `the import picker asks for json alone so the exported document is listed`() {
-        // Device bug B: ColorOS DocumentsUI filters on the base type and, when
-        // EXTRA_MIME_TYPES is present, hides the application/json rows — so
-        // ActivityResultContracts.OpenDocument (base "*/*" + extras) never showed the
-        // `rules-override.json` the app had just exported, while
-        // `am start -a OPEN_DOCUMENT -t application/json` lists it immediately.
+    fun `an invalid document is not adopted, opens no picker and reports the validator error`() {
+        val applied = RuleCatalog.ApplyResult.Invalid("rules[0].match: missing viewId, text or desc")
+        val effect = exportEffect(applied)
+
+        assertFalse("nothing was written, so nothing may be called the override", effect.adopted)
+        assertFalse("the picker must not offer to save a document that is not active", effect.openPicker)
+        assertEquals(ExportMessage.REJECTED, effect.message)
+        assertEquals(
+            "the banner shows the validator's own reason",
+            "rules[0].match: missing viewId, text or desc",
+            applied.errorOrNull(),
+        )
+    }
+
+    @Test
+    fun `a write failure is not adopted, opens no picker and reports the filesystem error`() {
+        val applied = RuleCatalog.ApplyResult.Failed("Permission denied")
+        val effect = exportEffect(applied)
+
+        assertFalse("a failed write leaves the previous rules active", effect.adopted)
+        assertFalse(effect.openPicker)
+        assertEquals(
+            "a failed adoption must never claim it exported anything",
+            ExportMessage.REJECTED,
+            effect.message,
+        )
+        assertEquals("Permission denied", applied.errorOrNull())
+    }
+
+    // --- Import: only a real adoption may claim the rules changed ---------------------------
+
+    @Test
+    fun `only an adopted import claims the rules changed`() {
+        assertEquals(
+            RuleApplyMessage.IMPORTED,
+            RuleCatalog.ApplyResult.Ok(listOf(rule)).importMessage(),
+        )
+        assertEquals(
+            RuleApplyMessage.REJECTED,
+            RuleCatalog.ApplyResult.Invalid("bad").importMessage(),
+        )
+        assertEquals(
+            RuleApplyMessage.REJECTED,
+            RuleCatalog.ApplyResult.Failed("disk full").importMessage(),
+        )
+    }
+
+    // --- RuleCatalog.Adoption: the decision that changes the live engine -------------------
+
+    @Test
+    fun `a valid document that was written is adopted with its rules`() {
+        val decision = RuleCatalog.Adoption.decide(parsed(), writeError = null)
+
+        assertTrue("expected an adoption, got $decision", decision is RuleCatalog.Adoption.Decision.Adopt)
+        val adopted = (decision as RuleCatalog.Adoption.Decision.Adopt).rules
+        assertEquals(listOf("ig_reels_tab"), adopted.map { it.id })
+    }
+
+    @Test
+    fun `a valid document whose write failed is rejected and nothing is adopted`() {
+        val decision = RuleCatalog.Adoption.decide(parsed(), writeError = "No space left on device")
+
+        assertEquals(
+            RuleCatalog.Adoption.Decision.Reject("No space left on device"),
+            decision,
+        )
+    }
+
+    @Test
+    fun `an invalid document is rejected with the validator error`() {
+        val decision = RuleCatalog.Adoption.decide(parsed(invalidDocument), writeError = null)
+
         assertTrue(
-            "the base type must be the document the export writes",
-            IMPORT_BASE_TYPE == "application/json",
-        )
-        val intent = screenSource()
-            .substringAfter("private fun importDocumentIntent()")
-            .substringBefore("/**")
-        assertFalse(
-            "EXTRA_MIME_TYPES hides the exported json on this picker",
-            intent.contains("EXTRA_MIME_TYPES") || intent.contains("IMPORT_MIME_TYPES"),
+            "a document the loader rejects must never reach the engine: $decision",
+            decision is RuleCatalog.Adoption.Decision.Reject,
         )
         assertTrue(
-            "the import button must launch the shared intent",
-            screenSource().contains("importLauncher.launch(importDocumentIntent())"),
+            "the banner shows the validator's own reason: $decision",
+            (decision as RuleCatalog.Adoption.Decision.Reject).error.contains("locale-proof"),
         )
+    }
+
+    private companion object {
+        /** One rule, in the shape `Export rules` writes (see `rules.json`). */
+        val VALID_DOCUMENT = """
+            {
+              "schemaVersion": 1,
+              "rules": [
+                {
+                  "id": "ig_reels_tab",
+                  "appPackage": "com.instagram.android",
+                  "surface": "reels_tab",
+                  "layer": 1,
+                  "match": { "viewId": "com.instagram.android:id/clips_tab" },
+                  "action": "TAP_HOME_TAB"
+                }
+              ]
+            }
+        """.trimIndent()
     }
 }
