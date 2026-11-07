@@ -9,7 +9,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/** The inspector <-> service one-shot handshake: arm, capture once, expire after 60 s. */
+/**
+ * The inspector <-> service handshake: guided capture arms the device for detection + recording,
+ * the service never consumes it, and it expires at the guided ceiling (D17 removed the manual arm).
+ */
 class DumpArmTest {
 
     @Before
@@ -22,45 +25,11 @@ class DumpArmTest {
     }
 
     @Test
-    fun `arm then capture consumes the one shot`() {
-        DumpArm.arm("IG · home feed", now = 1_000)
-        assertTrue(DumpArm.isArmed(1_000))
-        assertEquals("IG · home feed", DumpArm.armedScreen(1_000))
-
-        assertEquals("IG · home feed", DumpArm.consume(2_000))
-        // Auto-cleared after the single capture: a second event must not write again.
-        assertFalse(DumpArm.isArmed(2_000))
-        assertNull(DumpArm.consume(2_001))
-    }
-
-    @Test
-    fun `arm expires at sixty seconds`() {
-        DumpArm.arm("YT · shorts player", now = 10_000)
-        assertTrue(DumpArm.isArmed(10_000 + DumpArm.EXPIRY_MS - 1))
-        assertFalse(DumpArm.isArmed(10_000 + DumpArm.EXPIRY_MS))
-        assertNull(DumpArm.consume(10_000 + DumpArm.EXPIRY_MS + 1))
-    }
-
-    @Test
     fun `capture while unarmed is ignored`() {
         assertFalse(DumpArm.isArmed(0))
         assertNull(DumpArm.consume(0))
         assertNull(DumpArm.armedScreen(0))
-    }
-
-    @Test
-    fun `rearming replaces the label and restarts the window`() {
-        DumpArm.arm("IG · home feed", now = 1_000)
-        DumpArm.arm("TT · playback", now = 30_000)
-        assertTrue(DumpArm.isArmed(30_000 + DumpArm.EXPIRY_MS - 1))
-        assertEquals("TT · playback", DumpArm.consume(30_000))
-    }
-
-    @Test
-    fun `cancel disarms before any capture`() {
-        DumpArm.arm("IG · reels viewer", now = 5_000)
-        DumpArm.cancel()
-        assertFalse(DumpArm.isArmed(5_000))
+        assertNull(DumpArm.remainingMillis(0))
     }
 
     @Test
@@ -87,7 +56,7 @@ class DumpArmTest {
     fun `a guided arm covers detection and recording and the service never consumes it`() {
         DumpArm.armGuided("shorts_player", now = 1_000)
 
-        // 30 s detection + 15 s recording fit, and past the old 60 s window filtering stays paused.
+        // 30 s detection + 15 s recording fit, well inside the guided ceiling.
         assertTrue(DumpArm.isArmed(1_000 + 61_000))
         assertTrue(DumpArm.isGuided(1_000 + 61_000))
         // The service must not capture on its own: the guided session verifies the surface first.
@@ -101,34 +70,18 @@ class DumpArmTest {
     }
 
     @Test
-    fun `cancel ends a guided arm and restores normal readiness`() {
+    fun `cancel ends a guided arm and disarms the device`() {
         DumpArm.armGuided("home", now = 0)
         DumpArm.cancel()
 
         assertFalse(DumpArm.isGuided(0))
-        assertTrue(DumpArm.readyFor(YT, YT))
+        assertFalse(DumpArm.captureActive(0))
+        assertNull(DumpArm.remainingMillis(0))
     }
 
     @Test
-    fun `captureActive covers a manual arm and hands control back on expiry`() {
-        assertFalse("nothing armed", DumpArm.captureActive(0))
-
-        DumpArm.arm("TT · playback", now = 1_000)
-        assertTrue(DumpArm.captureActive(1_000))
-        assertTrue(DumpArm.captureActive(1_000 + DumpArm.EXPIRY_MS - 1))
-        assertFalse("the 60 s arm is dead", DumpArm.captureActive(1_000 + DumpArm.EXPIRY_MS))
-
-        // Ordered like BlockService sees it: pause while armed, resume once the capture consumed it.
-        DumpArm.arm("TT · playback", now = 5_000)
-        assertTrue(DumpArm.captureActive(6_000))
-        DumpArm.consume(6_000)
-        assertFalse(DumpArm.captureActive(6_001))
-    }
-
-    @Test
-    fun `captureActive covers the longer guided window and ends with the session`() {
+    fun `captureActive covers the guided window and ends with the session`() {
         DumpArm.armGuided("shorts_player", now = 1_000)
-        // Past the manual window, still inside detection + recording.
         assertTrue(DumpArm.captureActive(1_000 + 61_000))
         DumpArm.refreshGuided(now = 100_000)
         assertTrue(DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
@@ -137,6 +90,39 @@ class DumpArmTest {
         DumpArm.armGuided("home", now = 200_000)
         DumpArm.cancel()
         assertFalse(DumpArm.captureActive(200_000))
+    }
+
+    /**
+     * D16: blocking schedules its re-check on this deadline, so it must count down inside the
+     * window, never go below one millisecond while armed, and clear itself exactly at the ceiling.
+     */
+    @Test
+    fun `remainingMillis tracks the guided deadline and clears an expired arm`() {
+        DumpArm.armGuided("home", now = 1_000)
+
+        assertEquals(DumpArm.GUIDED_EXPIRY_MS, DumpArm.remainingMillis(1_000))
+        assertEquals(DumpArm.GUIDED_EXPIRY_MS - 30_000, DumpArm.remainingMillis(31_000))
+        assertEquals(1L, DumpArm.remainingMillis(1_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
+        assertNull(DumpArm.remainingMillis(1_000 + DumpArm.GUIDED_EXPIRY_MS))
+        assertFalse(DumpArm.isArmed(1_000 + DumpArm.GUIDED_EXPIRY_MS))
+    }
+
+    @Test
+    fun `refreshGuided moves the remaining deadline`() {
+        DumpArm.armGuided("shorts_player", now = 1_000)
+        DumpArm.refreshGuided(now = 50_000)
+
+        assertEquals(DumpArm.GUIDED_EXPIRY_MS, DumpArm.remainingMillis(50_000))
+        assertEquals(1L, DumpArm.remainingMillis(50_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
+        assertNull(DumpArm.remainingMillis(50_000 + DumpArm.GUIDED_EXPIRY_MS))
+    }
+
+    @Test
+    fun `consume clears an armed guided session`() {
+        DumpArm.armGuided("IG · home feed", now = 1_000)
+        assertEquals("IG · home feed", DumpArm.consume(2_000))
+        assertFalse(DumpArm.isArmed(2_000))
+        assertNull(DumpArm.consume(2_001))
     }
 
     /**
@@ -165,24 +151,6 @@ class DumpArmTest {
             assertTrue(DumpArm.captureActive())
             assertTrue(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS - 1))
             assertFalse(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS))
-        } finally {
-            DumpArm.useClock()
-            DumpArm.cancel()
-        }
-    }
-
-    /**
-     * The same handover on the manual arm: `arm()` and `captureActive()` must agree without either
-     * side passing a timestamp, so a caller that forgets `now` cannot land in another domain.
-     */
-    @Test
-    fun `manual arm and capture check agree on the injected clock`() {
-        try {
-            DumpArm.useClock { 7_000_000L }
-            DumpArm.arm("IG · home feed")
-            assertTrue(DumpArm.captureActive())
-            assertEquals("IG · home feed", DumpArm.armedScreen())
-            assertFalse(DumpArm.captureActive(7_000_000L + DumpArm.EXPIRY_MS))
         } finally {
             DumpArm.useClock()
             DumpArm.cancel()

@@ -25,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.block.BlockReason
 import dev.k3vinb5.freesocial.settings.AppTarget
 import dev.k3vinb5.freesocial.settings.SettingsRepository
 import dev.k3vinb5.freesocial.ui.components.Caption
@@ -48,9 +49,9 @@ class BlockActivity : ComponentActivity() {
             platform = intent.getStringExtra(EXTRA_PLATFORM),
             packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME),
         )
-        val reason = intent.getStringExtra(EXTRA_REASON)?.takeIf { it.isNotBlank() }
-        // No reason extra (defensive fallback): read the wake clock from the live schedule so the
-        // copy can never drift from a per-day override the way a hardcoded time did.
+        // D14: the extra carries the gate's reason *kind*, not pre-rendered copy. The wake-time
+        // body has to be interpolated here, from the live schedule, or a per-day override drifts.
+        val reason = reasonFrom(intent.getStringExtra(EXTRA_REASON))
         val wakeClock = SettingsRepository.formatClock(
             SettingsRepository.from(this).scheduleState().nextWakeMinutes(ZonedDateTime.now()),
         )
@@ -59,12 +60,21 @@ class BlockActivity : ComponentActivity() {
             FreeSocialTheme {
                 BlockScreen(
                     appLabel = stringResource(target?.nameRes ?: R.string.block_app_fallback),
-                    reason = reason,
-                    fallbackBody = stringResource(R.string.block_screen_body, wakeClock),
+                    body = BlockCopy.body(
+                        reason = reason,
+                        wakeBody = stringResource(R.string.block_screen_body, wakeClock),
+                        appBody = stringResource(R.string.block_reason_app),
+                    ),
                     onGoHome = ::goHome,
                 )
             }
         }
+    }
+
+    /** Unknown or missing extra -> null, i.e. the generic body (never a crash on a bad intent). */
+    private fun reasonFrom(raw: String?): BlockReason? {
+        val name = raw?.takeIf { it.isNotBlank() } ?: return null
+        return BlockReason.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
 
     /**
@@ -82,20 +92,33 @@ class BlockActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_PLATFORM = "platform"
+
+        /** A [BlockReason] name (`schedule` / `app_block`); mapped to copy by [BlockCopy]. */
         const val EXTRA_REASON = "reason"
         const val EXTRA_PACKAGE_NAME = "package_name"
     }
 }
 
 /**
- * Centered block card. [reason] is the per-reason copy from BlockService; [fallbackBody] is used
- * when no reason was supplied and carries the schedule's actual wake time.
+ * D14 — the gate reason chooses the block-screen body.
+ *
+ * [BlockReason.SCHEDULE] proves the nightly window is what blocked the app, so the screen must carry
+ * the interpolated wake time ("Focus time — come back at 07:00."), read from the live schedule so a
+ * per-day override is honoured. Every other reason — and a missing/garbled extra — keeps the generic
+ * app-block text. Pure so the mapping is unit-tested on the JVM.
  */
+object BlockCopy {
+    fun body(reason: BlockReason?, wakeBody: String, appBody: String): String = when (reason) {
+        BlockReason.SCHEDULE -> wakeBody
+        BlockReason.APP_BLOCK, null -> appBody
+    }
+}
+
+/** Centered block card. [body] carries the copy chosen for the gate reason (see [BlockCopy]). */
 @Composable
 fun BlockScreen(
     appLabel: String,
-    reason: String?,
-    fallbackBody: String,
+    body: String,
     onGoHome: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -127,7 +150,7 @@ fun BlockScreen(
             )
             HorizontalGap(10.dp)
             Text(
-                text = reason ?: fallbackBody,
+                text = body,
                 style = MaterialTheme.typography.bodyLarge,
                 color = FsColors.TextSecondary,
                 textAlign = TextAlign.Center,

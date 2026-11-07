@@ -88,7 +88,7 @@ class DirectEngagementPolicyTest {
     fun `an armed inspector capture performs zero actions and restores afterwards`() {
         DumpArm.cancel()
         try {
-            DumpArm.arm("policy test", now = 0)
+            DumpArm.armGuided("policy test", now = 0)
             assertTrue(DumpArm.isArmed(0))
             assertEquals(
                 GateOutcome.NONE,
@@ -96,8 +96,8 @@ class DirectEngagementPolicyTest {
             )
             assertNull(RuleGate.chosen(listOf(player), true, true, dumpArmed = true))
 
-            // Capture completes → enforcement is back automatically.
-            assertEquals("policy test", DumpArm.consume(0))
+            // Capture completes -> enforcement is back automatically.
+            DumpArm.cancel()
             assertFalse(DumpArm.isArmed(0))
             assertEquals(
                 GateOutcome.ESCAPE,
@@ -105,8 +105,8 @@ class DirectEngagementPolicyTest {
             )
 
             // Expiry restores it too.
-            DumpArm.arm("expiry test", now = 0)
-            assertFalse(DumpArm.isArmed(DumpArm.EXPIRY_MS))
+            DumpArm.armGuided("expiry test", now = 0)
+            assertFalse(DumpArm.isArmed(DumpArm.GUIDED_EXPIRY_MS))
         } finally {
             DumpArm.cancel()
         }

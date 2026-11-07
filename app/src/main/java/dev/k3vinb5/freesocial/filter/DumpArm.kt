@@ -3,22 +3,22 @@ package dev.k3vinb5.freesocial.filter
 import android.os.SystemClock
 
 /**
- * The one-shot "arm, then switch app" handshake between the rule inspector and [FilterService].
+ * The one-shot capture handshake between the rule inspector and [FilterService].
  *
- * The inspector cannot read another app's window from its own process, so the user arms a capture
- * and then opens the target app; the service sees the next `typeWindowStateChanged` for one of
- * [FilterService.TARGET_PACKAGES] and writes that tree. Deliberately boring: two fields, plain
- * synchronization, and an injectable clock so the state machine stays JVM-testable.
+ * The inspector's guided session arms the capture and then launches the target app; the service
+ * sees the target's `typeWindowStateChanged`/poll and [GuidedCapture] writes the verified tree.
+ * Deliberately boring: two fields, plain synchronization, and an injectable clock so the state
+ * machine stays JVM-testable.
  *
  * **One clock domain.** Every arm lives in monotonic elapsed-realtime millis — the same source
  * `GuidedCapture` polls on and `FilterService` uses. Mixing a wall-clock stamp with an
  * elapsedRealtime refresh made a guided arm look expired at the detection → recording handover
  * (and blocking then resumed mid-recording), so the domain is fixed and injectable, never implicit.
+ *
+ * D17: the old manual "arm, then switch app" entry point (`arm()`, 60 s `EXPIRY_MS`) had no
+ * production caller after guided capture shipped and was removed; every arm is a guided one now.
  */
 object DumpArm {
-
-    /** An armed capture older than this is dead — the user did not open a target app in time. */
-    const val EXPIRY_MS = 60_000L
 
     /**
      * A guided capture owns the arm for the whole flow: up to 30 s of surface detection plus 15 s
@@ -49,14 +49,6 @@ object DumpArm {
 
     /** Current time in the arm's single domain (elapsed-realtime millis on device). */
     fun nowMillis(): Long = clock()
-
-    /** Arms one capture labelled [screen] (the inspector's screen name for the dump document). */
-    @Synchronized
-    fun arm(screen: String, now: Long = clock()) {
-        armedAt = now
-        this.screen = screen
-        guided = false
-    }
 
     /**
      * Arms a guided capture: filtering stays paused through detection + recording, and the service
@@ -94,13 +86,27 @@ object DumpArm {
     fun isArmed(now: Long = clock()): Boolean = armedScreen(now) != null
 
     /**
-     * True while a capture owns the device: a manual 60 s arm waiting for its target window, or a
-     * guided session across detection + recording (120 s ceiling, refreshed per phase).
+     * Millis left before the active guided arm expires, or null when nothing is armed (an expired
+     * arm clears itself). `block.BlockService` schedules its post-expiry re-check on this (D16).
+     */
+    @Synchronized
+    fun remainingMillis(now: Long = clock()): Long? {
+        if (screen == null) return null
+        if (expired(now)) {
+            clear()
+            return null
+        }
+        return GUIDED_EXPIRY_MS - (now - armedAt)
+    }
+
+    /**
+     * True while a capture owns the device: a guided session across detection + recording (120 s
+     * ceiling, refreshed per phase).
      *
      * Both enforcement engines stand down while this is true — filtering reads [isArmed] in
-     * `FilterService`, blocking reads this in `block.BlockService`. The capture has to see the
-     * target app exactly as the user does: a block screen over it (or a flash) would replace the
-     * tree the dump must record.
+     * `FilterService`, blocking reads this (via [remainingMillis]) in `block.BlockService`. The
+     * capture has to see the target app exactly as the user does: a block screen over it (or a
+     * flash) would replace the tree the dump must record.
      */
     fun captureActive(now: Long = clock()): Boolean = isArmed(now)
 
@@ -147,7 +153,7 @@ object DumpArm {
     }
 
     private fun expired(now: Long): Boolean =
-        now - armedAt >= if (guided) GUIDED_EXPIRY_MS else EXPIRY_MS
+        now - armedAt >= GUIDED_EXPIRY_MS
 
     private fun clear() {
         armedAt = 0L
