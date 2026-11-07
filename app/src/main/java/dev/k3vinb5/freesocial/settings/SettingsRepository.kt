@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.k3vinb5.freesocial.R
 import dev.k3vinb5.freesocial.core.DaySchedule
+import dev.k3vinb5.freesocial.core.LocaleFormat
 import dev.k3vinb5.freesocial.core.ScheduleState
 import dev.k3vinb5.freesocial.core.ShortVideoBudget
 import java.time.LocalDate
@@ -505,11 +506,9 @@ class SettingsRepository(private val store: PrefsStore) {
         fun bedtimeKey(weekday: Int): String = "schedule_day_${weekday}_bedtime"
         fun wakeKey(weekday: Int): String = "schedule_day_${weekday}_wake"
 
-        /** "22:30" — 24-hour wall clock from minutes past midnight. */
-        fun formatClock(minutes: Int): String {
-            val normalized = minutes.mod(24 * 60)
-            return "%02d:%02d".format(normalized / 60, normalized % 60)
-        }
+        /** Locale clock for minutes past midnight (en-US "10:30 PM", pt-PT "22:30"). */
+        fun formatClock(minutes: Int, locale: java.util.Locale = java.util.Locale.getDefault()): String =
+            LocaleFormat.clock(minutes, locale)
 
         private fun clockOf(instant: ZonedDateTime): Int = instant.hour * 60 + instant.minute
 
