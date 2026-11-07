@@ -236,4 +236,15 @@
     <string name="block_service_label">Whole-app blocking</string>
     <string name="block_service_summary">Blocks Instagram, YouTube and TikTok entirely while their mode is Block</string>
     <string name="block_service_description">Watches which app comes to the front and shows the block screen for apps you set to Block, and during your nightly lock window. It reads package names only, never screen content.</string>
+
+    <!-- Track B: dump delete (Rule Inspector). Append-only block; keep new keys inside it. -->
+    <string name="inspector_dumps_delete_hint">Delete removes the file from this device. Sharing keeps a copy wherever you send it.</string>
+    <string name="inspector_dump_delete">Delete dump</string>
+    <string name="inspector_dump_delete_confirm">Delete this dump? The file is removed from this device.</string>
+    <string name="inspector_dumps_delete_all">Delete all dumps</string>
+    <string name="inspector_dumps_delete_all_confirm">Delete all %1$d dumps? This also removes the newest capture of each surface, which is otherwise kept automatically.</string>
+    <string name="inspector_delete_dialog_title">Delete dumps</string>
+    <string name="inspector_delete_confirm">Delete</string>
+    <string name="inspector_dumps_deleted">Deleted %1$d dump(s).</string>
+    <string name="inspector_dumps_delete_failed">Could not delete the dump.</string>
 </resources>

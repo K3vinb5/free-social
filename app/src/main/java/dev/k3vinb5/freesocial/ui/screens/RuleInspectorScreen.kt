@@ -61,6 +61,7 @@ import dev.k3vinb5.freesocial.ui.components.SectionLabel
 import dev.k3vinb5.freesocial.ui.components.TextButton
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -97,6 +98,7 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var stepCard by remember { mutableStateOf<CaptureSurfaces.Surface?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<DumpDelete?>(null) }
 
     fun refreshCatalog() {
         rules = RuleCatalog.current(context)
@@ -263,6 +265,7 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             if (dumps.isEmpty()) {
                 Caption(stringResource(R.string.inspector_no_dumps))
             } else {
+                Caption(stringResource(R.string.inspector_dumps_delete_hint))
                 dumps.forEach { dump ->
                     val key = dump.file.name
                     val open = expanded == key
@@ -272,9 +275,15 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         rules = rules,
                         onToggle = { expanded = if (open) null else key },
                         onShare = { shareDump(context, dump) },
+                        onDelete = { pendingDelete = DumpDelete.One(dump) },
                     )
                     Spacer(Modifier.height(8.dp))
                 }
+                SecondaryButton(
+                    text = stringResource(R.string.inspector_dumps_delete_all),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { pendingDelete = DumpDelete.All },
+                )
             }
 
             SectionLabel(stringResource(R.string.inspector_rules))
@@ -365,6 +374,61 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 )
             }
 
+            pendingDelete?.let { target ->
+                AlertDialog(
+                    onDismissRequest = { pendingDelete = null },
+                    title = {
+                        Text(
+                            text = stringResource(R.string.inspector_delete_dialog_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = FsColors.TextPrimary,
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = when (target) {
+                                is DumpDelete.One -> stringResource(R.string.inspector_dump_delete_confirm)
+                                DumpDelete.All -> stringResource(
+                                    R.string.inspector_dumps_delete_all_confirm,
+                                    dumps.size,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = FsColors.TextSecondary,
+                        )
+                    },
+                    // Destructive: only this button deletes. A row or "Delete all" merely arms the
+                    // prompt (see DumpDelete), so a stray tap can never lose a capture.
+                    confirmButton = {
+                        TextButton(
+                            text = stringResource(R.string.inspector_delete_confirm),
+                            onClick = {
+                                pendingDelete = null
+                                val removed = performDumpDelete(
+                                    target = target,
+                                    deleteOne = { DumpExporter.deleteOne(context, it) },
+                                    deleteAll = { DumpExporter.deleteAll(context) },
+                                )
+                                dumps = DumpExporter.list(context)
+                                expanded = null
+                                message = if (removed > 0) {
+                                    context.getString(R.string.inspector_dumps_deleted, removed)
+                                } else {
+                                    context.getString(R.string.inspector_dumps_delete_failed)
+                                }
+                            },
+                        )
+                    },
+                    dismissButton = {
+                        TextButton(
+                            text = stringResource(R.string.action_cancel),
+                            onClick = { pendingDelete = null },
+                        )
+                    },
+                    containerColor = FsColors.Surface,
+                )
+            }
+
             HorizontalGap(16.dp)
             Caption(stringResource(R.string.inspector_caption))
             HorizontalGap(24.dp)
@@ -444,6 +508,7 @@ private fun DumpRow(
     rules: List<Rule>,
     onToggle: () -> Unit,
     onShare: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val document = dump.document
     val surfaceLabel = when {
@@ -496,11 +561,41 @@ private fun DumpRow(
             }
         }
         HorizontalGap(10.dp)
-        TextButton(
-            text = stringResource(R.string.inspector_dump_share),
-            onClick = onShare,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(
+                text = stringResource(R.string.inspector_dump_share),
+                onClick = onShare,
+            )
+            TextButton(
+                text = stringResource(R.string.inspector_dump_delete),
+                onClick = onDelete,
+            )
+        }
     }
+}
+
+/** What a pending destructive tap targets; the confirm dialog is the only path that deletes. */
+internal sealed interface DumpDelete {
+    /** One listed dump, including the newest-per-surface file auto-prune exempts. */
+    data class One(val dump: DumpFile) : DumpDelete
+
+    /** Every dump on disk. */
+    data object All : DumpDelete
+}
+
+/**
+ * Runs a *confirmed* delete and reports how many files went. Extracted from the composable so the
+ * JVM test can prove the repository call pattern: [DumpDelete.One] calls [deleteOne] exactly once
+ * with that file and never [deleteAll]; [DumpDelete.All] calls [deleteAll] once and never
+ * [deleteOne]. Nothing here is called until the confirm button is tapped.
+ */
+internal fun performDumpDelete(
+    target: DumpDelete,
+    deleteOne: (File) -> Boolean,
+    deleteAll: () -> Int,
+): Int = when (target) {
+    is DumpDelete.One -> if (deleteOne(target.dump.file)) 1 else 0
+    DumpDelete.All -> deleteAll()
 }
 
 @Composable

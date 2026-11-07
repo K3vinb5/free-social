@@ -80,6 +80,9 @@ sealed interface DumpResult {
 object DumpExporter {
     const val DIR_NAME = "dumps"
 
+    /** Every dump is `"<pkg>-<stamp>.json"`; the delete guard refuses anything else. */
+    private const val DUMP_SUFFIX = ".json"
+
     private const val TAG = "DumpExporter"
     private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 
@@ -154,7 +157,7 @@ object DumpExporter {
         val file = try {
             writeFile(context, appPackage, text, now)
         } catch (t: Throwable) {
-            Log.w(TAG, "could not write dump for $appPackage", t)
+            logWarn("could not write dump for $appPackage", t)
             null
         }
         if (file != null) prune(context, keeping = file.name)
@@ -162,8 +165,10 @@ object DumpExporter {
     }
 
     /** Dumps already written by [FilterService]'s armed capture, newest first, after housekeeping. */
-    fun list(context: Context): List<DumpFile> {
-        val dir = dumpDir(context)
+    fun list(context: Context): List<DumpFile> = listIn(dumpDir(context))
+
+    /** [list] over an explicit directory; internal so the JVM tests can use a temp dir. */
+    internal fun listIn(dir: File): List<DumpFile> {
         val files = dir.listFiles { file -> file.isFile && file.name.endsWith(".json") } ?: return emptyList()
         val dumps = files.mapNotNull(::read)
         val deleted = deletePruned(dir, dumps, keeping = null)
@@ -171,6 +176,68 @@ object DumpExporter {
             .filterNot { it.file.name in deleted }
             .sortedByDescending { it.document.capturedAt }
     }
+
+    /**
+     * User-triggered delete of one dump (Rule Inspector).
+     *
+     * Deliberately independent of [DumpPruner]: the newest dump per package+surface is exempt from
+     * housekeeping ("in use") but the user may still remove it. Returns true when the file is gone.
+     * Only files that pass [isDumpFile] are ever unlinked — the same guard [deleteAllIn] uses, so a
+     * bad path can never remove a directory or something outside the dumps directory.
+     */
+    fun deleteOne(context: Context, file: File): Boolean = try {
+        deleteOneIn(dumpDir(context), file)
+    } catch (t: Throwable) {
+        logWarn("could not delete dump ${file.name}", t)
+        false
+    }
+
+    /** [deleteOne] against an explicit directory; internal for the JVM tests. */
+    internal fun deleteOneIn(dir: File, file: File): Boolean {
+        if (!isDumpFile(dir, file)) {
+            logWarn("refusing to delete a non-dump path: ${file.path}")
+            return false
+        }
+        return try {
+            val gone = file.delete()
+            if (!gone) logWarn("could not delete dump ${file.name}")
+            gone
+        } catch (t: Throwable) {
+            logWarn("could not delete dump ${file.name}", t)
+            false
+        }
+    }
+
+    /** "Delete all" — removes every dump in the dumps directory; returns how many were removed. */
+    fun deleteAll(context: Context): Int = deleteAllIn(dumpDir(context))
+
+    /**
+     * Deletes every *parsable* dump in [dir], leaving anything that is not one of our files (a
+     * foreign `.txt`, a half-written `.json`) untouched. Internal for the JVM tests.
+     */
+    internal fun deleteAllIn(dir: File): Int {
+        val files = dir.listFiles { file -> isDumpFile(dir, file) } ?: return 0
+        var removed = 0
+        files.forEach { file -> if (read(file) != null && deleteOneIn(dir, file)) removed++ }
+        if (removed > 0) logInfo("deleted $removed dumps on request")
+        return removed
+    }
+
+    /**
+     * The shared delete guard: a regular file, `*.json`, sitting directly inside [dir] (symlinks are
+     * resolved first, so a link pointing outside the dumps directory is refused). Anything else —
+     * a directory, a foreign file, a path elsewhere — is never deleted.
+     */
+    private fun isDumpFile(dir: File, file: File): Boolean = try {
+        val parent = file.canonicalFile.parentFile
+        file.isFile &&
+            file.name.endsWith(DUMP_SUFFIX) &&
+            parent != null &&
+            parent == dir.canonicalFile
+    } catch (t: Throwable) {
+        false
+    }
+
 
     /**
      * Applies [DumpPruner] to the dumps directory, never deleting [keeping] (the file being
@@ -184,7 +251,7 @@ object DumpExporter {
                 .mapNotNull(::read)
             deletePruned(dir, dumps, keeping)
         } catch (t: Throwable) {
-            Log.w(TAG, "could not prune old dumps", t)
+            logWarn("could not prune old dumps", t)
         }
     }
 
@@ -200,10 +267,10 @@ object DumpExporter {
         val entries = dumps.map { pruneEntry(it.file.name, it.document, it.file.lastModified()) }
         val doomed = DumpPruner.select(entries, Instant.now(), keeping).toSet()
         val deleted = doomed.filter { File(dir, it).delete() }.toSet()
-        if (deleted.isNotEmpty()) Log.i(TAG, "pruned ${deleted.size} old dumps")
+        if (deleted.isNotEmpty()) logInfo("pruned ${deleted.size} old dumps")
         deleted
     } catch (t: Throwable) {
-        Log.w(TAG, "could not prune old dumps", t)
+        logWarn("could not prune old dumps", t)
         emptySet()
     }
 
@@ -212,7 +279,7 @@ object DumpExporter {
         val document = json.decodeFromString(DumpDocument.serializer(), file.readText())
         DumpFile(file, document, document.nodes.size)
     } catch (t: Throwable) {
-        Log.w(TAG, "unreadable dump ${file.name}", t)
+        logWarn("unreadable dump ${file.name}", t)
         null
     }
 
@@ -224,6 +291,20 @@ object DumpExporter {
 
     /** `[l,t][r,b]`, the bounds format `uiautomator dump` emits. */
     fun boundsText(bounds: Bounds): String = "[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]"
+
+    /**
+     * Logging is best-effort. The JVM tests exercise the real disk code, where `android.util.Log`
+     * is an unmocked stub that throws; a logger must never turn a handled failure into a crash.
+     */
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun logWarn(message: String, error: Throwable? = null) {
+        runCatching {
+            if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
+        }
+    }
 
     private fun dumpDir(context: Context): File {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
