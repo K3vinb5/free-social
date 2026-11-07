@@ -70,7 +70,7 @@ class ContentFlashActivity : ComponentActivity() {
         }
         // Hard cap: even a flash that never receives focus (e.g. the launch is dropped and the
         // activity comes up behind) cannot outlive this.
-        handler.postDelayed(hardStop, HARD_STOP_MS)
+        handler.postDelayed(hardStop, FlashTiming.onCreateDelayMs())
     }
 
     /** The first frame is on screen: the promised 2.2 s starts now. */
@@ -89,14 +89,14 @@ class ContentFlashActivity : ComponentActivity() {
             armVisibleWindow()
         } else {
             handler.removeCallbacks(hardStop)
-            handler.postDelayed(hardStop, HARD_STOP_MS)
+            handler.postDelayed(hardStop, FlashTiming.rearmDelayMs(focused = false))
         }
     }
 
     private fun armVisibleWindow() {
         handler.removeCallbacks(autoDismiss)
         handler.removeCallbacks(hardStop)
-        handler.postDelayed(autoDismiss, FLASH_DURATION_MS)
+        handler.postDelayed(autoDismiss, FlashTiming.onFirstFocusDelayMs())
     }
 
     private fun copyFrom(intent: Intent?) =
@@ -123,10 +123,10 @@ class ContentFlashActivity : ComponentActivity() {
         const val EXTRA_REASON = "flash_reason"
 
         /** Short enough to read in passing, long enough to be noticed — measured from first focus. */
-        const val FLASH_DURATION_MS = 2_200L
+        const val FLASH_DURATION_MS = FlashTiming.VISIBLE_MS
 
         /** Absolute cap from create, in case the window never gains focus. */
-        const val HARD_STOP_MS = 4_000L
+        const val HARD_STOP_MS = FlashTiming.HARD_STOP_MS
     }
 }
 
@@ -171,6 +171,28 @@ fun ContentFlashScreen(
             Caption(text = stringResource(copy.caption), align = TextAlign.Center)
         }
     }
+}
+
+/**
+ * D12 timing, extracted as a pure seam: the visible window starts at first focus, while onCreate
+ * only arms the absolute cap. The activity asks this object for every delay, so the contract is
+ * unit-testable without Robolectric instead of being pinned to activity source text.
+ */
+object FlashTiming {
+    /** How long the user can actually see the flash, measured from first window focus. */
+    const val VISIBLE_MS = 2_200L
+
+    /** Absolute cap from create, in case the window never gains focus (cold launch ~1.5 s). */
+    const val HARD_STOP_MS = 4_000L
+
+    /** onCreate must schedule the cap, never the visible window. */
+    fun onCreateDelayMs(): Long = HARD_STOP_MS
+
+    /** First focus starts the promised visible window. */
+    fun onFirstFocusDelayMs(): Long = VISIBLE_MS
+
+    /** A reused instance re-arms the visible window when focused, the cap otherwise. */
+    fun rearmDelayMs(focused: Boolean): Long = if (focused) VISIBLE_MS else HARD_STOP_MS
 }
 
 /**
@@ -231,5 +253,8 @@ object ContentFlash {
     fun intent(context: Context, reason: Reason): Intent =
         Intent(context, ContentFlashActivity::class.java)
             .putExtra(ContentFlashActivity.EXTRA_REASON, reason.name)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(launchFlags())
+
+    /** NEW_TASK only: clearing the task would turn the explanation into a second ejection. */
+    fun launchFlags(): Int = Intent.FLAG_ACTIVITY_NEW_TASK
 }

@@ -99,17 +99,26 @@ class HubEnforcementTest {
     private val strings: Map<String, String> by lazy {
         val xml = File("src/main/res/values/strings.xml").readText()
         val entry = Regex("""<string name="([^"]+)">(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
-        entry.findAll(xml).associate { it.groupValues[1] to it.groupValues[2] }
+        // Plurals are copy too: the English "other" form is what the hub shows for >1 minute.
+        val plural = Regex(
+            """<plurals name="([^"]+)">.*?<item quantity="other">(.*?)</item>.*?</plurals>""",
+            RegexOption.DOT_MATCHES_ALL,
+        )
+        entry.findAll(xml).associate { it.groupValues[1] to it.groupValues[2] } +
+            plural.findAll(xml).associate { it.groupValues[1] to it.groupValues[2] }
     }
 
     @Test
     fun `every state has its own pill resource - no two states share copy`() {
-        val pills = HubStatus.entries.map(::hubPillRes)
+        val pills = HubStatus.entries.map(::hubPillCopy)
         assertEquals("one distinct pill per state", HubStatus.entries.size, pills.toSet().size)
-        assertEquals(R.string.hub_status_on, hubPillRes(HubStatus.FILTERING))
-        assertEquals(R.string.hub_status_paused_budget, hubPillRes(HubStatus.PAUSED_BUDGET))
-        assertEquals(R.string.hub_status_paused_service, hubPillRes(HubStatus.PAUSED_SERVICE))
-        assertEquals(R.string.hub_status_off, hubPillRes(HubStatus.OFF))
+        assertEquals(HubPill.Text(R.string.hub_status_on), hubPillCopy(HubStatus.FILTERING))
+        assertEquals(
+            HubPill.Count(R.plurals.hub_status_paused_budget),
+            hubPillCopy(HubStatus.PAUSED_BUDGET),
+        )
+        assertEquals(HubPill.Text(R.string.hub_status_paused_service), hubPillCopy(HubStatus.PAUSED_SERVICE))
+        assertEquals(HubPill.Text(R.string.hub_status_off), hubPillCopy(HubStatus.OFF))
     }
 
     @Test

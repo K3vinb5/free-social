@@ -260,11 +260,21 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `clock formatting wraps past midnight`() {
-        assertEquals("22:30", SettingsRepository.formatClock(1350))
-        assertEquals("07:00", SettingsRepository.formatClock(420))
-        assertEquals("00:00", SettingsRepository.formatClock(1440))
-        assertEquals("23:00", SettingsRepository.formatClock(-60))
+    fun `clock formatting wraps past midnight in a 24-hour locale`() {
+        val uk = java.util.Locale.UK
+        assertEquals("22:30", SettingsRepository.formatClock(1350, uk))
+        assertEquals("07:00", SettingsRepository.formatClock(420, uk))
+        assertEquals("00:00", SettingsRepository.formatClock(1440, uk))
+        assertEquals("23:00", SettingsRepository.formatClock(-60, uk))
+    }
+
+    @Test
+    fun `clock formatting follows the locale 12-24-hour convention`() {
+        // The device locale decides: en-US gets a 12-hour clock, pt-PT keeps 24-hour.
+        val us = SettingsRepository.formatClock(1350, java.util.Locale.US).replace('\u202F', ' ')
+        assertEquals("10:30 PM", us)
+        assertEquals("22:30", SettingsRepository.formatClock(1350, java.util.Locale.forLanguageTag("pt-PT")))
+        assertEquals("22:30", SettingsRepository.formatClock(1350, java.util.Locale.forLanguageTag("es-ES")))
     }
 
     // --- D10/D11: cross-instance propagation (UI writes must reach the engine) ------------
