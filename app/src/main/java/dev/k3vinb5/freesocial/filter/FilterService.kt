@@ -139,6 +139,12 @@ class FilterService : AccessibilityService() {
             // (dev.k3vinb5.freesocial) and system packages — and before the engine/target gates,
             // because "foreign content stripped but own windows rich" is the discrimination.
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) safe { probeActiveRoot(pkg, event) }
+            // D12 addendum: a window-state change to another package ends every other package's
+            // flash episode — that app is no longer the visible window. Our own flash activity is
+            // the exception: it launches over the escaped app and must not fake a boundary.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName) {
+                safe { flashPolicy.onPackageChanged(pkg) }
+            }
             // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
             if (captureArmedDumpIfRequested(event, pkg)) return
             // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
@@ -393,7 +399,18 @@ class FilterService : AccessibilityService() {
             subtreeLookups = CaptureAnchors.idsFor(appPackage),
         )
         val hits = ruleMatcher.hits(app, appPackage, captured.root)
-        diagnose(appPackage, captured, app, deps.ruleCount, hits.size, scanProbe(windows, appPackage))
+        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
+        val withIds = nodes.count { it.viewId != null }
+        diagnose(
+            appPackage,
+            captured,
+            app,
+            deps.ruleCount,
+            hits.size,
+            scanProbe(windows, appPackage),
+            nodes.size,
+            withIds,
+        )
         // Policy 5: while the rule inspector has a capture armed/active the engine touches nothing
         // (no escapes, no scroll, no taps), so the user can navigate freely. DumpArm clears itself
         // when the capture completes or the 60 s arm expires, which restores enforcement.
@@ -406,8 +423,10 @@ class FilterService : AccessibilityService() {
         // disappeared ends its escape episode, so a re-entry is always a fresh, deterministic entry.
         val surfaces = hits.map { it.rule.surface }.toSet()
         arbiter.observe(surfaces.map { "$appPackage/$it" }.toSet())
-        // D12: the flash is scoped to that same episode — a re-entry must explain itself again.
-        flashPolicy.observe(appPackage, surfaces)
+        // D12 addendum: empty and view-id-less captures are not evidence of departure — every
+        // viewId-keyed rule misses in them, so the flash episode must survive rather than end on a
+        // stale scan (that restart was the stacked-flash bug). Only a readable tree may decide.
+        flashPolicy.observe(appPackage, surfaces, captureValid = nodes.size > 1 && withIds > 0)
         val exhausted = isBudgetExhausted(repo, now)
         val locked = repo.isLocked(now)
         val outcome = RuleGate.decide(hits, exhausted, locked)
@@ -498,6 +517,9 @@ class FilterService : AccessibilityService() {
      * view ids, plus how many rules matched. `nodes>0 && viewIds==0` is the H2 signature (the OS
      * stripped view ids); `nodes==0` is a capture problem; both are stated explicitly.
      *
+     * The counts are also the capture-quality signal for the D12 episode boundary ([scan] passes
+     * them to [FlashPolicy.observe]): an empty or id-less tree must never end an episode.
+     *
      * D8: the same line carries `rootChildCount` and `idProbe`, the same root shape the ghost-tree
      * probe reports, so the scan path and the window-state probe agree.
      */
@@ -508,16 +530,16 @@ class FilterService : AccessibilityService() {
         rules: Int,
         hits: Int,
         probe: String,
+        nodes: Int,
+        withIds: Int,
     ) {
         if (!diagLimiter.allow("scan:$appPackage", SystemClock.elapsedRealtime())) return
-        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
-        val withIds = nodes.count { it.viewId != null }
         Log.i(
             TAG,
             ScanDiagnostics.line(
                 appPackage = appPackage,
                 appName = app.name,
-                nodes = nodes.size,
+                nodes = nodes,
                 withViewIds = withIds,
                 matchedRules = ruleMatcher.rulesFor(app, appPackage).size,
                 totalRules = rules,
@@ -527,7 +549,7 @@ class FilterService : AccessibilityService() {
                 probe = probe,
             ),
         )
-        if (nodes.size <= 1) {
+        if (nodes <= 1) {
             warnOnce("empty tree:$appPackage", "scan saw an EMPTY $appPackage tree — capture or window access is broken")
         } else if (withIds == 0) {
             warnOnce(

@@ -813,6 +813,25 @@ flash. So a genuine new episode inside 3 s of the previous flash (ep1/ep3 above)
 Tests: `FlashPolicyTest` (episode scoping, all escape actions, throttle window), `RuleGateTest`
 (`isEscapeAction`), `ContentFlashTest` (timing contract).
 
+### Addendum — the episode boundary trusted stale scans (review, 2026-11-07)
+
+The first fix ended an episode as soon as the escaped surface was absent from a capture
+(`FlashPolicy.observe`, fed by `hits.map { rule.surface }` at `FilterService.kt:424`), but the
+engine routinely produces empty or view-id-less captures — the very shapes it logs at
+`FilterService.kt:553` (`nodes<=1`) and `:557` (`withIds==0`) — and in those every viewId-keyed rule
+misses. "The surface left the screen" and "this capture matched nothing" were therefore the same
+input, so one stale scan ended the episode mid-screen and the next escape on the same surface
+flashed again inside the same visible episode (the stacked flash D12 removed). The boundary now
+requires evidence: `scan()` derives the capture-quality signal it already logs (node count,
+view-id count) and calls `FlashPolicy.observe(..., captureValid = nodes > 1 && withIds > 0)`; an
+untrusted capture makes no boundary decision. A trustworthy capture that keeps the surface holds
+the episode, a different direct surface ends it immediately (unchanged), and only **two consecutive**
+trustworthy captures with no matched surface end it (one stale-but-readable scan is not a
+departure). A `TYPE_WINDOW_STATE_CHANGED` to another package ends every other package's episode via
+`FlashPolicy.onPackageChanged` (our own flash activity is excluded — it launches over the escaped
+app and must not fake a boundary). No time window was reintroduced; `FlashPolicyTest` covers the
+stale-scan guard, the two-miss departure, the different-surface end and the package change.
+
 ## D13 — the IG DM carve-out did not cover the reel opened from a DM thread
 
 ### Observed (user, 2026-11-06)

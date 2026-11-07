@@ -13,6 +13,13 @@ package dev.k3vinb5.freesocial.filter
  * episode. [observe] is fed every capture's visible surfaces and drops the episode when its surface
  * is gone. A suppressed call does not refresh the window: the next allowed flash is measured from
  * the last flash that was actually shown. The clock is injected, so the policy is pure.
+ *
+ * Episode boundary (D12 addendum, 2026-11-07): a capture is only evidence when the engine can read
+ * it. A kept-surface match keeps the episode; any other direct surface ends it immediately; only a
+ * *trustworthy* capture with **no** matched surface at all counts toward departure, and it takes
+ * [DEPARTURES_TO_END] consecutive such captures to end the episode. Empty or view-id-less captures
+ * are [observe]d with `captureValid = false` and never make a boundary decision, because in those
+ * trees every viewId rule misses and "the surface left" is indistinguishable from "nothing matched".
  */
 class FlashPolicy(private val windowMs: Long = WINDOW_MS) {
 
@@ -21,6 +28,9 @@ class FlashPolicy(private val windowMs: Long = WINDOW_MS) {
 
     /** The surface whose episode owns the package's current flash window. */
     private val episodeSurface = HashMap<String, String>()
+
+    /** Consecutive trustworthy captures that matched no surface, per package. */
+    private val departures = HashMap<String, Int>()
 
     /**
      * True when a flash may be shown for [surface] of [packageName] at [nowMs] — and records it if
@@ -32,23 +42,57 @@ class FlashPolicy(private val windowMs: Long = WINDOW_MS) {
         if (last != null && sameEpisode && nowMs - last in 0 until windowMs) return false
         lastFlashMs[packageName] = nowMs
         episodeSurface[packageName] = surface
+        departures.remove(packageName)
         return true
     }
 
     /**
-     * Feeds one capture's visible surfaces: when the surface that took the package's last flash is
-     * no longer on screen, its episode is over and the next escape flashes immediately.
+     * Feeds one capture's visible surfaces. A kept surface holds the episode; a different direct
+     * surface ends it at once; an empty match set ends it only after [DEPARTURES_TO_END]
+     * consecutive trustworthy captures. An untrustworthy capture ([captureValid] = false — empty
+     * tree, no view ids) is not evidence and leaves the episode (and the miss count) untouched.
      */
-    fun observe(packageName: String, visibleSurfaces: Set<String>) {
+    fun observe(packageName: String, visibleSurfaces: Set<String>, captureValid: Boolean = true) {
         val surface = episodeSurface[packageName] ?: return
-        if (surface !in visibleSurfaces) episodeSurface.remove(packageName)
+        if (!captureValid) return
+        if (surface in visibleSurfaces) {
+            departures.remove(packageName)
+            return
+        }
+        if (visibleSurfaces.isNotEmpty()) {
+            // A different direct surface is on screen: the escaped surface left unambiguously.
+            endEpisode(packageName)
+            return
+        }
+        val misses = (departures[packageName] ?: 0) + 1
+        if (misses >= DEPARTURES_TO_END) endEpisode(packageName) else departures[packageName] = misses
+    }
+
+    /**
+     * The foreground window moved to [packageName]: every other package's episode is over, because
+     * its app is no longer the visible window. The new package keeps its own episode, so a window
+     * change inside the same app cannot manufacture a fresh flash on a surface that never left.
+     */
+    fun onPackageChanged(packageName: String) {
+        episodeSurface.keys.filter { it != packageName }.forEach { endEpisode(it) }
     }
 
     /** True while [surface] owns [packageName]'s current flash episode (diagnostics/tests). */
     fun episodeOf(packageName: String): String? = episodeSurface[packageName]
 
+    private fun endEpisode(packageName: String) {
+        episodeSurface.remove(packageName)
+        departures.remove(packageName)
+    }
+
     companion object {
         /** Three seconds: one flash per escape episode, comfortably below the 1200 ms debounce noise. */
         const val WINDOW_MS = 3_000L
+
+        /**
+         * Trustworthy captures with no matched surface needed before the episode is over. One
+         * capture can miss a stale or half-drawn screen; two in a row is a real departure.
+         */
+        const val DEPARTURES_TO_END = 2
     }
 }

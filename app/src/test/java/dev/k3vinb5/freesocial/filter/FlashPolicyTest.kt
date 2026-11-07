@@ -74,6 +74,64 @@ class FlashPolicyTest {
     }
 
     @Test
+    fun `an untrustworthy capture does not end the episode so the re-escape does not stack a flash`() {
+        // The finding: an empty/partial capture (0 nodes or 0 view ids) makes every viewId rule
+        // miss, and used to end the episode. The next escape on the same surface then flashed
+        // again inside one visible episode — two flashes, one escape episode.
+        val policy = FlashPolicy()
+        assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
+        policy.observe(ig, visibleSurfaces = emptySet(), captureValid = false)
+        assertEquals("the garbage capture is not evidence of departure", "reels_tab", policy.episodeOf(ig))
+        assertFalse(
+            "same episode: the second escape inside 3 s is throttled, exactly one flash",
+            policy.shouldFlash(ig, "reels_tab", 1_200L),
+        )
+    }
+
+    @Test
+    fun `two consecutive trustworthy unmatched captures end the episode so the next entry flashes`() {
+        val policy = FlashPolicy()
+        assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
+        policy.observe(ig, visibleSurfaces = emptySet())
+        assertEquals("one miss could be a stale scan", "reels_tab", policy.episodeOf(ig))
+        policy.observe(ig, visibleSurfaces = emptySet())
+        assertNull("two consecutive trustworthy misses are a real departure", policy.episodeOf(ig))
+        assertTrue("a new entry after the episode is a fresh flash", policy.shouldFlash(ig, "reels_tab", 1_500L))
+    }
+
+    @Test
+    fun `one miss followed by a visible surface does not break the consecutive count`() {
+        val policy = FlashPolicy()
+        assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
+        policy.observe(ig, visibleSurfaces = emptySet())
+        policy.observe(ig, visibleSurfaces = setOf("reels_tab"))
+        policy.observe(ig, visibleSurfaces = emptySet())
+        assertEquals("the counter restarts: two misses were not consecutive", "reels_tab", policy.episodeOf(ig))
+    }
+
+    @Test
+    fun `no number of untrustworthy captures can satisfy the departure guard`() {
+        val policy = FlashPolicy()
+        assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
+        repeat(5) { policy.observe(ig, visibleSurfaces = emptySet(), captureValid = false) }
+        assertEquals("untrusted captures never accumulate", "reels_tab", policy.episodeOf(ig))
+        assertFalse(policy.shouldFlash(ig, "reels_tab", 2_000L))
+    }
+
+    @Test
+    fun `a window state change to another package ends the episode`() {
+        val policy = FlashPolicy()
+        assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
+        policy.onPackageChanged("com.google.android.apps.nexuslauncher")
+        assertNull("the escaped app is no longer the visible window", policy.episodeOf(ig))
+        assertTrue("re-entering the app is a fresh episode", policy.shouldFlash(ig, "reels_tab", 1_200L))
+        // A window change inside the same app is not a departure.
+        policy.observe(ig, visibleSurfaces = setOf("reels_tab"))
+        policy.onPackageChanged(ig)
+        assertEquals("same package keeps its episode", "reels_tab", policy.episodeOf(ig))
+    }
+
+    @Test
     fun `one episode per package and package-independent throttling`() {
         val policy = FlashPolicy()
         assertTrue(policy.shouldFlash(ig, "reels_tab", 1_000L))
