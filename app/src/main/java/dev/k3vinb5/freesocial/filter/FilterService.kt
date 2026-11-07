@@ -145,8 +145,9 @@ class FilterService : AccessibilityService() {
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName) {
                 safe { flashPolicy.onPackageChanged(pkg) }
             }
-            // Diagnosis must not depend on the engine being healthy: an armed dump still captures.
-            if (captureArmedDumpIfRequested(event, pkg)) return
+            // D17 follow-up: the manual armed-dump branch that used to run here was removed. The
+            // guided session owns the dump (GuidedCapture in the same process); no production
+            // caller can arm FilterService for a self-written capture any more.
             // D5(b): lazy self-heal runs on EVERY event, whatever the package. D7: the heartbeat
             // is only written once the engine is actually initialised, so a dead engine stays dead
             // in the hub too.
@@ -318,12 +319,13 @@ class FilterService : AccessibilityService() {
     }
 
     /**
-     * The lookup lists both the scan and the armed dump feed into
-     * [NodeTreeReader.captureAll]: every id and every literal text/desc the applicable rules
-     * declare, the engine's known Home-tab ids, and the container anchors ([CaptureAnchors]).
+     * The lookup lists the scan feeds into [NodeTreeReader.captureAll]: every id and every literal
+     * text/desc the applicable rules declare, the engine's known Home-tab ids, and the container
+     * anchors ([CaptureAnchors]).
      *
-     * D8 round 3 (R4): the armed dump used to call `captureAll` without these lists, so the
-     * inspector wrote the 4-node ghost while the scan on the same window saw grafted content.
+     * D8 round 3 (R4) established these lists against the old armed dump, which wrote the 4-node
+     * ghost while the scan on the same window saw grafted content; that dump path is gone (D17),
+     * the scan keeps the lists.
      */
     private fun captureLookups(app: AppTarget?, appPackage: String): Pair<List<String>, List<String>> {
         val ruleIds = if (app == null) emptyList() else ruleMatcher.lookupViewIds(app, appPackage)
@@ -413,7 +415,7 @@ class FilterService : AccessibilityService() {
         )
         // Policy 5: while the rule inspector has a capture armed/active the engine touches nothing
         // (no escapes, no scroll, no taps), so the user can navigate freely. DumpArm clears itself
-        // when the capture completes or the 60 s arm expires, which restores enforcement.
+        // when the guided session completes or its window expires, which restores enforcement.
         if (DumpArm.isArmed()) {
             infoOnce("dump armed", "$appPackage: interaction paused while a rule-inspector capture is armed")
             stopBudget()
@@ -835,105 +837,7 @@ class FilterService : AccessibilityService() {
         return power.isInteractive && !keyguard.isKeyguardLocked
     }
 
-    // --- Rule inspector seam -------------------------------------------------------------
-
-    /**
-     * ARMED-DUMP seam (SPEC §2.5, acceptance item 8): the inspector arms one capture, the user
-     * switches to a target app, and this method writes that app's tree. Before this, dumps only
-     * ever saw our own focused inspector window.
-     *
-     * Returns true when the event belonged to an armed capture (handled, regardless of outcome).
-     * Never throws: the whole path runs under [safe].
-     */
-    private fun captureArmedDumpIfRequested(event: AccessibilityEvent, appPackage: String): Boolean {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return false
-        if (appPackage !in TARGET_PACKAGES) return false
-        if (!DumpArm.isArmed()) return false
-        // A launch transition can fire the target's state change while the previous app's window
-        // is still the active root (Wave A A5 / retry R4: a 4-node decor tree labelled "YouTube").
-        // Keep the one-shot armed; the next state change captures the real target window.
-        val active = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
-        if (!DumpArm.readyFor(appPackage, active)) {
-            infoOnce(
-                "dump wait",
-                "armed dump: waiting for $appPackage (active window is $active)",
-            )
-            return true
-        }
-        safe { captureArmedDump(appPackage) }
-        return true
-    }
-
-    private fun captureArmedDump(appPackage: String, attempt: Int = 0) {
-        val started = SystemClock.uptimeMillis()
-        // D6: every window the target package owns, top-most first — a sheet/second activity
-        // window must not reduce the dump to the focused ghost tree.
-        val windows = appWindows(appPackage)
-        if (windows.isEmpty()) {
-            Log.w(TAG, "armed dump: no readable $appPackage window")
-            return
-        }
-        // R4: the dump must show what the engine sees — same id/text lookups as the scan path.
-        // The matcher may not be loaded yet on this event, so ask the bootstrap once (cheap).
-        engine()
-        val (lookupIds, lookupTexts) = captureLookups(targetFor(appPackage), appPackage)
-        val captured = NodeTreeReader.captureAll(
-            windows,
-            appPackage,
-            viewIdLookups = lookupIds,
-            textLookups = lookupTexts,
-            subtreeLookups = CaptureAnchors.idsFor(appPackage),
-        )
-        val nodes = NodeTree.flatten(captured.root, NodeTree.MAX_SCAN_NODES)
-        // The launch transition can be captured before YouTube fills its window: retry briefly
-        // instead of consuming the one-shot and writing the 4-node decor tree (Wave A A5/R4).
-        if (DumpArm.looksGhost(nodes.size, captured.grafts) && attempt < DUMP_RETRY_MAX && DumpArm.isArmed()) {
-            handler.postDelayed(
-                { safe { captureArmedDump(appPackage, attempt + 1) } },
-                DUMP_RETRY_DELAY_MS,
-            )
-            return
-        }
-        val screen = DumpArm.consume()
-        if (screen == null) {
-            warnOnce("dump expired", "armed dump expired before the target app opened")
-            return
-        }
-        val withIds = nodes.count { it.viewId != null }
-        val windowText = captured.windows.joinToString("; ") { window ->
-            "${window.title ?: window.className ?: "?"}(layer ${window.layer})=${window.nodes} nodes/${window.viewIds} ids"
-        }
-        if (captured.capped) {
-            Log.w(TAG, "armed dump: ${NodeTree.MAX_SCAN_NODES}-node cap reached — $appPackage tree truncated")
-        }
-        if (withIds == 0) {
-            Log.w(
-                TAG,
-                "armed dump $appPackage: 0/${nodes.size} nodes carry a viewId — " +
-                    "rules keyed on viewId cannot match (FLAG_REPORT_VIEW_IDS / restricted settings)",
-            )
-        }
-        when (
-            val result = DumpExporter.export(
-                this,
-                appPackage,
-                screen,
-                captured.root,
-                windowStats = captured.windows,
-                capped = captured.capped,
-                grafted = captured.grafts,
-            )
-        ) {
-            is DumpResult.Success -> Log.i(
-                TAG,
-                "armed dump $appPackage/\"$screen\": ${result.document.nodeCount} nodes " +
-                    "(${result.document.nodesWithViewId} with viewId, ${captured.grafts} grafted, " +
-                    "${captured.windows.size} windows: " +
-                    "$windowText) in ${SystemClock.uptimeMillis() - started} ms -> ${result.file?.name}",
-            )
-            is DumpResult.Unavailable -> Log.w(TAG, "armed dump unavailable: ${result.reason}")
-        }
-    }
+    // --- Error containment ---------------------------------------------------------------
 
     private inline fun safe(block: () -> Unit): Boolean = try {
         block()
@@ -959,10 +863,6 @@ class FilterService : AccessibilityService() {
         /** R3: actions that change the screen asynchronously; a confirmed one starts an escape episode. */
         private const val FLASH_LAUNCH_ATTEMPTS = 2
         private const val FLASH_LAUNCH_RETRY_MS = 250L
-
-        /** R4: retry a ghost armed dump within the 60 s arm (4 × 600 ms covers the launch fill). */
-        private const val DUMP_RETRY_MAX = 4
-        private const val DUMP_RETRY_DELAY_MS = 600L
 
         /** TikTok's global build behaves like the musically package. */
         const val PACKAGE_TIKTOK_GLOBAL = "com.ss.android.ugc.trill"

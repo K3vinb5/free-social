@@ -3,22 +3,29 @@ package dev.k3vinb5.freesocial.filter
 import android.os.SystemClock
 
 /**
- * The one-shot "arm, then switch app" handshake between the rule inspector and [FilterService].
+ * The guided-capture arm shared by the rule inspector and the two enforcement services.
  *
- * The inspector cannot read another app's window from its own process, so the user arms a capture
- * and then opens the target app; the service sees the next `typeWindowStateChanged` for one of
- * [FilterService.TARGET_PACKAGES] and writes that tree. Deliberately boring: two fields, plain
- * synchronization, and an injectable clock so the state machine stays JVM-testable.
+ * `GuidedCapture` arms it for the whole session (surface detection + recording), refreshes it at
+ * the detection → recording handover, and cancels it when the session ends. Filtering reads
+ * [isArmed] (`FilterService`), blocking reads [remainingMillis] and registers [setOnDisarmed]
+ * (`block.BlockService`, which re-evaluates the gate the moment the arm ends).
  *
  * **One clock domain.** Every arm lives in monotonic elapsed-realtime millis — the same source
  * `GuidedCapture` polls on and `FilterService` uses. Mixing a wall-clock stamp with an
  * elapsedRealtime refresh made a guided arm look expired at the detection → recording handover
  * (and blocking then resumed mid-recording), so the domain is fixed and injectable, never implicit.
+ *
+ * **Disarm notification.** An arm ends by `cancel()` (session finished, user stop, new session) or
+ * by expiry. Both clear the state and then invoke the one registered listener *outside* the lock,
+ * so a pause consumer never has to poll or wait for a deadline it can no longer see. This is what
+ * made the block screen linger for the rest of the window after a capture finished early.
+ *
+ * D17 removed the manual "arm, then switch app" entry point. The follow-up sweep removed every API
+ * only the deleted service-side consumer used (`consume`, `readyFor`, `looksGhost`, `isGuided`,
+ * `captureActive`, the public armed-label accessor), so the surface below is exactly what production
+ * calls plus the clock seam the JVM tests need.
  */
 object DumpArm {
-
-    /** An armed capture older than this is dead — the user did not open a target app in time. */
-    const val EXPIRY_MS = 60_000L
 
     /**
      * A guided capture owns the arm for the whole flow: up to 30 s of surface detection plus 15 s
@@ -27,9 +34,14 @@ object DumpArm {
      */
     const val GUIDED_EXPIRY_MS = 120_000L
 
+    private val lock = Any()
+
     private var armedAt: Long = 0L
     private var screen: String? = null
-    private var guided: Boolean = false
+
+    /** The single pause consumer (BlockService). Runs after the arm is cleared, never under [lock]. */
+    @Volatile
+    private var onDisarmed: (() -> Unit)? = null
 
     /** Device clock: monotonic elapsedRealtime; the JVM fallback only bites in unit tests. */
     private val deviceClock: () -> Long = {
@@ -42,116 +54,110 @@ object DumpArm {
     /**
      * Installs the clock used whenever a caller omits `now`. The device default is already this
      * domain; tests inject a fake, and `useClock()` with no argument restores the device clock.
+     *
+     * Not a production entry point by design: it is the seam that lets the JVM tests drive the
+     * single-clock-domain rules (arm / refresh / expiry) without sleeping.
      */
     fun useClock(provider: () -> Long = deviceClock) {
         clock = provider
     }
 
+    /**
+     * Registers the one pause consumer that must re-evaluate immediately when the arm ends, or
+     * clears it with `null` when the service is destroyed. Replacing it is idempotent.
+     */
+    fun setOnDisarmed(listener: (() -> Unit)?) {
+        onDisarmed = listener
+    }
+
     /** Current time in the arm's single domain (elapsed-realtime millis on device). */
     fun nowMillis(): Long = clock()
 
-    /** Arms one capture labelled [screen] (the inspector's screen name for the dump document). */
-    @Synchronized
-    fun arm(screen: String, now: Long = clock()) {
-        armedAt = now
-        this.screen = screen
-        guided = false
-    }
-
-    /**
-     * Arms a guided capture: filtering stays paused through detection + recording, and the service
-     * leaves the actual dump to [GuidedCapture] (see [readyFor]).
-     */
-    @Synchronized
+    /** Arms a guided capture for [screen] (the surface slug recorded in the dump). */
     fun armGuided(screen: String, now: Long = clock()) {
-        armedAt = now
-        this.screen = screen
-        guided = true
+        synchronized(lock) {
+            armedAt = now
+            this.screen = screen
+        }
     }
 
     /**
      * Extends a guided arm across a phase change (detection -> recording). [now] is in the same
      * elapsed-realtime domain as every other arm write — see the class doc.
      */
-    @Synchronized
     fun refreshGuided(now: Long = clock()) {
-        if (guided && screen != null) armedAt = now
-    }
-
-    fun isGuided(now: Long = clock()): Boolean = guided && isArmed(now)
-
-    /** The armed screen label, or null when nothing is armed / the arm has expired. */
-    @Synchronized
-    fun armedScreen(now: Long = clock()): String? {
-        val label = screen ?: return null
-        if (expired(now)) {
-            clear()
-            return null
+        synchronized(lock) {
+            if (screen != null) armedAt = now
         }
-        return label
     }
 
-    fun isArmed(now: Long = clock()): Boolean = armedScreen(now) != null
+    /** True while a capture owns the device; `FilterService` pauses interaction on it. */
+    fun isArmed(now: Long = clock()): Boolean = armedLabel(now) != null
 
     /**
-     * True while a capture owns the device: a manual 60 s arm waiting for its target window, or a
-     * guided session across detection + recording (120 s ceiling, refreshed per phase).
-     *
-     * Both enforcement engines stand down while this is true — filtering reads [isArmed] in
-     * `FilterService`, blocking reads this in `block.BlockService`. The capture has to see the
-     * target app exactly as the user does: a block screen over it (or a flash) would replace the
-     * tree the dump must record.
+     * Millis left before the active arm expires, or null when nothing is armed (an expired arm
+     * clears itself and notifies, exactly like [cancel]). `block.BlockService` schedules its
+     * post-expiry re-check on this (D16).
      */
-    fun captureActive(now: Long = clock()): Boolean = isArmed(now)
-
-    /**
-     * Claims the arm for one capture. Returns the screen label and clears the state, or null when
-     * nothing (valid) is armed — a capture then must not run.
-     */
-    @Synchronized
-    fun consume(now: Long = clock()): String? {
-        val label = armedScreen(now) ?: return null
-        clear()
-        return label
+    fun remainingMillis(now: Long = clock()): Long? {
+        var expiredNow = false
+        val remaining = synchronized(lock) {
+            val current = screen
+            if (current == null) {
+                null
+            } else if (expired(now)) {
+                clearLocked()
+                expiredNow = true
+                null
+            } else {
+                GUIDED_EXPIRY_MS - (now - armedAt)
+            }
+        }
+        if (expiredNow) notifyDisarmed()
+        return remaining
     }
 
     /**
-     * True when the active window belongs to [target], i.e. the capture would read the target app.
-     *
-     * A launch's `TYPE_WINDOW_STATE_CHANGED` can reach the service while the *previous* app's
-     * window is still the active root (Wave A A5 and Wave A retry R4 both captured a 4-node decor
-     * tree labelled "YouTube" because of it). The arm must stay armed in that case and be consumed
-     * by the next state change, once the target window is really up. An unreadable root
-     * (`activePackage == null`) does not block the capture — the dump then reports the ghost tree
-     * it actually saw.
+     * Disarms without capturing (a finished session, a user cancel, or a new session) and tells the
+     * registered consumer so enforcement resumes now instead of at the arm's deadline.
      */
-    fun readyFor(target: String, activePackage: String?): Boolean =
-        if (guided) false else activePackage == null || activePackage == target
-
-    /**
-     * True when a capture is still the decor-only ghost tree (Wave A A5: 4 nodes, 1 view id, no
-     * grafts) even though the target window is already active. The arm is then kept and the
-     * capture retried for a short bounded window, so the inspector shows the same content the
-     * scan sees a moment later instead of the launch transition.
-     */
-    fun looksGhost(nodeCount: Int, grafts: Int): Boolean =
-        grafts == 0 && nodeCount <= GHOST_NODE_LIMIT
-
-    /** The observed ghost is 4 nodes (synthetic root + 3 decor); real YouTube content is 40+. */
-    const val GHOST_NODE_LIMIT = 4
-
-    /** Disarms without capturing (expiry handling in the UI, or an explicit cancel). */
-    @Synchronized
     fun cancel() {
-        clear()
+        val wasArmed = synchronized(lock) { clearLocked() }
+        if (wasArmed) notifyDisarmed()
+    }
+
+    /** The armed surface label, or null when nothing is armed / the arm has expired. */
+    private fun armedLabel(now: Long): String? {
+        var expiredNow = false
+        val label = synchronized(lock) {
+            val current = screen
+            if (current == null) {
+                null
+            } else if (expired(now)) {
+                clearLocked()
+                expiredNow = true
+                null
+            } else {
+                current
+            }
+        }
+        if (expiredNow) notifyDisarmed()
+        return label
+    }
+
+    private fun notifyDisarmed() {
+        val listener = onDisarmed ?: return
+        runCatching { listener() }
     }
 
     private fun expired(now: Long): Boolean =
-        now - armedAt >= if (guided) GUIDED_EXPIRY_MS else EXPIRY_MS
+        now - armedAt >= GUIDED_EXPIRY_MS
 
-    private fun clear() {
+    /** Returns true when an arm was actually dropped (so only a real disarm notifies). */
+    private fun clearLocked(): Boolean {
+        val wasArmed = screen != null
         armedAt = 0L
         screen = null
-        guided = false
+        return wasArmed
     }
 }

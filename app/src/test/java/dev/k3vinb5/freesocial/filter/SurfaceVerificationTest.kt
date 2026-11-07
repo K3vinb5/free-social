@@ -15,13 +15,13 @@ import org.junit.Test
  */
 class SurfaceVerificationTest {
 
-    private val ytHome = MatchSpec(viewId = "$YT:id/browse_fragment_layout_coordinator_layout")
+    private val ytHome = MatchSpec(viewId = "$YT:id/results")
 
     @Test
     fun `markers matched labels the surface`() {
         val nodes = listOf(
             node(viewId = "android:id/content"),
-            node(viewId = "$YT:id/browse_fragment_layout_coordinator_layout"),
+            node(viewId = "$YT:id/results"),
         )
 
         val verdict = CaptureSurfaces.verify("home", listOf(ytHome), nodes)
@@ -67,7 +67,7 @@ class SurfaceVerificationTest {
 
         assertEquals("Shorts player", shorts.displayName)
         assertTrue(shorts.markers.any { it.viewId == "$YT:id/reel_recycler" })
-        assertTrue(home.markers.any { it.viewId == "$YT:id/browse_fragment_layout_coordinator_layout" })
+        assertTrue(home.markers.any { it.viewId == "$YT:id/results" })
         // No rule models YouTube Home: detection still works from the built-in container id.
         assertEquals("Home feed", CaptureSurfaces.displayName("home"))
     }
