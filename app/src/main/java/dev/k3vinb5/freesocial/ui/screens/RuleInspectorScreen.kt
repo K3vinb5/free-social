@@ -33,10 +33,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.k3vinb5.freesocial.R
+import dev.k3vinb5.freesocial.core.LocaleFormat
 import dev.k3vinb5.freesocial.core.Rule
 import dev.k3vinb5.freesocial.filter.CaptureOutcome
 import dev.k3vinb5.freesocial.filter.CapturePhase
@@ -62,10 +64,7 @@ import dev.k3vinb5.freesocial.ui.components.TextButton
 import dev.k3vinb5.freesocial.ui.components.TopBar
 import dev.k3vinb5.freesocial.ui.theme.FsColors
 import java.io.File
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import java.time.ZonedDateTime
 import kotlinx.coroutines.delay
 
 private const val TAG = "SurfacesRules"
@@ -255,8 +254,9 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 when (applied.importMessage()) {
                     RuleApplyMessage.IMPORTED -> {
                         refreshCatalog()
-                        context.getString(
-                            R.string.inspector_import_ok,
+                        context.resources.getQuantityString(
+                            R.plurals.inspector_import_ok,
+                            (applied as RuleCatalog.ApplyResult.Ok).rules.size,
                             (applied as RuleCatalog.ApplyResult.Ok).rules.size,
                         )
                     }
@@ -308,11 +308,15 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             SectionLabel(stringResource(R.string.inspector_captured))
             surfaces.forEach { surface ->
                 ListRow(
-                    title = surface.displayName,
+                    title = stringResource(surface.nameRes),
                     subtitle = if (surface.markers.isEmpty()) {
                         stringResource(R.string.inspector_no_markers)
                     } else {
-                        stringResource(R.string.inspector_markers, surface.markers.size)
+                        pluralStringResource(
+                            R.plurals.inspector_markers,
+                            surface.markers.size,
+                            surface.markers.size,
+                        )
                     },
                     value = stringResource(R.string.inspector_capture_nodes),
                     onClick = if (surface.markers.isEmpty()) null else ({ beginCapture(surface) }),
@@ -475,8 +479,9 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         Text(
                             text = when (target) {
                                 is DumpDelete.One -> stringResource(R.string.inspector_dump_delete_confirm)
-                                DumpDelete.All -> stringResource(
-                                    R.string.inspector_dumps_delete_all_confirm,
+                                DumpDelete.All -> pluralStringResource(
+                                    R.plurals.inspector_dumps_delete_all_confirm,
+                                    dumps.size,
                                     dumps.size,
                                 )
                             },
@@ -499,7 +504,11 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                                 dumps = DumpExporter.list(context)
                                 expanded = null
                                 message = if (removed > 0) {
-                                    context.getString(R.string.inspector_dumps_deleted, removed)
+                                    context.resources.getQuantityString(
+                                        R.plurals.inspector_dumps_deleted,
+                                        removed,
+                                        removed,
+                                    )
                                 } else {
                                     context.getString(R.string.inspector_dumps_delete_failed)
                                 }
@@ -531,10 +540,16 @@ private fun CaptureStatus(session: GuidedCapture.Session?, onStop: () -> Unit) {
         CapturePhase.WAITING -> stringResource(R.string.inspector_capture_waiting, session.surfaceName)
         CapturePhase.RECORDING -> stringResource(R.string.inspector_capture_recording, session.surfaceName)
         CapturePhase.FINISHED -> when (session.outcome) {
-            CaptureOutcome.COMPLETE ->
-                stringResource(R.string.inspector_capture_done, session.nodeCount ?: 0)
-            CaptureOutcome.SURFACE_LOST ->
-                stringResource(R.string.inspector_capture_done, session.nodeCount ?: 0)
+            CaptureOutcome.COMPLETE -> pluralStringResource(
+                R.plurals.inspector_capture_done,
+                session.nodeCount ?: 0,
+                session.nodeCount ?: 0,
+            )
+            CaptureOutcome.SURFACE_LOST -> pluralStringResource(
+                R.plurals.inspector_capture_done,
+                session.nodeCount ?: 0,
+                session.nodeCount ?: 0,
+            )
             CaptureOutcome.TIMEOUT -> stringResource(R.string.inspector_capture_timeout)
             CaptureOutcome.CANCELLED -> stringResource(R.string.inspector_capture_cancelled)
             CaptureOutcome.FAILED -> stringResource(R.string.inspector_capture_failed)
@@ -567,7 +582,7 @@ private fun StepCard(
             text = stringResource(
                 R.string.inspector_step_title,
                 stringResource(app.nameRes),
-                surface.displayName,
+                stringResource(surface.nameRes),
             ),
             color = FsColors.TextPrimary,
         )
@@ -576,7 +591,7 @@ private fun StepCard(
             stringResource(
                 R.string.inspector_step_body,
                 stringResource(app.nameRes),
-                surface.displayName,
+                stringResource(surface.nameRes),
             ),
         )
         HorizontalGap(12.dp)
@@ -598,8 +613,11 @@ private fun DumpRow(
     onDelete: () -> Unit,
 ) {
     val document = dump.document
+    val surfaceKey = document.surface ?: document.screen
+    val surfaceNameRes = CaptureSurfaces.nameRes(surfaceKey)
     val surfaceLabel = when {
-        document.surfaceVerified -> CaptureSurfaces.displayName(document.surface ?: document.screen)
+        document.surfaceVerified && surfaceNameRes != null -> stringResource(surfaceNameRes)
+        document.surfaceVerified -> surfaceKey
         else -> stringResource(R.string.inspector_unknown_surface_empty)
     }
     ListRow(
@@ -607,9 +625,13 @@ private fun DumpRow(
         subtitle = stringResource(
             R.string.inspector_dump_subtitle,
             document.appPackage,
-            document.capturedAt,
+            formatCapturedAt(document.capturedAt),
         ),
-        value = stringResource(R.string.inspector_nodes_count, dump.nodeCount),
+        value = pluralStringResource(
+            R.plurals.inspector_nodes_count,
+            dump.nodeCount,
+            dump.nodeCount,
+        ),
         chevron = true,
         onClick = onToggle,
     )
@@ -623,7 +645,8 @@ private fun DumpRow(
     SectionCard {
         Text(
             text = if (document.surfaceVerified) {
-                stringResource(R.string.inspector_verified_surface) + " · " + document.surface
+                stringResource(R.string.inspector_verified_surface) +
+                    stringResource(R.string.separator_dot) + document.surface
             } else {
                 unknownText
             },
@@ -643,7 +666,10 @@ private fun DumpRow(
         } else {
             matches.forEach { match ->
                 HorizontalGap(8.dp)
-                Text(text = "${match.rule.id} · ${match.rule.surface}", color = FsColors.TextPrimary)
+                Text(
+                    text = match.rule.id + stringResource(R.string.separator_dot) + match.rule.surface,
+                    color = FsColors.TextPrimary,
+                )
                 match.anchors.forEach { anchor -> Caption(anchor) }
             }
         }
@@ -725,7 +751,7 @@ private fun RulesSection(
                     val target = AppTarget.entries.firstOrNull { it.packageName == rule.appPackage }
                     Caption(
                         (target?.let { stringResource(it.nameRes) } ?: rule.appPackage) +
-                            " · " + rule.surface,
+                            stringResource(R.string.separator_dot) + rule.surface,
                     )
                 }
                 Text(
@@ -745,10 +771,14 @@ private fun RulesSection(
     }
 }
 
-/** "Imported 5 Nov, 16:47" — the override's file time in the device's zone. */
-private fun formatImportTime(millis: Long): String =
-    DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.getDefault())
-        .format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
+/** The override's file time, formatted for the device locale (12/24-hour included). */
+private fun formatImportTime(millis: Long): String = LocaleFormat.dateTime(millis)
+
+/** A dump's ISO capture stamp, formatted for the device locale (raw value kept on failure). */
+private fun formatCapturedAt(raw: String): String = runCatching {
+    val parsed = ZonedDateTime.parse(raw)
+    LocaleFormat.dateTime(parsed.toInstant().toEpochMilli(), parsed.zone)
+}.getOrDefault(raw)
 
 private fun notificationsRequested(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NOTIF_ASKED, false)
@@ -768,7 +798,7 @@ private fun shareDump(context: Context, file: DumpFile) {
         return
     }
     val chooser = Intent.createChooser(
-        DumpExporter.shareIntent(file.document, text),
+        DumpExporter.shareIntent(context, file.document, text),
         context.getString(R.string.inspector_dump_share),
     )
     try {

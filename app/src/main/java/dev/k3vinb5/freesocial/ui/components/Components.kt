@@ -504,7 +504,7 @@ fun Stepper(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         StepperButton(
-            label = "−",
+            label = stringResource(R.string.stepper_minus),
             description = stringResource(R.string.stepper_decrease),
             enabled = decreaseEnabled,
             onClick = onDecrease,
@@ -517,7 +517,7 @@ fun Stepper(
             modifier = Modifier.widthIn(min = 56.dp),
         )
         StepperButton(
-            label = "+",
+            label = stringResource(R.string.stepper_plus),
             description = stringResource(R.string.stepper_increase),
             enabled = increaseEnabled,
             onClick = onIncrease,

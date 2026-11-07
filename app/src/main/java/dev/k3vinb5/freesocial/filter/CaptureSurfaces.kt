@@ -1,5 +1,6 @@
 package dev.k3vinb5.freesocial.filter
 
+import dev.k3vinb5.freesocial.R
 import dev.k3vinb5.freesocial.core.MatchSpec
 import dev.k3vinb5.freesocial.core.Rule
 import dev.k3vinb5.freesocial.settings.AppTarget
@@ -27,7 +28,10 @@ object CaptureSurfaces {
     data class Surface(
         val app: AppTarget,
         val id: String,
+        /** Stable canonical name: it is written into dumps and never translated. */
         val displayName: String,
+        /** Localized label for UI and notifications. */
+        val nameRes: Int,
         val markers: List<MatchSpec>,
     )
 
@@ -40,7 +44,12 @@ object CaptureSurfaces {
         val label: String get() = if (verified) surface else UNKNOWN_SURFACE
     }
 
-    private data class Definition(val id: String, val displayName: String, val builtIn: List<MatchSpec>)
+    private data class Definition(
+        val id: String,
+        val displayName: String,
+        val nameRes: Int,
+        val builtIn: List<MatchSpec>,
+    )
 
     private const val IG = "com.instagram.android"
     private const val YT = "com.google.android.youtube"
@@ -56,6 +65,7 @@ object CaptureSurfaces {
             Definition(
                 id = "feed_reel_cell",
                 displayName = "Home feed",
+                nameRes = R.string.surface_name_home_feed,
                 builtIn = listOf(
                     // D15: id/feed_tab is the bottom-nav *cell* and is never selected (the flag
                     // lives on its child id/tab_icon), so `selected = true` could never match.
@@ -64,13 +74,14 @@ object CaptureSurfaces {
                     MatchSpec(viewId = "$IG:id/row_feed_profile_header"),
                 ),
             ),
-            Definition("clips_viewer", "Reels viewer", emptyList()),
-            Definition("reels_tab", "Reels tab", emptyList()),
+            Definition("clips_viewer", "Reels viewer", R.string.surface_name_reels_viewer, emptyList()),
+            Definition("reels_tab", "Reels tab", R.string.surface_name_reels_tab, emptyList()),
         ),
         AppTarget.YOUTUBE to listOf(
             Definition(
                 id = "home",
                 displayName = "Home feed",
+                nameRes = R.string.surface_name_home_feed,
                 builtIn = listOf(
                     // D15 sweep: id/tabs_bar never exists in a YouTube dump. id/results is the
                     // home-feed RecyclerView; the Shorts player (170126/234810) has no results
@@ -78,12 +89,13 @@ object CaptureSurfaces {
                     MatchSpec(viewId = "$YT:id/results"),
                 ),
             ),
-            Definition("shorts_player", "Shorts player", emptyList()),
+            Definition("shorts_player", "Shorts player", R.string.surface_name_shorts_player, emptyList()),
         ),
         AppTarget.TIKTOK to listOf(
             Definition(
                 id = "playback",
                 displayName = "For You playback",
+                nameRes = R.string.surface_name_for_you_playback,
                 builtIn = listOf(MatchSpec(viewId = "$TT:id/player_view")),
             ),
         ),
@@ -96,6 +108,7 @@ object CaptureSurfaces {
                 app = app,
                 id = definition.id,
                 displayName = definition.displayName,
+                nameRes = definition.nameRes,
                 markers = markers(app, definition.id, rules),
             )
         }
@@ -109,13 +122,20 @@ object CaptureSurfaces {
         return (builtIn + fromRules).distinct()
     }
 
-    /** Plain-language name for a surface slug, falling back to the slug itself. */
+    /** Stable, untranslated name for a surface slug, falling back to the slug itself. */
     fun displayName(surface: String): String =
         DEFINITIONS.values.asSequence()
             .flatten()
             .firstOrNull { it.id == surface }
             ?.displayName
             ?: surface
+
+    /** Localized label resource for a surface slug; null for custom/unregistered surfaces. */
+    fun nameRes(surface: String): Int? =
+        DEFINITIONS.values.asSequence()
+            .flatten()
+            .firstOrNull { it.id == surface }
+            ?.nameRes
 
     /**
      * Verifies one captured tree against the surface markers. Verified only when at least one

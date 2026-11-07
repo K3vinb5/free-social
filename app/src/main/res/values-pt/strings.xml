@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Português (Portugal). Traduzido à mão, tom direto e informal (tratamento por "tu").
+  Placeholders (%1$s, %1$d, …) têm de coincidir com values/strings.xml — o teste
+  LocaleResourcesTest falha se faltar uma chave ou um placeholder.
+-->
+<resources>
+    <string name="app_name">Free Social</string>
+
+    <!-- Shared -->
+    <string name="nav_back">Retroceder</string>
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="stepper_decrease">Diminuir</string>
+    <string name="stepper_increase">Aumentar</string>
+
+    <!-- Hub (F6) -->
+    <string name="hub_status_on">Filtragem ativa</string>
+    <string name="hub_status_off">Filtragem desativada</string>
+    <string name="hub_banner_service_off">O serviço de filtragem está desligado — nada está a ser filtrado. Ativa-o em Permissões.</string>
+    <string name="hub_banner_engine_stale">O motor de filtragem deixou de comunicar — nada está a ser filtrado. Abre Permissões e reinicia o serviço de filtragem.</string>
+    <string name="hub_master_title">Filtragem</string>
+    <string name="hub_master_subtitle">As três apps · superfícies de vídeos curtos</string>
+    <string name="hub_apps_section">Apps</string>
+    <string name="hub_budget_row">Orçamento de Reels e Shorts</string>
+    <plurals name="hub_min_left">
+        <item quantity="one">falta %1$d min</item>
+        <item quantity="other">faltam %1$d min</item>
+    </plurals>
+    <string name="hub_schedule_row">Horário</string>
+    <string name="hub_schedule_value">Ativo · %1$s–%2$s</string>
+    <string name="hub_permissions_row">Permissões</string>
+    <string name="hub_permissions_value">%1$d de 4</string>
+    <string name="hub_caption">Regras verificadas · IG 454 · YT 21.43 · TT 47.6</string>
+    <string name="hub_rule_inspector">Superfícies e regras</string>
+    <string name="hub_rule_inspector_dev">Vê e corrige as regras usadas em cada captura</string>
+    <string name="hub_star_title">O Free Social é gratuito e de código aberto</string>
+    <string name="hub_star_subtitle">Sem anúncios, sem rastreio, sem pop-ups. Uma estrela ajuda mais pessoas a encontrá-lo — só se quiseres.</string>
+    <string name="hub_star_action">Dar estrela no GitHub</string>
+    <string name="hub_star_dismiss">Não mostrar novamente</string>
+    <string name="schedule_on">Ativo</string>
+
+    <!-- App detail (F7–F9) -->
+    <string name="app_instagram">Instagram</string>
+    <string name="app_youtube">YouTube</string>
+    <string name="app_tiktok">TikTok</string>
+    <string name="section_mode">Modo</string>
+    <string name="section_surfaces">Superfícies</string>
+    <string name="mode_filter">Filtrar</string>
+    <string name="mode_block">Bloquear</string>
+    <string name="mode_allow">Permitir</string>
+    <string name="chip_filtering">A filtrar</string>
+    <string name="chip_blocked">Bloqueada</string>
+    <string name="chip_allowed">Permitida</string>
+    <string name="surface_hide_feed_reels">Ocultar reels no feed</string>
+    <string name="surface_hide_reels_tab">Ocultar o separador Reels</string>
+    <string name="surface_hide_shorts_shelf">Ocultar a prateleira Shorts no Início</string>
+    <string name="surface_shorts_count_budget">O leitor de Shorts conta para o orçamento</string>
+    <string name="surface_videos_count_budget">Os vídeos contam para o orçamento</string>
+    <string name="surface_back_when_spent">Sair quando o orçamento acabar</string>
+    <string name="info_instagram">Abriste um reel de propósito? Ele reproduz — e conta para o teu orçamento diário.</string>
+    <string name="info_youtube">Quando o orçamento acabar, os Shorts fecham automaticamente.</string>
+    <string name="info_tiktok">As mensagens diretas nunca são tocadas.</string>
+    <string name="rules_verified_for">Regras verificadas para %1$s</string>
+    <string name="rules_may_be_stale">As regras para %1$s podem estar desatualizadas — a app foi atualizada</string>
+    <string name="rules_none_for">Ainda não há regras para %1$s</string>
+    <string name="rules_unstamped">As regras para %1$s não têm versão registada</string>
+    <string name="rules_app_not_installed">%1$s não está instalada — as regras não foram verificadas aqui</string>
+    <string name="staleness_banner">%1$s %2$s é mais recente do que a versão verificada das regras (%3$s) — a filtragem pode ficar parcial até ser reverificada.</string>
+    <string name="staleness_capture_now">Capturar agora</string>
+    <string name="staleness_capture_unavailable">Ainda não há uma superfície pronta para capturar em %1$s.</string>
+
+    <!-- Budget (F10) -->
+    <string name="budget_title">Orçamento de Reels e Shorts</string>
+    <string name="budget_min_left_today">min restantes hoje</string>
+    <string name="budget_of_daily">de %1$d min por dia</string>
+    <string name="budget_daily_allowance">Limite diário</string>
+    <string name="budget_minutes_value">%1$d min</string>
+    <string name="budget_info">Conta em conjunto os reels do Instagram, os Shorts do YouTube e a reprodução no TikTok. Reinicia à meia-noite.</string>
+    <string name="budget_caption">Durante as horas de bloqueio, o orçamento conta como gasto.</string>
+
+    <!-- Schedule (F11) -->
+    <string name="schedule_title">Horário</string>
+    <string name="schedule_preview">Bloqueado %1$s–%2$s</string>
+    <string name="day_mon">Seg</string>
+    <string name="day_tue">Ter</string>
+    <string name="day_wed">Qua</string>
+    <string name="day_thu">Qui</string>
+    <string name="day_fri">Sex</string>
+    <string name="day_sat">Sáb</string>
+    <string name="day_sun">Dom</string>
+    <string name="time_bedtime">Deitar</string>
+    <string name="time_wake">Acordar</string>
+
+    <!-- Permissions / inspector stubs -->
+    <string name="permissions_title">Permissões</string>
+    <string name="inspector_title">Superfícies e regras</string>
+    <string name="inspector_caption">Captura um ecrã para ver os nós que a app usa e exporta as regras para um ficheiro teu se uma atualização as tiver movido.</string>
+
+    <!-- Onboarding wizard (F1–F5) -->
+    <string name="onboarding_step">%1$d/5</string>
+    <string name="welcome_subtitle">Vídeos curtos, às tuas regras.</string>
+    <string name="welcome_body">Os reels, os Shorts e os clipes do TikTok são filtrados das apps que já usas. As apps continuam a ser tuas.</string>
+    <string name="welcome_start">Começar configuração</string>
+    <string name="welcome_caption">Sem conta. Sem nuvem. Funciona por inteiro no teu telefone.</string>
+    <string name="restricted_title">Permitir definições restritas</string>
+    <string name="restricted_body">O Android protege a acessibilidade de apps instaladas fora da loja. No menu da app, escolhe primeiro «Permitir definições restritas».</string>
+    <string name="restricted_step_open_app_info">Abrir informações da app</string>
+    <string name="restricted_step_menu">Toca no menu ⋮</string>
+    <string name="restricted_step_allow">Permitir definições restritas</string>
+    <string name="restricted_open">Abrir definições da app</string>
+    <string name="restricted_done">Concluído — seguinte</string>
+    <string name="filter_title">Ativar a filtragem de conteúdo</string>
+    <string name="filter_body">O Free Social lê o ecrã do Instagram, do YouTube e do TikTok apenas para esconder reels e Shorts. Nada mais.</string>
+    <string name="filter_chip">Recomendado</string>
+    <string name="filter_service">Serviço de filtragem</string>
+    <string name="filter_open">Abrir definições de acessibilidade</string>
+    <string name="filter_done">Concluído — seguinte</string>
+    <string name="block_service">Serviço de bloqueio</string>
+    <string name="block_optional_title">Bloqueio da app inteira (opcional)</string>
+    <string name="block_optional_body">Queres bloquear uma app por completo? Ativa o segundo serviço. A filtragem funciona sem ele.</string>
+    <string name="block_enable">Ativar o serviço de bloqueio</string>
+    <string name="block_skip">Saltar por agora</string>
+    <string name="last_permissions_title">As duas últimas permissões</string>
+    <string name="perm_overlay_title">Sobrepor-se a outras apps</string>
+    <string name="perm_overlay_hint">para o ecrã de bloqueio</string>
+    <string name="perm_battery_title">Ignorar a otimização de bateria</string>
+    <string name="perm_battery_hint">para a filtragem continuar</string>
+    <string name="perm_allow">Permitir</string>
+    <string name="perm_finish">Concluir configuração</string>
+
+    <!-- Status labels shared by wizard + permissions (F3, F12) -->
+    <string name="status_waiting">À espera…</string>
+    <string name="status_on">Ativo</string>
+    <string name="status_off">Inativo</string>
+    <string name="status_not_enabled">Não ativado</string>
+    <string name="status_off_optional">Inativo, opcional</string>
+    <string name="status_on_optional">Ativo, opcional</string>
+    <string name="status_needed">Necessário</string>
+    <string name="status_allowed">Permitido</string>
+
+    <!-- Permissions screen (F12) -->
+    <string name="permissions_service">Serviço de filtragem de conteúdo</string>
+    <string name="permissions_open_settings">Abrir definições</string>
+    <string name="permissions_banner">Android 13+: se um botão não ativar, permite primeiro as definições restritas.</string>
+
+    <!-- Block screen (F13) -->
+    <string name="block_screen_title">%1$s está bloqueada</string>
+    <string name="block_screen_body">Hora de concentração — volta às %1$s.</string>
+    <string name="block_go_home">Ir para o início</string>
+    <string name="block_caption">Bloqueada pelo Free Social</string>
+    <string name="block_app_fallback">Esta app</string>
+    <string name="block_reason_schedule">O modo de sono está ativo — vai dormir.</string>
+    <string name="block_reason_app">Esta app está bloqueada pelo Free Social.</string>
+
+    <!-- Escape flash -->
+    <string name="flash_title">O Free Social bloqueou isto</string>
+    <string name="flash_reason_budget">Orçamento de Reels e Shorts esgotado · reinicia à meia-noite</string>
+    <string name="flash_reason_sleep">O modo de sono está ativo · vai dormir</string>
+    <string name="flash_caption_budget">Podes voltar a ver quando o orçamento reiniciar.</string>
+    <string name="flash_caption_sleep">Os vídeos curtos voltam quando o modo de sono terminar.</string>
+
+    <!-- Capture surface names -->
+    <string name="surface_name_home_feed">Feed inicial</string>
+    <string name="surface_name_reels_viewer">Leitor de Reels</string>
+    <string name="surface_name_reels_tab">Separador Reels</string>
+    <string name="surface_name_shorts_player">Leitor de Shorts</string>
+    <string name="surface_name_for_you_playback">Reprodução For You</string>
+
+    <!-- Surfaces & rules (F14) -->
+    <string name="inspector_captured">Ecrãs a capturar</string>
+    <string name="inspector_nodes">— nós</string>
+    <string name="inspector_capture_nodes">Capturar nós</string>
+    <plurals name="inspector_markers">
+        <item quantity="one">%1$d marcador de superfície</item>
+        <item quantity="other">%1$d marcadores de superfície</item>
+    </plurals>
+    <string name="inspector_no_markers">Sem marcadores — importa primeiro as regras desta app</string>
+    <string name="inspector_dumps">Capturas guardadas</string>
+    <string name="inspector_dumps_housekeeping">As capturas antigas são removidas automaticamente (mantém as 25 mais recentes por superfície, 14 dias)</string>
+    <string name="inspector_no_dumps">Ainda não há capturas. Toca em «Capturar nós» acima; a app abre o ecrã certo por ti.</string>
+    <plurals name="inspector_nodes_count">
+        <item quantity="one">%1$d nó</item>
+        <item quantity="other">%1$d nós</item>
+    </plurals>
+    <string name="inspector_dump_subtitle">%1$s · %2$s</string>
+    <string name="inspector_dump_saved">Captura guardada: %1$s</string>
+    <string name="inspector_dump_share">Partilhar captura</string>
+    <string name="inspector_dump_unavailable">Ativa a filtragem de conteúdo e abre a app que queres capturar.</string>
+    <string name="inspector_dump_failed">Não foi possível escrever o ficheiro da captura.</string>
+    <string name="inspector_unknown_surface">Superfície desconhecida — vistos: %1$s</string>
+    <string name="inspector_unknown_surface_empty">Superfície desconhecida — nenhum marcador correspondeu</string>
+    <string name="inspector_verified_surface">Superfície verificada</string>
+    <string name="inspector_analysis">Regras que correspondem a esta captura</string>
+    <string name="inspector_no_rule_match">Nenhuma regra ativa corresponde a esta captura.</string>
+    <string name="inspector_rules">Regras em uso</string>
+    <string name="inspector_rules_source_assets">Regras incorporadas</string>
+    <string name="inspector_rules_source_override">A tua substituição (%1$s)</string>
+    <string name="inspector_override_path">Ficheiro de substituição: %1$s</string>
+    <string name="inspector_export">Exportar regras</string>
+    <string name="inspector_import">Importar regras</string>
+    <string name="inspector_exported">Regras exportadas para %1$s</string>
+    <string name="inspector_export_shared">Regras prontas — escolhe uma app de texto para as editar e depois Importa para aplicar.</string>
+    <plurals name="inspector_import_ok">
+        <item quantity="one">Regras importadas — %1$d ativa</item>
+        <item quantity="other">Regras importadas — %1$d ativas</item>
+    </plurals>
+    <string name="inspector_import_rejected">Regras rejeitadas — as regras atuais continuam ativas: %1$s</string>
+    <string name="inspector_import_failed">Não foi possível ler o ficheiro selecionado.</string>
+    <string name="inspector_override_error">Substituição não aplicada: %1$s</string>
+    <string name="inspector_override_imported">Importado %1$s</string>
+    <string name="inspector_override_stale">A tua substituição de regras pode ser anterior às correções da app — toca para rever</string>
+    <string name="inspector_rules_use_builtin">Usar as regras incorporadas</string>
+    <string name="inspector_rules_revert_confirm">As tuas regras importadas serão removidas. O Free Social passa a usar as regras incorporadas.</string>
+    <string name="inspector_rules_reverted">As tuas regras importadas foram removidas — as regras incorporadas estão ativas.</string>
+    <string name="inspector_rules_revert_failed">Não foi possível remover o ficheiro de substituição — continua ativo.</string>
+    <string name="inspector_rule_enabled">Ativa</string>
+    <string name="inspector_rule_disabled">Inativa</string>
+    <string name="inspector_last_verified">Verificada pela última vez contra %1$s</string>
+    <string name="inspector_not_verified">Ainda não verificada</string>
+    <string name="inspector_capture_waiting">À procura de %1$s — abre a app e navega até lá (30 s).</string>
+    <string name="inspector_capture_recording">A gravar %1$s — faltam cerca de 15 s, para sozinho.</string>
+    <plurals name="inspector_capture_done">
+        <item quantity="one">Captura concluída — %1$d nó.</item>
+        <item quantity="other">Captura concluída — %1$d nós.</item>
+    </plurals>
+    <string name="inspector_capture_timeout">Superfície não detetada — captura cancelada.</string>
+    <string name="inspector_capture_cancelled">Captura cancelada.</string>
+    <string name="inspector_capture_failed">A captura falhou — não foi encontrada nenhuma janela legível.</string>
+    <string name="inspector_capture_launch_failed">Não foi possível abrir %1$s.</string>
+    <string name="inspector_step_title">Capturar %1$s · %2$s</string>
+    <string name="inspector_step_body">Abre %1$s e vai para %2$s. Desliza ou usa o ecrã durante cerca de 15 segundos. A captura começa quando esse ecrã é reconhecido e para sozinha; depois a captura aparece aqui. As notificações estão desligadas, por isso o progresso fica nesta app.</string>
+    <string name="inspector_step_start">Abrir a app e capturar</string>
+
+    <!-- Guided capture notifications -->
+    <string name="capture_notif_channel_name">Captura de nós</string>
+    <string name="capture_notif_channel_description">Progresso e ação Parar de uma captura de nós guiada</string>
+    <string name="capture_notif_recording">A gravar %1$s %2$s — desliza/faz a coisa ~15 s (para sozinho)</string>
+    <string name="capture_notif_detected">A gravar %1$s — faltam cerca de %2$d s (para sozinho)</string>
+    <string name="capture_notif_stop">Parar agora</string>
+    <plurals name="capture_notif_complete">
+        <item quantity="one">Captura concluída — %1$d nó</item>
+        <item quantity="other">Captura concluída — %1$d nós</item>
+    </plurals>
+    <plurals name="capture_notif_surface_lost">
+        <item quantity="one">Saíste da superfície — captura parada com %1$d nó</item>
+        <item quantity="other">Saíste da superfície — captura parada com %1$d nós</item>
+    </plurals>
+    <string name="capture_notif_not_detected">Superfície não detetada — navega até %1$s; captura cancelada</string>
+    <string name="capture_notif_cancelled">Captura cancelada — não foi escrita nenhuma captura</string>
+    <string name="capture_notif_failed">A captura falhou — nenhuma janela legível</string>
+
+    <!-- Filter service (accessibility) -->
+    <string name="filter_service_label">Filtragem de conteúdo</string>
+    <string name="filter_service_summary">Esconde reels e Shorts no Instagram, YouTube e TikTok</string>
+    <string name="filter_service_description">Lê o ecrã do Instagram, do YouTube e do TikTok apenas para encontrar reels, Shorts e superfícies de vídeos curtos, e depois sai delas. Nada sai do teu telefone.</string>
+
+    <!-- Block service (accessibility, opt-in) -->
+    <string name="block_service_label">Bloqueio da app inteira</string>
+    <string name="block_service_summary">Bloqueia por completo o Instagram, o YouTube e o TikTok enquanto estiverem em modo Bloquear</string>
+    <string name="block_service_description">Vigia qual a app que passa para a frente e mostra o ecrã de bloqueio nas apps que puseste em Bloquear e durante a tua janela noturna. Lê apenas nomes de pacotes, nunca o conteúdo do ecrã.</string>
+
+    <string name="dump_share_subject">Captura do Free Social — %1$s</string>
+
+    <!-- Track B: dump delete -->
+    <string name="inspector_dumps_delete_hint">Eliminar remove o ficheiro deste dispositivo. Partilhar mantém uma cópia onde a enviares.</string>
+    <string name="inspector_dump_delete">Eliminar captura</string>
+    <string name="inspector_dump_delete_confirm">Eliminar esta captura? O ficheiro é removido deste dispositivo.</string>
+    <string name="inspector_dumps_delete_all">Eliminar todas as capturas</string>
+    <plurals name="inspector_dumps_delete_all_confirm">
+        <item quantity="one">Eliminar %1$d captura? Também remove a captura mais recente de cada superfície, que de outra forma é mantida automaticamente.</item>
+        <item quantity="other">Eliminar as %1$d capturas? Também remove a captura mais recente de cada superfície, que de outra forma é mantida automaticamente.</item>
+    </plurals>
+    <string name="inspector_delete_dialog_title">Eliminar capturas</string>
+    <string name="inspector_delete_confirm">Eliminar</string>
+    <plurals name="inspector_dumps_deleted">
+        <item quantity="one">Eliminada %1$d captura.</item>
+        <item quantity="other">Eliminadas %1$d capturas.</item>
+    </plurals>
+    <string name="inspector_dumps_delete_failed">Não foi possível eliminar a captura.</string>
+
+    <!-- Track C: sleep schedule -->
+    <string name="schedule_always_on">Sempre ativo — todas as noites, todos os dias da semana.</string>
+    <string name="schedule_minimum_explainer">Cada janela tem de ter pelo menos %1$s. Janelas mais curtas não podem ser guardadas.</string>
+    <string name="schedule_duration">%1$dh %2$dm</string>
+    <string name="schedule_duration_readout">%1$s · mínimo %2$s</string>
+    <string name="schedule_below_minimum">Não guardado: uma janela inferior a %1$s não é uma noite de sono. Adianta a hora de deitar ou atrasa a de acordar.</string>
+    <string name="schedule_caption">Durante estas horas o orçamento conta como gasto e as apps em modo Bloquear mostram o ecrã de bloqueio. Janela mínima: %1$s.</string>
+
+    <!-- Budget-honest status -->
+    <plurals name="hub_status_paused_budget">
+        <item quantity="one">Pausado · falta %1$d min</item>
+        <item quantity="other">Pausado · faltam %1$d min</item>
+    </plurals>
+    <string name="hub_status_paused_service">Serviço desligado — sem filtrar</string>
+    <string name="hub_helper_paused_budget">Os Shorts e os reels passam livremente até o teu orçamento diário acabar.</string>
+    <string name="chip_filter_budget_paused">Filtrar · orçamento restante</string>
+    <string name="chip_filter_service_off">Filtrar · serviço desligado</string>
+    <string name="chip_filter_off">Filtrar · desligado</string>
+    <plurals name="budget_status_paused_budget">
+        <item quantity="one">Filtragem em pausa · falta %1$d min</item>
+        <item quantity="other">Filtragem em pausa · faltam %1$d min</item>
+    </plurals>
+</resources>
