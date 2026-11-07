@@ -43,8 +43,8 @@ shown fully revealed. The inline `<script>` in `<head>` only adds that `js` clas
 | `src/components/DownloadTables.tsx` | Stable / Nightlies tables |
 | `src/components/SiteFooter.tsx` | footer |
 | `src/components/icons.tsx` | the star glyph |
-| `src/sections/Setup.tsx` | 01 / Setup |
-| `src/sections/Behaviour.tsx` | 02 / Behaviour (six cards) |
+| `src/sections/WhatItDoes.tsx` | 01 / What it does |
+| `src/sections/Day.tsx` | 02 / A day with it (the shared budget) |
 | `src/sections/HonestRules.tsx` | 03 / Honest rules |
 | `src/sections/Privacy.tsx` | 04 / Privacy |
 | `src/sections/Limits.tsx` | 05 / Limits |

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-/** 04 / Privacy — the permission ledger and the manifest excerpt. */
+/** 04 / Privacy — what the app can and cannot do, in the order a person cares. */
 export function Privacy() {
   return (
     <section className="section" id="privacy" aria-labelledby="privacy-title">
@@ -8,47 +8,38 @@ export function Privacy() {
         <header className="sec-head" data-reveal>
           <p className="sec-index">04 / Privacy</p>
           <h2 id="privacy-title">
-            No accounts. No analytics. <em>No socket.</em>
+            No account. No cloud. <em>Nothing to delete.</em>
           </h2>
           <p className="sec-note">
-            This is a permission list, not a policy page. You can check every line of it inside the
-            APK you downloaded.
+            This is a permission list, not a policy page. You can check every line of it in the
+            app you downloaded.
           </p>
         </header>
 
         <div className="privacy">
           <div className="privacy__side" data-reveal>
             <p className="lede">
-              There is no backend to trust, because there is no backend. <em>Nothing about you leaves the phone.</em>
+              There is no server to trust, because there is no server.{" "}
+              <em>Nothing about you leaves the phone.</em>
             </p>
             <p>
-              Settings live in SharedPreferences on the device. Rule sets are assets inside the
-              APK. Every decision is made in-process, from the view tree that is on screen at that
-              moment.
+              Your settings and the rules live on the device. Every decision is made in the moment,
+              from the screen in front of you.
             </p>
             <p>
-              There is no sign-up, no crash reporter, no analytics SDK and no ad library. <strong>There
-              is nothing to delete, because nothing was collected.</strong>
+              There is no sign-up, no crash reporter, no analytics and no ads.{" "}
+              <strong>Nothing is collected, so there is nothing to delete.</strong>
             </p>
-            <pre
-              className="code privacy__code"
-              aria-label="Excerpt from AndroidManifest.xml: SYSTEM_ALERT_WINDOW, USE_EXACT_ALARM, POST_NOTIFICATIONS and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, with no INTERNET permission anywhere."
-            >
-              <span className="c">{"<!-- AndroidManifest.xml -->"}</span>
-              {"\n<uses-permission android:name="}
-              <span className="s">{'"…SYSTEM_ALERT_WINDOW"'}</span>
-              {" />\n<uses-permission android:name="}
-              <span className="s">{'"…USE_EXACT_ALARM"'}</span>
-              {" />\n<uses-permission android:name="}
-              <span className="s">{'"…POST_NOTIFICATIONS"'}</span>
-              {" />\n<uses-permission android:name="}
-              <span className="s">{'"…REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"'}</span>
-              {" />\n"}
-              <span className="no">{"<!-- no android.permission.INTERNET anywhere -->"}</span>
-            </pre>
+            <p>
+              The app asks Android for a few narrow things: to look at the screen in front — the
+              three apps' view trees to find reels and Shorts, and a structural check on any other
+              app — to draw a brief overlay, to wake on schedule, to show a notification while you
+              fix a rule, and — optionally — to stay awake in the background. It does not ask for
+              the internet.
+            </p>
             <p className="privacy__foot">
-              No write access, no network stack, no remote anything: the app cannot open a socket,
-              so there is nothing to leak.
+              No contacts, no location, no storage, no camera, no microphone, no advertising ID.
+              The app cannot open a network connection, so there is nothing to leak.
             </p>
           </div>
 
@@ -56,69 +47,69 @@ export function Privacy() {
             <dl className="ledger">
               <div className="ledger__row ledger__row--absent">
                 <dt className="ledger__k">
-                  INTERNET <span className="badge badge--amber">absent</span>
+                  Internet <span className="badge badge--amber">not requested</span>
                 </dt>
                 <dd className="ledger__v">
-                  Not requested. No uploads, no sync, no remote config, no usage ping.
+                  No uploads, no sync, no remote settings, no usage ping. The app has no network
+                  permission at all.
                 </dd>
               </div>
               <div className="ledger__row">
                 <dt className="ledger__k">
-                  BIND_ACCESSIBILITY_SERVICE <span className="badge">content filter</span>
+                  Reading the screen <span className="badge">filter</span>
                 </dt>
                 <dd className="ledger__v">
-                  Walks the view hierarchy while Instagram, YouTube or TikTok is on screen. Other
-                  apps' trees are only ever read by the ghost-tree self-check, which asks whether a
-                  target is hiding content — nothing is stored.
+                  Every window change hands the service the screen in front. For Instagram, YouTube
+                  and TikTok it reads the view tree to find a reel or a Short; for every other app
+                  it only checks the tree's shape — whether the screen is readable at all — so it
+                  can warn you when Android or the phone's software starts hiding content from
+                  accessibility. Other apps are never matched or acted on, and no text, screenshots
+                  or history are stored.
                 </dd>
               </div>
               <div className="ledger__row">
                 <dt className="ledger__k">
-                  BIND_ACCESSIBILITY_SERVICE <span className="badge">block service</span>
+                  Which app is open <span className="badge">bedtime</span>
                 </dt>
                 <dd className="ledger__v">
-                  Window changes only; content retrieval is switched off in its config. Reads a
-                  package name and nothing else.
+                  Sees the name of the app in front so Block mode and the sleep window can work.
+                  It reads nothing inside them.
                 </dd>
               </div>
               <div className="ledger__row">
-                <dt className="ledger__k">SYSTEM_ALERT_WINDOW</dt>
+                <dt className="ledger__k">Draw over other apps</dt>
                 <dd className="ledger__v">
-                  Draws the 2.2-second escape flash over the app. It cannot stack, cannot linger and
-                  has no dismiss button.
+                  Shows the short “blocked” flash. It cannot stack, cannot linger and has no
+                  dismiss button.
                 </dd>
               </div>
               <div className="ledger__row">
-                <dt className="ledger__k">REQUEST_IGNORE_BATTERY_OPTIMIZATIONS</dt>
+                <dt className="ledger__k">Exact alarms</dt>
                 <dd className="ledger__v">
-                  Optional, asked once. Keeps the service from being frozen mid-evening by an
-                  aggressive power profile.
+                  Bedtime and wake time fire on time, even while the phone sits in your pocket.
                 </dd>
               </div>
               <div className="ledger__row">
-                <dt className="ledger__k">USE_EXACT_ALARM</dt>
+                <dt className="ledger__k">Notifications</dt>
                 <dd className="ledger__v">
-                  Schedule boundaries fire on time — bedtime and wake, every night.
+                  Progress and “Stop now” while you fix a rule. Say no and the fix still works.
                 </dd>
               </div>
               <div className="ledger__row">
-                <dt className="ledger__k">POST_NOTIFICATIONS</dt>
+                <dt className="ledger__k">Battery exemption</dt>
                 <dd className="ledger__v">
-                  Progress and “Stop now” during node capture. Denial is handled in-app; capture
-                  still works.
+                  Optional, asked once. Keeps an aggressive power saver from freezing the filter
+                  mid-evening.
                 </dd>
               </div>
               <div className="ledger__row">
-                <dt className="ledger__k">{"<queries> · 4 packages"}</dt>
+                <dt className="ledger__k">Three visible apps</dt>
                 <dd className="ledger__v">
-                  Instagram, YouTube, TikTok (global and trill). Used to launch the app while
-                  capturing a screen.
+                  Instagram, YouTube and TikTok — used only to bring the app to the front while you
+                  capture a screen.
                 </dd>
               </div>
             </dl>
-            <p className="privacy__foot">
-              No contacts, no location, no storage, no camera, no microphone, no AD_ID.
-            </p>
           </div>
         </div>
       </div>

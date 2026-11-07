@@ -7,8 +7,8 @@ export function Hero() {
       <div className="shell hero__grid">
         <div className="hero__copy">
           <p className="eyebrow">
-            <span className="dot" aria-hidden="true"></span>Android app · v0.4.1 · no network
-            permission
+            <span className="dot" aria-hidden="true"></span>Android app · free & open source · no
+            internet permission
           </p>
           <h1 id="hero-title">
             <span className="line">Scroll past.</span>
@@ -17,35 +17,35 @@ export function Hero() {
             </span>
           </h1>
           <p className="hero__sub">
-            Free Social removes the short-video layer from Instagram, YouTube and TikTok — inside
-            the real apps, through Android's accessibility service. Reels stop ambushing you.
-            When you do want one, you spend it from one daily budget.
+            Free Social takes the endless short-video part out of Instagram, YouTube and TikTok —
+            inside the real apps you already use. Reels and Shorts stop ambushing you. When you do
+            want one, you spend it from one daily budget.
           </p>
           <div className="hero__actions">
             <a className="btn" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
               Download the APK
-              <span className="btn__meta">23.7 MB · 0.4.1</span>
+              <span className="btn__meta">23.7 MB · free</span>
             </a>
             <a className="btn btn--ghost" href="https://github.com/K3vinb5/free-social">
               <StarIcon size={15} />
               Star on GitHub
             </a>
-            <a className="link-arrow" href="#rules">
-              See what it matches <span aria-hidden="true">→</span>
+            <a className="link-arrow" href="#features">
+              See what it changes <span aria-hidden="true">→</span>
             </a>
           </div>
           <ul className="specs">
             <li>
               <b>Android 12L+</b>
-              <span>minSdk 32 · targetSdk 36</span>
+              <span>no root · no custom ROM</span>
             </li>
             <li>
               <b>One budget</b>
               <span>3 apps · resets at midnight</span>
             </li>
             <li>
-              <b>No servers</b>
-              <span>0 accounts · 0 telemetry</span>
+              <b>Fully offline</b>
+              <span>no account · no internet</span>
             </li>
           </ul>
         </div>
@@ -59,7 +59,7 @@ export function Hero() {
                 height={1645}
                 loading="lazy"
                 decoding="async"
-                alt="Free Social app detail screen for Instagram: mode set to Filter, with the reel cells and Reels tab hidden by toggles."
+                alt="Free Social's Instagram screen: Filter selected, with the choice to hide the Reels tab."
               />
             </figure>
             <figure className="phone phone--main">
@@ -68,7 +68,7 @@ export function Hero() {
                 width={820}
                 height={1645}
                 decoding="async"
-                alt="Free Social home screen: filtering on, Instagram, YouTube and TikTok filtered, 20 minutes of Reels and Shorts budget left, schedule and permissions rows."
+                alt="Free Social home screen: the status pill reads Paused · 20 min left, each app shows Filter · budget left, the budget row shows 20 min left, with schedule and permissions below."
               />
             </figure>
             <figure className="phone phone--r">
@@ -78,12 +78,12 @@ export function Hero() {
                 height={1600}
                 loading="lazy"
                 decoding="async"
-                alt="Budget screen: a ring showing 13 of 20 minutes left today, with the daily allowance stepper."
+                alt="The budget screen: a ring showing 13 of 20 minutes left today, with the daily allowance stepper."
               />
             </figure>
             <p className="stage__tag">
-              <span className="dot" aria-hidden="true"></span>android.permission.INTERNET — not
-              requested
+              <span className="dot" aria-hidden="true"></span>no internet permission — it cannot
+              phone home
             </p>
           </div>
         </div>

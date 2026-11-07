@@ -102,8 +102,9 @@ export function DownloadTables({
         empty="No nightly published yet."
         note={
           <>
-            Untagged prerelease builds of <code>master</code>. Their versionName is never bumped, so
-            every entry reads 0.0.0 — the date and the commit identify them.
+            Untagged prerelease builds of <code>master</code> — the newest work, built
+            automatically. They carry master's version name unchanged (0.4.1 today) and are never
+            version-bumped; the date and the build id tell them apart.
           </>
         }
       />

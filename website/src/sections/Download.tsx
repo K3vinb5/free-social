@@ -2,8 +2,8 @@ import { DownloadTables } from "../components/DownloadTables";
 import { nightlies, stable } from "../downloads";
 
 /**
- * 06 / Download — the CTA, install steps and the full build history.
- * The hero APK line, sizes and sha256 are hand-maintained with each release;
+ * 06 / Download — the CTA, install steps, the Android 13 note and the build list.
+ * The hero APK line and the checksum are hand-maintained with each release;
  * the Stable/Nightlies tables come from downloads/versions.json at build time.
  */
 export function Download() {
@@ -42,10 +42,9 @@ export function Download() {
             </li>
           </ul>
           <p className="download__p">
-            A signed release build. Tap the APK, allow the install from your file manager. The .zip
-            holds the same APK plus the README, if you would rather keep the install steps next to
-            the file. Android 12L or newer; Android 13+ needs the extra “Allow restricted settings”
-            toggle from step two.
+            Free and open source. Tap the APK and allow the install from your file manager. The .zip
+            is the same signed build with the install notes inside, if you would rather keep them
+            next to the file. Android 12L or newer.
           </p>
           <div className="download__actions">
             <a className="btn btn--lg" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
@@ -53,12 +52,12 @@ export function Download() {
               <span className="btn__meta">23.7 MB</span>
             </a>
             <a className="download__alt" href="downloads/free-social-0.4.1-1e7b5a1.zip" download>
-              or the .zip <span aria-hidden="true">·</span> 8.2 MB, APK + README
+              or the .zip <span aria-hidden="true">·</span> 8.2 MB, APK + install notes
             </a>
           </div>
           <p className="download__meta">
-            <span>v0.4.1 · 1e7b5a1 · 23.7 MB APK · minSdk 32</span>
-            <code>apk sha256 4f40926c0833eaa21532beaa6ca5493002f5600d884bcdf43b017de575825f93</code>
+            <span>v0.4.1 · 23.7 MB APK · Android 12L or newer</span>
+            <code>APK SHA-256 4f40926c0833eaa21532beaa6ca5493002f5600d884bcdf43b017de575825f93</code>
           </p>
           <ol className="install">
             <li>
@@ -73,16 +72,48 @@ export function Download() {
             </li>
             <li>
               <span>03</span>
-              <b>Enable the service</b>
-              <small>Allow restricted settings first on Android 13+.</small>
+              <b>Enable the filter</b>
+              <small>Turn on the content filter service, then set a budget.</small>
             </li>
           </ol>
 
+          <div className="dl-history" data-reveal>
+            <h3 className="dl-history__h">Android 13 and newer: one extra switch</h3>
+            <div className="rulefix">
+              <div className="rulefix__txt">
+                <p>
+                  Android hides accessibility from apps installed outside the Play Store until you
+                  allow it. Open Free Social in Settings → App info, tap the menu in the top-right,
+                  choose <b>Allow restricted settings</b>, then turn on the content filter service.
+                </p>
+                <p>
+                  It is one extra tap on an otherwise short install, and Android means it: an app
+                  that can read the screen should be a deliberate choice.
+                </p>
+              </div>
+              <figure className="rulefix__shot">
+                <div className="phone mini">
+                  <img
+                    src="/assets/restricted-settings.png"
+                    width={820}
+                    height={1645}
+                    loading="lazy"
+                    decoding="async"
+                    alt="Free Social setup card: allow restricted settings in Android, with three steps and a button to open app settings."
+                  />
+                </div>
+                <figcaption className="shot-cap">
+                  The setup card walks you through Android's extra switch.
+                </figcaption>
+              </figure>
+            </div>
+          </div>
+
           <div className="dl-history">
-            <h3 className="dl-history__h">Every build, direct</h3>
+            <h3 className="dl-history__h">All builds, direct from this page</h3>
             <p className="dl-block__note">
               Every file here is served straight from this site, not through a redirect. The APK
-              installs as it is; the .zip is the same APK plus the README.
+              installs as it is; the .zip is the same APK plus the install notes.
             </p>
             <DownloadTables stable={stable} nightlies={nightlies} />
           </div>
