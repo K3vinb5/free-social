@@ -1325,7 +1325,7 @@ Scripted: `uv run tools/device/drive.py run heal_from_dump` →
 
 | step | result | Inspector-analysis proof (scenario run, reproducible) | engine-log proof (manual run, once) |
 | --- | --- | --- | --- |
-| 1 capture | PASS | `GuidedCapture … com.instagram.android/reels_tab: 9 nodes, verified=true`; IG Home `feed_reel_cell`, YT Home `home` likewise verified | — (capture is logged by `GuidedCapture`, not the engine) |
+| 1 capture | PASS | `GuidedCapture … com.instagram.android/reels_tab: 9 nodes, verified=true` (the scenario captures the Reels tab only); IG Home `feed_reel_cell` + YT Home `home` verified in the **manual** run (19:15–19:18), not by the scenario | — (capture is logged by `GuidedCapture`, not the engine) |
 | 2 analyse | PASS | the dump lists `ig_reels_tab · reels_tab` (+ `ig_clips_viewer`) with `viewId`/`desc`/`class`/`selected`; the Home dump lists none | — |
 | 3 break | PASS | `clips_tab` → `clips_tab_gone` imported: `engine cache dropped`; the same dump file **loses** `ig_reels_tab` (`06-break-analysis-empty.png`) | `rules=4/9, matched=1` on the Reels tab with the broken anchor (19:28:02) |
 | 4 heal | PASS | corrected anchor imported: `engine cache dropped`; the same dump **regains** `ig_reels_tab` (`07-heal-analysis-match.png`) | `rules=4/9, matched=2` after the heal (19:30:45), same PID 24053 |
