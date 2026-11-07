@@ -1,5 +1,6 @@
 package dev.k3vinb5.freesocial.filter
 
+import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,7 +16,10 @@ class DumpArmTest {
     fun setUp() = DumpArm.cancel()
 
     @After
-    fun tearDown() = DumpArm.cancel()
+    fun tearDown() {
+        DumpArm.useClock()
+        DumpArm.cancel()
+    }
 
     @Test
     fun `arm then capture consumes the one shot`() {
@@ -133,5 +137,72 @@ class DumpArmTest {
         DumpArm.armGuided("home", now = 200_000)
         DumpArm.cancel()
         assertFalse(DumpArm.captureActive(200_000))
+    }
+
+    /**
+     * Regression (review PR #3): the guided arm was stamped by `armGuided()`'s wall-clock default
+     * and then refreshed with `SystemClock.elapsedRealtime()` at the detection -> recording edge.
+     * The stored deadline jumped to the elapsed scale while `isArmed` compared against wall-clock
+     * millis, so the arm read as expired and blocking resumed in the middle of the recording.
+     *
+     * This drives the production call shape: `armGuided()` / `captureActive()` with no argument
+     * (what GuidedCapture and BlockService actually call) and `refreshGuided(now)` fed an
+     * elapsedRealtime-scale value, all on one injected clock.
+     */
+    @Test
+    fun `the guided arm survives the detection to recording handover and expires after the window`() {
+        val boot = 5_000_000L // elapsedRealtime scale; a wall clock is ~1.7e12
+        val detectedAt = boot + 30_000
+        try {
+            DumpArm.useClock { boot }
+            DumpArm.armGuided("shorts_player") // GuidedCapture.start(): no clock argument
+            assertTrue(DumpArm.captureActive())
+
+            DumpArm.useClock { detectedAt }
+            DumpArm.refreshGuided(now = detectedAt) // GuidedCapture.tick(): elapsedRealtime
+
+            // The handover no longer disarms: recording keeps filtering AND blocking paused.
+            assertTrue(DumpArm.captureActive())
+            assertTrue(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS - 1))
+            assertFalse(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS))
+        } finally {
+            DumpArm.useClock()
+            DumpArm.cancel()
+        }
+    }
+
+    /**
+     * The same handover on the manual arm: `arm()` and `captureActive()` must agree without either
+     * side passing a timestamp, so a caller that forgets `now` cannot land in another domain.
+     */
+    @Test
+    fun `manual arm and capture check agree on the injected clock`() {
+        try {
+            DumpArm.useClock { 7_000_000L }
+            DumpArm.arm("IG · home feed")
+            assertTrue(DumpArm.captureActive())
+            assertEquals("IG · home feed", DumpArm.armedScreen())
+            assertFalse(DumpArm.captureActive(7_000_000L + DumpArm.EXPIRY_MS))
+        } finally {
+            DumpArm.useClock()
+            DumpArm.cancel()
+        }
+    }
+
+    @Test
+    fun `the guided session and the arm use one clock source`() {
+        // Source-level guard against domain drift: GuidedCapture polls elapsedRealtime and must
+        // hand that same value to the arm; DumpArm's own default must be that clock too.
+        val guided = File("src/main/java/dev/k3vinb5/freesocial/filter/GuidedCapture.kt").readText()
+        assertTrue(guided.contains("DumpArm.refreshGuided(now)"))
+        assertTrue(guided.contains("val now = SystemClock.elapsedRealtime()"))
+
+        val arm = File("src/main/java/dev/k3vinb5/freesocial/filter/DumpArm.kt").readText()
+        assertTrue(arm.contains("SystemClock.elapsedRealtime()"))
+        assertFalse(
+            "a wall-clock default creeps back in",
+            arm.contains("now: Long = System.currentTimeMillis()") ||
+                arm.contains("now = System.currentTimeMillis()"),
+        )
     }
 }

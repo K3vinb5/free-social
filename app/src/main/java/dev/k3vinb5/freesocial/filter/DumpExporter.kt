@@ -80,6 +80,9 @@ sealed interface DumpResult {
 object DumpExporter {
     const val DIR_NAME = "dumps"
 
+    /** Every dump is `"<pkg>-<stamp>.json"`; the delete guard refuses anything else. */
+    private const val DUMP_SUFFIX = ".json"
+
     private const val TAG = "DumpExporter"
     private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 
@@ -179,14 +182,30 @@ object DumpExporter {
      *
      * Deliberately independent of [DumpPruner]: the newest dump per package+surface is exempt from
      * housekeeping ("in use") but the user may still remove it. Returns true when the file is gone.
+     * Only files that pass [isDumpFile] are ever unlinked — the same guard [deleteAllIn] uses, so a
+     * bad path can never remove a directory or something outside the dumps directory.
      */
-    fun deleteOne(file: File): Boolean = try {
-        val gone = !file.exists() || file.delete()
-        if (!gone) logWarn("could not delete dump ${file.name}")
-        gone
+    fun deleteOne(context: Context, file: File): Boolean = try {
+        deleteOneIn(dumpDir(context), file)
     } catch (t: Throwable) {
         logWarn("could not delete dump ${file.name}", t)
         false
+    }
+
+    /** [deleteOne] against an explicit directory; internal for the JVM tests. */
+    internal fun deleteOneIn(dir: File, file: File): Boolean {
+        if (!isDumpFile(dir, file)) {
+            logWarn("refusing to delete a non-dump path: ${file.path}")
+            return false
+        }
+        return try {
+            val gone = file.delete()
+            if (!gone) logWarn("could not delete dump ${file.name}")
+            gone
+        } catch (t: Throwable) {
+            logWarn("could not delete dump ${file.name}", t)
+            false
+        }
     }
 
     /** "Delete all" — removes every dump in the dumps directory; returns how many were removed. */
@@ -197,11 +216,26 @@ object DumpExporter {
      * foreign `.txt`, a half-written `.json`) untouched. Internal for the JVM tests.
      */
     internal fun deleteAllIn(dir: File): Int {
-        val files = dir.listFiles { file -> file.isFile && file.name.endsWith(".json") } ?: return 0
+        val files = dir.listFiles { file -> isDumpFile(dir, file) } ?: return 0
         var removed = 0
-        files.forEach { file -> if (read(file) != null && deleteOne(file)) removed++ }
+        files.forEach { file -> if (read(file) != null && deleteOneIn(dir, file)) removed++ }
         if (removed > 0) logInfo("deleted $removed dumps on request")
         return removed
+    }
+
+    /**
+     * The shared delete guard: a regular file, `*.json`, sitting directly inside [dir] (symlinks are
+     * resolved first, so a link pointing outside the dumps directory is refused). Anything else —
+     * a directory, a foreign file, a path elsewhere — is never deleted.
+     */
+    private fun isDumpFile(dir: File, file: File): Boolean = try {
+        val parent = file.canonicalFile.parentFile
+        file.isFile &&
+            file.name.endsWith(DUMP_SUFFIX) &&
+            parent != null &&
+            parent == dir.canonicalFile
+    } catch (t: Throwable) {
+        false
     }
 
 

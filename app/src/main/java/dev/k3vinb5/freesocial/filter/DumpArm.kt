@@ -1,13 +1,19 @@
 package dev.k3vinb5.freesocial.filter
 
+import android.os.SystemClock
+
 /**
  * The one-shot "arm, then switch app" handshake between the rule inspector and [FilterService].
  *
  * The inspector cannot read another app's window from its own process, so the user arms a capture
  * and then opens the target app; the service sees the next `typeWindowStateChanged` for one of
  * [FilterService.TARGET_PACKAGES] and writes that tree. Deliberately boring: two fields, plain
- * synchronization, no Android imports so the state machine stays JVM-testable with an injected
- * clock.
+ * synchronization, and an injectable clock so the state machine stays JVM-testable.
+ *
+ * **One clock domain.** Every arm lives in monotonic elapsed-realtime millis — the same source
+ * `GuidedCapture` polls on and `FilterService` uses. Mixing a wall-clock stamp with an
+ * elapsedRealtime refresh made a guided arm look expired at the detection → recording handover
+ * (and blocking then resumed mid-recording), so the domain is fixed and injectable, never implicit.
  */
 object DumpArm {
 
@@ -25,9 +31,28 @@ object DumpArm {
     private var screen: String? = null
     private var guided: Boolean = false
 
+    /** Device clock: monotonic elapsedRealtime; the JVM fallback only bites in unit tests. */
+    private val deviceClock: () -> Long = {
+        runCatching { SystemClock.elapsedRealtime() }.getOrElse { System.currentTimeMillis() }
+    }
+
+    @Volatile
+    private var clock: () -> Long = deviceClock
+
+    /**
+     * Installs the clock used whenever a caller omits `now`. The device default is already this
+     * domain; tests inject a fake, and `useClock()` with no argument restores the device clock.
+     */
+    fun useClock(provider: () -> Long = deviceClock) {
+        clock = provider
+    }
+
+    /** Current time in the arm's single domain (elapsed-realtime millis on device). */
+    fun nowMillis(): Long = clock()
+
     /** Arms one capture labelled [screen] (the inspector's screen name for the dump document). */
     @Synchronized
-    fun arm(screen: String, now: Long = System.currentTimeMillis()) {
+    fun arm(screen: String, now: Long = clock()) {
         armedAt = now
         this.screen = screen
         guided = false
@@ -38,23 +63,26 @@ object DumpArm {
      * leaves the actual dump to [GuidedCapture] (see [readyFor]).
      */
     @Synchronized
-    fun armGuided(screen: String, now: Long = System.currentTimeMillis()) {
+    fun armGuided(screen: String, now: Long = clock()) {
         armedAt = now
         this.screen = screen
         guided = true
     }
 
-    /** Extends a guided arm across a phase change (detection -> recording). */
+    /**
+     * Extends a guided arm across a phase change (detection -> recording). [now] is in the same
+     * elapsed-realtime domain as every other arm write — see the class doc.
+     */
     @Synchronized
-    fun refreshGuided(now: Long = System.currentTimeMillis()) {
+    fun refreshGuided(now: Long = clock()) {
         if (guided && screen != null) armedAt = now
     }
 
-    fun isGuided(now: Long = System.currentTimeMillis()): Boolean = guided && isArmed(now)
+    fun isGuided(now: Long = clock()): Boolean = guided && isArmed(now)
 
     /** The armed screen label, or null when nothing is armed / the arm has expired. */
     @Synchronized
-    fun armedScreen(now: Long = System.currentTimeMillis()): String? {
+    fun armedScreen(now: Long = clock()): String? {
         val label = screen ?: return null
         if (expired(now)) {
             clear()
@@ -63,7 +91,7 @@ object DumpArm {
         return label
     }
 
-    fun isArmed(now: Long = System.currentTimeMillis()): Boolean = armedScreen(now) != null
+    fun isArmed(now: Long = clock()): Boolean = armedScreen(now) != null
 
     /**
      * True while a capture owns the device: a manual 60 s arm waiting for its target window, or a
@@ -74,14 +102,14 @@ object DumpArm {
      * target app exactly as the user does: a block screen over it (or a flash) would replace the
      * tree the dump must record.
      */
-    fun captureActive(now: Long = System.currentTimeMillis()): Boolean = isArmed(now)
+    fun captureActive(now: Long = clock()): Boolean = isArmed(now)
 
     /**
      * Claims the arm for one capture. Returns the screen label and clears the state, or null when
      * nothing (valid) is armed — a capture then must not run.
      */
     @Synchronized
-    fun consume(now: Long = System.currentTimeMillis()): String? {
+    fun consume(now: Long = clock()): String? {
         val label = armedScreen(now) ?: return null
         clear()
         return label

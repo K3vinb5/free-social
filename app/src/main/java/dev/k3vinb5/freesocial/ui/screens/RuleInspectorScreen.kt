@@ -406,7 +406,7 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                                 pendingDelete = null
                                 val removed = performDumpDelete(
                                     target = target,
-                                    deleteOne = { DumpExporter.deleteOne(it) },
+                                    deleteOne = { DumpExporter.deleteOne(context, it) },
                                     deleteAll = { DumpExporter.deleteAll(context) },
                                 )
                                 dumps = DumpExporter.list(context)

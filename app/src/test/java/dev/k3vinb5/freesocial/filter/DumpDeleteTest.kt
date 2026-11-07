@@ -52,7 +52,7 @@ class DumpDeleteTest {
         assertEquals(2, DumpExporter.listIn(dir).size)
 
         val entry = DumpExporter.listIn(dir).first { it.file.name == home.name }
-        assertTrue(DumpExporter.deleteOne(entry.file))
+        assertTrue(DumpExporter.deleteOneIn(dir, entry.file))
 
         assertFalse("the chosen dump is gone", home.exists())
         assertTrue("its neighbour is untouched", reels.exists())
@@ -75,7 +75,7 @@ class DumpDeleteTest {
         assertFalse("the oldest capture was pruned", files.last().exists())
         assertEquals("$YT-home-1.json", listed.first().file.name)
 
-        assertTrue(DumpExporter.deleteOne(listed.first().file))
+        assertTrue(DumpExporter.deleteOneIn(dir, listed.first().file))
         assertFalse("the newest, cap-exempt dump is gone", files.first().exists())
         assertEquals(24, DumpExporter.listIn(dir).size)
     }
@@ -99,6 +99,32 @@ class DumpDeleteTest {
     fun `an empty dumps directory deletes zero`() {
         val dir = tmp.newFolder("dumps")
         assertEquals(0, DumpExporter.deleteAllIn(dir))
+    }
+
+    @Test
+    fun `deleteOne refuses a non-dump file in the dumps directory`() {
+        val dir = tmp.newFolder("dumps")
+        val foreign = File(dir, "notes.txt").apply { writeText("not a dump") }
+        assertFalse(DumpExporter.deleteOneIn(dir, foreign))
+        assertTrue(foreign.exists())
+    }
+
+    @Test
+    fun `deleteOne refuses a path outside the dumps directory`() {
+        val dir = tmp.newFolder("dumps")
+        val elsewhere = tmp.newFolder("elsewhere")
+        val outside = File(elsewhere, "$YT-home.json").apply { writeText("{}") }
+        assertFalse(DumpExporter.deleteOneIn(dir, outside))
+        assertTrue("a path outside the dumps dir is never unlinked", outside.exists())
+    }
+
+    @Test
+    fun `deleteOne refuses a directory even when it looks like a dump`() {
+        val dir = tmp.newFolder("dumps")
+        val fake = File(dir, "$YT-home.json").apply { mkdirs() }
+        assertTrue(fake.isDirectory)
+        assertFalse(DumpExporter.deleteOneIn(dir, fake))
+        assertTrue("a directory is never deleted", fake.isDirectory)
     }
 
     @Test

@@ -88,9 +88,18 @@ While a capture owns the device, both enforcement engines stand down:
   would record our own screen instead of the target surface.
 
 The pause covers both capture modes: the manual 60 s arm (`DumpArm.EXPIRY_MS`) and the guided
-session (`DumpArm.GUIDED_EXPIRY_MS`, refreshed on detection → recording). `BlockGate.decide` takes
-the state as a `dumpArmed` flag and returns `Ignore` before touching its 500 ms dedupe map, so
-blocking resumes at full strength the instant the arm is consumed, cancelled or expires.
+session (`DumpArm.GUIDED_EXPIRY_MS`). The guided arm is re-stamped by `DumpArm.refreshGuided(now)`
+at the detection → recording transition, where `GuidedCapture.tick()` passes
+`SystemClock.elapsedRealtime()` — and `DumpArm` keeps every arm in that same elapsed-realtime
+domain (its default clock is `SystemClock.elapsedRealtime()`, injectable for tests). Mixing a
+wall-clock stamp with that refresh used to mark the arm expired the moment recording started, so
+blocking resumed mid-capture; the regression is pinned by
+`DumpArmTest.the guided arm survives the detection to recording handover and expires after the window`
+plus the source-level domain check `the guided session and the arm use one clock source`.
+
+`BlockGate.decide` takes the state as a `dumpArmed` flag and returns `Ignore` before touching its
+500 ms dedupe map, so blocking resumes at full strength the instant the arm is consumed, cancelled
+or expires.
 
 ## Dump delete
 
