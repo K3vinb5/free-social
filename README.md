@@ -42,7 +42,7 @@ home, because it was never given the ability to.
 | Per-app Filter / Block / Allow | Three states per app. Settings propagate to the running service immediately. |
 | DIRECT-ENGAGEMENT policy | The budget clock runs only when *you* open Reels, Shorts or TikTok playback — not while you scroll a normal feed. |
 | Reels & Shorts budget | One shared daily allowance across all three apps, reset at midnight. Spent allowance follows the live clock during locked hours. |
-| Nightly lock | Per-weekday bedtime and wake time, plus wind-down and morning-lock margins, enforced with exact alarms. |
+| Nightly sleep window | Per-weekday bedtime and wake time, enforced with exact alarms. Always on, and never shorter than 6 hours. |
 | Escape flash | A 2.2 s explanation after a blocked surface, never a dismissable wall. |
 | Rule inspector | Dump the screen you are looking at, see every matching rule and its anchor evidence. |
 | Guided node capture | Launches the target app, waits until the surface is actually detected, records for ~15 s, auto-stops. |

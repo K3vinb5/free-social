@@ -34,7 +34,6 @@
     <string name="hub_star_action">Star on GitHub</string>
     <string name="hub_star_dismiss">Don\'t show again</string>
     <string name="schedule_on">On</string>
-    <string name="schedule_off">Off</string>
 
     <!-- App detail (F7–F9) -->
     <string name="app_instagram">Instagram</string>
@@ -77,13 +76,7 @@
 
     <!-- Schedule (F11) -->
     <string name="schedule_title">Schedule</string>
-    <string name="schedule_master_title">Nightly lock</string>
-    <string name="schedule_master_subtitle">One window, every weekday</string>
-    <string name="schedule_wind_down">Wind-down</string>
-    <string name="schedule_morning_lock">Morning lock</string>
-    <string name="schedule_minutes_value">%1$d min</string>
     <string name="schedule_preview">Locked %1$s–%2$s tonight</string>
-    <string name="schedule_preview_off">Nightly lock is off</string>
     <string name="day_mon">Mon</string>
     <string name="day_tue">Tue</string>
     <string name="day_wed">Wed</string>
@@ -247,4 +240,12 @@
     <string name="inspector_delete_confirm">Delete</string>
     <string name="inspector_dumps_deleted">Deleted %1$d dump(s).</string>
     <string name="inspector_dumps_delete_failed">Could not delete the dump.</string>
+
+    <!-- Track C: mandatory sleep schedule (>=6 h nightly window, no off switch) -->
+    <string name="schedule_always_on">Always on — every night, on every weekday.</string>
+    <string name="schedule_minimum_explainer">Each window must be at least %1$s long. Shorter windows can\'t be saved.</string>
+    <string name="schedule_duration">%1$dh %2$dm</string>
+    <string name="schedule_duration_readout">%1$s · minimum %2$s</string>
+    <string name="schedule_below_minimum">Not saved: a window under %1$s is not a night\'s sleep. Move bedtime earlier or wake later.</string>
+    <string name="schedule_caption">During these hours the budget counts as spent and Block-mode apps show the block screen. Minimum window: %1$s.</string>
 </resources>

@@ -248,10 +248,10 @@ fun SettingsHubScreen(
     }
 }
 
-/** "On · 22:00–07:30" — the effective window (wind-down/morning-lock applied) or "Off". */
+/** "On · 22:30–07:00" — the nightly window, which is always on and never shorter than six hours. */
 @Composable
 private fun scheduleSummary(settings: SettingsRepository, now: ZonedDateTime): String {
-    val window = settings.tonightLockWindow(now) ?: return stringResource(R.string.schedule_off)
+    val window = settings.tonightLockWindow(now)
     return stringResource(
         R.string.hub_schedule_value,
         SettingsRepository.formatClock(window.startMinutes),

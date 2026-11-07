@@ -123,8 +123,8 @@ export function Behaviour() {
               <div className="card__txt">
                 <h3>A bedtime that is not a suggestion.</h3>
                 <p>
-                  Set bedtime and wake time for each weekday, plus a wind-down before bed and a
-                  morning lock after waking. During locked hours the app is closed rather than
+                  Set bedtime and wake time for each weekday — one window per day, at least six
+                  hours long, and always on. During locked hours the app is closed rather than
                   merely quiet — and the budget cannot be spent.
                 </p>
                 <p>
@@ -139,7 +139,7 @@ export function Behaviour() {
                   height={1600}
                   loading="lazy"
                   decoding="async"
-                  alt="Schedule screen: nightly lock on, per-weekday bedtime and wake times from Monday to Sunday, wind-down and morning lock steppers."
+                  alt="Schedule screen: per-weekday bedtime and wake times from Monday to Sunday, each with its window length and the six-hour minimum."
                 />
               </div>
             </div>

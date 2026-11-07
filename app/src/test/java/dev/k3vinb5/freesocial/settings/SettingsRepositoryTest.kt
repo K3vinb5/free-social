@@ -83,11 +83,13 @@ class SettingsRepositoryTest {
         assertTrue(settings.surfaceEnabled(AppTarget.TIKTOK, "back_when_spent"))
 
         assertEquals(20, settings.budgetLimitMinutes)
-        assertTrue(settings.scheduleEnabled)
         assertEquals(DaySchedule(1350, 420), settings.daySchedule(1))
         assertEquals(DaySchedule(1350, 420), settings.daySchedule(7))
-        assertEquals(30, settings.windDownMinutes)
-        assertEquals(30, settings.morningLockMinutes)
+        // Every default day clears the six-hour floor (510 min for 22:30–07:00).
+        assertEquals(510, settings.daySchedule(1).windowMinutes)
+        for (weekday in 1..7) {
+            assertTrue(settings.daySchedule(weekday).meetsMinimum)
+        }
     }
 
     @Test
@@ -98,20 +100,16 @@ class SettingsRepositoryTest {
         first.setMode(AppTarget.YOUTUBE, AppMode.BLOCK)
         first.setSurfaceEnabled(AppTarget.YOUTUBE, "hide_shorts_shelf", false)
         first.updateBudgetLimit(45)
-        first.updateScheduleEnabled(false)
-        first.setBedtimeMinutes(5, 1290)
-        first.updateWindDown(15)
-        first.updateMorningLock(10)
+        assertTrue(first.setBedtimeMinutes(5, 1290))
+        assertTrue(first.setWakeMinutes(5, 9 * 60))
 
         val second = SettingsRepository(store)
         assertFalse(second.filteringEnabled)
         assertEquals(AppMode.BLOCK, second.modeFor(AppTarget.YOUTUBE))
         assertFalse(second.surfaceEnabled(AppTarget.YOUTUBE, "hide_shorts_shelf"))
         assertEquals(45, second.budgetLimitMinutes)
-        assertFalse(second.scheduleEnabled)
-        assertEquals(1290, second.daySchedule(5).bedtimeMinutes)
-        assertEquals(15, second.windDownMinutes)
-        assertEquals(10, second.morningLockMinutes)
+        assertEquals(DaySchedule(1290, 9 * 60), second.daySchedule(5))
+        assertEquals(11 * 60 + 30, second.daySchedule(5).windowMinutes)
     }
 
     @Test
@@ -169,35 +167,96 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `default nightly window is 22 00 to 07 30 with wind down and morning lock`() {
+    fun `default nightly window is exactly 22 30 to 07 00`() {
         val settings = SettingsRepository(InMemoryPrefs())
-        assertEquals(LockWindow(22 * 60, 7 * 60 + 30), settings.tonightLockWindow(noon()))
+        assertEquals(LockWindow(22 * 60 + 30, 7 * 60), settings.tonightLockWindow(noon()))
         // During the lock (23:00) the active window is tonight's.
-        assertEquals(LockWindow(1320, 450), settings.tonightLockWindow(noon(hour = 23)))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon(hour = 23)))
         // Early morning still belongs to last night's window.
-        assertEquals(LockWindow(1320, 450), settings.tonightLockWindow(noon(day = 5, hour = 2)))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon(day = 5, hour = 2)))
         // Midday after waking previews the next window that starts tonight.
-        assertEquals(LockWindow(1320, 450), settings.tonightLockWindow(noon(day = 5, hour = 9)))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon(day = 5, hour = 9)))
     }
 
     @Test
     fun `friday override changes the previewed window`() {
         val settings = SettingsRepository(InMemoryPrefs())
-        settings.setBedtimeMinutes(5, 23 * 60 + 30)
-        settings.setWakeMinutes(5, 8 * 60)
-        settings.updateWindDown(30)
-        settings.updateMorningLock(30)
+        assertTrue(settings.setBedtimeMinutes(5, 23 * 60 + 30))
+        assertTrue(settings.setWakeMinutes(5, 8 * 60))
 
-        assertEquals(LockWindow(23 * 60, 8 * 60 + 30), settings.tonightLockWindow(noon(day = 6)))
+        // 23:30 -> 08:00, no expansion on either end.
+        assertEquals(LockWindow(23 * 60 + 30, 8 * 60), settings.tonightLockWindow(noon(day = 6)))
     }
 
     @Test
     fun `schedule state flips locked at the computed window`() {
         val settings = SettingsRepository(InMemoryPrefs())
         assertFalse(settings.isLocked(noon(hour = 21)))
-        assertTrue(settings.isLocked(noon(hour = 22)))
-        assertTrue(settings.isLocked(noon(day = 5, hour = 7, minute = 29)))
-        assertFalse(settings.isLocked(noon(day = 5, hour = 7, minute = 30)))
+        assertTrue(settings.isLocked(noon(hour = 22, minute = 30)))
+        assertTrue(settings.isLocked(noon(day = 5, hour = 6, minute = 59)))
+        assertFalse(settings.isLocked(noon(day = 5, hour = 7, minute = 0)))
+    }
+
+    @Test
+    fun `a window below six hours cannot be saved`() {
+        val store = InMemoryPrefs()
+        val settings = SettingsRepository(store)
+        val before = settings.daySchedule(1)
+
+        // 22:30 -> 04:29 is 5 h 59 m: rejected, nothing written.
+        assertFalse(settings.setWakeMinutes(1, 4 * 60 + 29))
+        assertEquals(before, settings.daySchedule(1))
+        assertFalse(store.ints.containsKey(SettingsRepository.wakeKey(1)))
+
+        // A bedtime that would leave less than six hours is rejected the same way.
+        assertFalse(settings.setBedtimeMinutes(1, 1 * 60 + 1))
+        assertEquals(before, settings.daySchedule(1))
+
+        // Exactly six hours is the floor and saves.
+        assertTrue(settings.setWakeMinutes(1, 4 * 60 + 30))
+        assertEquals(6 * 60, settings.daySchedule(1).windowMinutes)
+        assertEquals(4 * 60 + 30, store.ints[SettingsRepository.wakeKey(1)])
+
+        // One minute under the floor stays rejected.
+        assertFalse(settings.setWakeMinutes(1, 4 * 60 + 29))
+        assertEquals(6 * 60, settings.daySchedule(1).windowMinutes)
+    }
+
+    @Test
+    fun `per-day override floors are enforced on every weekday`() {
+        val settings = SettingsRepository(InMemoryPrefs())
+        for (weekday in 1..7) {
+            assertFalse(settings.setBedtimeMinutes(weekday, 3 * 60))
+            assertFalse(settings.setWakeMinutes(weekday, 23 * 60))
+            assertTrue(settings.daySchedule(weekday).meetsMinimum)
+            assertEquals(DaySchedule(1350, 420), settings.daySchedule(weekday))
+        }
+    }
+
+    @Test
+    fun `the schedule is always on - no pref can disable it`() {
+        val store = InMemoryPrefs()
+        // Old installs may still carry these; they must be ignored, not crash.
+        store.booleans[SettingsRepository.LEGACY_KEY_SCHEDULE_ENABLED] = false
+        store.ints[SettingsRepository.LEGACY_KEY_WIND_DOWN] = 120
+        store.ints[SettingsRepository.LEGACY_KEY_MORNING_LOCK] = 120
+        val settings = SettingsRepository(store)
+
+        assertTrue(settings.isLocked(noon(hour = 23)))
+        assertEquals(LockWindow(1350, 420), settings.tonightLockWindow(noon()))
+        assertEquals(510, settings.daySchedule(4).windowMinutes)
+    }
+
+    @Test
+    fun `stored sub-six-hour day migrates to the default night`() {
+        val store = InMemoryPrefs()
+        store.ints[SettingsRepository.bedtimeKey(1)] = 22 * 60      // 22:00
+        store.ints[SettingsRepository.wakeKey(1)] = 23 * 60         // 23:00 — one hour
+        val settings = SettingsRepository(store)
+
+        assertEquals(DaySchedule(1350, 420), settings.daySchedule(1))
+        // The other days were never written and still read as the default.
+        assertEquals(DaySchedule(1350, 420), settings.daySchedule(2))
     }
 
     @Test
@@ -230,9 +289,10 @@ class SettingsRepositoryTest {
         ui.updateFiltering(false)
         assertFalse(engine.filteringEnabled)
 
-        ui.updateScheduleEnabled(false)
-        assertFalse(engine.scheduleEnabled)
-        assertFalse(engine.isLocked(noon(hour = 23)))
+        assertTrue(ui.setBedtimeMinutes(3, 23 * 60))
+        assertEquals(23 * 60, engine.daySchedule(3).bedtimeMinutes)
+        assertTrue(engine.isLocked(noon(hour = 23)))
+        assertFalse(engine.isLocked(noon(hour = 22, minute = 59)))
     }
 
     @Test

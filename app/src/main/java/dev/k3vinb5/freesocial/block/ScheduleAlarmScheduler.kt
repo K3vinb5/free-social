@@ -27,8 +27,8 @@ object ScheduleAlarmScheduler {
     private const val REQUEST_CODE = 7301
 
     /**
-     * Recomputes and persists the next wake-up. Safe to call from anywhere, any number of times;
-     * cancels the alarm when the nightly lock is switched off.
+     * Recomputes and persists the next wake-up. Safe to call from anywhere, any number of times.
+     * The schedule is mandatory, so the alarm is always armed — there is no off state to cancel.
      */
     fun scheduleNow(context: Context) {
         try {
@@ -36,10 +36,6 @@ object ScheduleAlarmScheduler {
             val manager = app.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val pending = pendingIntent(app)
             val repo = SettingsRepository.from(app)
-            if (!repo.scheduleEnabled) {
-                manager.cancel(pending)
-                return
-            }
             val now = ZonedDateTime.now()
             val atMillis = repo.scheduleState().nextBoundary(now).toInstant().toEpochMilli()
             runCatching {

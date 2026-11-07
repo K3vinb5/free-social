@@ -98,7 +98,7 @@ export function Privacy() {
               <div className="ledger__row">
                 <dt className="ledger__k">USE_EXACT_ALARM</dt>
                 <dd className="ledger__v">
-                  Schedule boundaries fire on time — bedtime, wake, wind-down, morning lock.
+                  Schedule boundaries fire on time — bedtime and wake, every night.
                 </dd>
               </div>
               <div className="ledger__row">
