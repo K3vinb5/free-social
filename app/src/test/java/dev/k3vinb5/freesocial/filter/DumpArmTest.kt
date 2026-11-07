@@ -214,11 +214,11 @@ class DumpArmTest {
         val armed = 7_000_000L // a realistic elapsedRealtime value (uptime ms), not wall-clock ms
         try {
             DumpArm.armGuided("instagram/feed_reel_cell", armed)
-            assertTrue(DumpArm.captureActive(armed))
-            assertTrue(DumpArm.captureActive(armed + DumpArm.GUIDED_EXPIRY_MS - 1))
+            assertTrue(DumpArm.isArmed(armed))
+            assertTrue(DumpArm.isArmed(armed + DumpArm.GUIDED_EXPIRY_MS - 1))
             assertFalse(
                 "the guided arm expires on the elapsed clock, exactly at its ceiling",
-                DumpArm.captureActive(armed + DumpArm.GUIDED_EXPIRY_MS),
+                DumpArm.isArmed(armed + DumpArm.GUIDED_EXPIRY_MS),
             )
         } finally {
             DumpArm.useClock()
