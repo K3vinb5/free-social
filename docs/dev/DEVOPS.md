@@ -133,3 +133,15 @@ container was restored — but the deploy itself had already been declared faile
 already-built image (`latest`, or a short sha from website-image.yml) — no release,
 no version bump. The same workflow is the pipeline's deploy job (workflow_call), so
 the mutating step exists in exactly one place: tools/release/deploy-site.sh.
+
+## Public repo + history rewrite (2026-11-07)
+
+The repo went public after a `git-filter-repo` rewrite: `docs/analysis/` and
+`docs/out-of-scope/` (SocialLite RE notes) removed from every revision, `*.pyc`
+removed, LAN IPs -> `LAN-IP-REDACTED`, device serial -> `DEVICE-SERIAL-REDACTED`.
+Commit SHAs from before the rewrite no longer exist; tags (v0.1.0–v0.4.1 +
+nightlies) were force-updated onto rewritten commits and GitHub Releases kept
+their assets. Any doc or artifact naming an old SHA (e.g.
+`free-social-0.4.1-1e7b5a1.zip`) is naming history. Verification is a
+`git grep` over `git rev-list origin/master --tags` — not over local refs, which
+keep stale pre-rewrite objects until `git gc --prune=now`.
