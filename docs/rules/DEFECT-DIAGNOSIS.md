@@ -871,3 +871,102 @@ New `ig_dm_reel_carve_out` SKIP rule anchored on `id/reply_bar_edittext` +
 própria mensagem" is not used), leaving `ig_dm_carve_out` for the thread itself.
 
 Tests: `RuleGateTest` (DM reel tree → SKIP; normal viewer → ESCAPE), `LocaleProofRulesTest` count.
+
+---
+
+## D14 — the wake-time block copy is dead code (wave-final item 4 / F-item, 2026-11-07)
+
+### Observed
+
+- `reverse/runtime-reno/wave-final/pauseA-3-block-ui.xml` + `pauseA-3-block-after.png`: the block
+  screen body is "This app is blocked by Free Social." while the schedule is locked.
+- `reverse/runtime-reno/wave-final/NOTES.md` item 4: the string "Focus time — come back at 07:00."
+  never renders.
+
+### Root cause
+
+`block/BlockService.kt:91-105` always stamps `BlockActivity.EXTRA_REASON` with a localized
+`reasonText()`, and `ui/BlockActivity.kt:51,130` renders `reason ?: fallbackBody`. The wake-time body
+added in `de44e5e` is only the no-reason fallback, and `BlockActivity` is `exported="false"` with
+`BlockService` as its only caller — so the fallback is unreachable in the shipped app. The gate's
+`BlockReason.SCHEDULE` never reaches the UI as a decision, only as pre-rendered text.
+
+### Fix
+
+`BlockService` passes the reason *kind* (`BlockReason.name`) and `BlockActivity` maps it through a
+pure `BlockCopy.body(reason, wakeBody, appBody)`: `SCHEDULE` -> the interpolated wake-time body
+(read from `ScheduleState.nextWakeMinutes(now)` so a per-day override is honoured), `APP_BLOCK`/
+absent -> the generic body. Tests: `BlockCopyTest`.
+
+## D15 — guided IG "Home feed" capture never verifies (wave-final finding F2)
+
+### Observed
+
+- `reverse/runtime-reno/wave-final/part1a-blockwindow.txt` + NOTES item 1/Run A: arm at 17:40:10,
+  `GuidedCapture` ends `TIMEOUT` after 30 s ("Surface not detected — navigate to Home feed").
+- Device dumps on IG 454.0.0.54.77: `233005-ig_home.xml`, `233149`, `233157`, `233205`, `165537`
+  contain a home feed, and every `id/feed_tab` node has `selected="false"`
+  (`233205`, `233528`, `233758`, `233157`); the selected flag lives on the child `id/tab_icon`.
+
+### Root cause
+
+`filter/CaptureSurfaces.kt:54` declares the IG home marker as `MatchSpec(viewId = "…:id/feed_tab",
+selected = true)`. `id/feed_tab` is the bottom-nav *cell container* and is never selected, so
+`RuleMatcher` can never match it. The remaining home marker comes from the retired
+`ig_feed_reel_cell` rule (`id/video_container`, ViewGroup), which only exists on a playing feed
+video — a photo-only/empty feed can never verify either.
+
+### Fix
+
+Home-feed markers are the feed row anchors `id/row_feed_view_group_buttons` and
+`id/row_feed_profile_header` (present in all five home dumps; absent from the Reels tab, DM inbox
+and DM thread). Same-pattern sweep of every surface: YouTube home's `id/tabs_bar` never exists in
+any YT dump (`170110`, `234610`) — replaced by `id/results` (RecyclerView, home-only: absent from
+`170126`/`234810` Shorts, so a Shorts capture can no longer verify as Home). IG clips viewer
+(`clips_viewer_view_pager` + `androidx.viewpager.widget.ViewPager`), IG Reels tab (`clips_tab`,
+FrameLayout, selected=true) and TikTok `player_view` are alive and unchanged. The YT
+`shorts_player` spec (`id/reel_recycler`) was checked in the same pass and needed no change: it is
+present on the Shorts tab and absent from Home
+(`reverse/runtime-reno/anchor-audit/yt-b1-shorts-tab-player.json` vs `yt-b2-home-appdump.json`;
+`docs/rules/RULES.md` anchor table rows for `yt_shorts_player`). Tests: `CaptureSurfacesTest`.
+
+## D16 — blocking stays paused after a capture arm expires (wave-final finding F4)
+
+### Observed
+
+- `reverse/runtime-reno/wave-final/NOTES.md` F4: after the 17:40:10 arm expired at 17:41:10 with IG
+  still foreground, no `BlockActivity` start until the app was manually re-opened at 17:41:45.
+
+### Root cause
+
+`block/BlockService.kt:65-89` only evaluates the gate inside `handlePackage`, which runs from
+`onAccessibilityEvent` (and the schedule boundary receiver). When `DumpArm.captureActive()` is true
+it returns without scheduling anything, so expiry itself is not an event: nothing re-runs the gate
+until the user produces the next window-state change.
+
+### Fix
+
+`DumpArm.remainingMillis(now)` exposes the active arm's deadline. `BlockService` keeps a main-looper
+`Handler` re-check and asks a pure `CapturePauseSchedule` whether to evaluate now or to re-check
+exactly at the deadline; a pending re-check is cancelled once the gate runs normally and on
+teardown. Test: `CapturePauseScheduleTest` (fake clock, zero events between arm and deadline).
+
+## D17 — the manual 60 s arm (`DumpArm.arm`) has no production caller (wave-final finding F1)
+
+### Observed / call graph
+
+- `grep "DumpArm.arm(" app/src/main` -> no hit. Production callers: `GuidedCapture.start()` uses
+  `DumpArm.armGuided` (`filter/GuidedCapture.kt:168`), `ui/screens/RuleInspectorScreen.kt:112-144`
+  ("Capture nodes") calls `GuidedCapture.start`, and `FilterService` only *reads* the arm
+  (`FilterService.kt:851-897`).
+- `RuleInspectorScreen` has no other capture affordance: the only per-surface action is
+  `inspector_capture_nodes` -> `beginCapture` -> `GuidedCapture.start`
+  (`RuleInspectorScreen.kt:246-247`); surfaces without markers are disabled (`:241-247`), not armed.
+
+### Decision
+
+**Drop**, not repair: there is no dead affordance to wire (option (a) has no target), and the
+guided flow is the shipped capture path. `DumpArm.arm()`, `EXPIRY_MS`, the manual branch of
+`expired()` and the manual-arm tests are removed; `docs/rules/CAPTURE.md` loses the "manual 60 s
+arm" wording. `FilterService`'s now-unreachable consumer branch (`captureArmedDump`,
+`readyFor`/`looksGhost`/`consume`) is out of this run's file scope and is filed as a follow-up.

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-07T17:25:37Z",
+  "generated": "2026-11-07T19:13:59Z",
   "stable": [
     {
       "version": "0.4.1",
@@ -12,6 +12,24 @@
     }
   ],
   "nightlies": [
+    {
+      "version": "0.4.1",
+      "sha": "bda14ed",
+      "date": "2026-11-07",
+      "apk": "downloads/nightly-20261107-bda14ed.apk",
+      "zip": "downloads/nightly-20261107-bda14ed.zip",
+      "bytes_apk": 23701833,
+      "bytes_zip": 8235699
+    },
+    {
+      "version": "0.4.1",
+      "sha": "de44e5e",
+      "date": "2026-11-07",
+      "apk": "downloads/nightly-20261107-de44e5e.apk",
+      "zip": "downloads/nightly-20261107-de44e5e.zip",
+      "bytes_apk": 23701833,
+      "bytes_zip": 8235470
+    },
     {
       "version": "0.4.1",
       "sha": "6fe0bc6",

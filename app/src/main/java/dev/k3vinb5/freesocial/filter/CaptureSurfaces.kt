@@ -13,6 +13,11 @@ import dev.k3vinb5.freesocial.settings.AppTarget
  * surface looks like); surfaces the rules do not model (YouTube Home, IG Home without a video cell)
  * carry a small built-in marker list. Markers inside one surface are OR-combined: any of them being
  * present proves the surface is on screen.
+ *
+ * Every marker must be *reachable*: it is verified against the node dumps of the shipped app build
+ * in `CaptureSurfacesTest`, so a criterion that no node can ever satisfy (a container id whose
+ * selected flag never flips, an id that no version exposes) is caught instead of turning guided
+ * capture into a 30 s timeout (D15).
  */
 object CaptureSurfaces {
 
@@ -51,7 +56,13 @@ object CaptureSurfaces {
             Definition(
                 id = "feed_reel_cell",
                 displayName = "Home feed",
-                builtIn = listOf(MatchSpec(viewId = "$IG:id/feed_tab", selected = true)),
+                builtIn = listOf(
+                    // D15: id/feed_tab is the bottom-nav *cell* and is never selected (the flag
+                    // lives on its child id/tab_icon), so `selected = true` could never match.
+                    // Feed-row anchors exist on every home-feed dump and on no other tab.
+                    MatchSpec(viewId = "$IG:id/row_feed_view_group_buttons"),
+                    MatchSpec(viewId = "$IG:id/row_feed_profile_header"),
+                ),
             ),
             Definition("clips_viewer", "Reels viewer", emptyList()),
             Definition("reels_tab", "Reels tab", emptyList()),
@@ -61,8 +72,10 @@ object CaptureSurfaces {
                 id = "home",
                 displayName = "Home feed",
                 builtIn = listOf(
-                    MatchSpec(viewId = "$YT:id/browse_fragment_layout_coordinator_layout"),
-                    MatchSpec(viewId = "$YT:id/tabs_bar"),
+                    // D15 sweep: id/tabs_bar never exists in a YouTube dump. id/results is the
+                    // home-feed RecyclerView; the Shorts player (170126/234810) has no results
+                    // node, so a Shorts capture can no longer verify as Home.
+                    MatchSpec(viewId = "$YT:id/results"),
                 ),
             ),
             Definition("shorts_player", "Shorts player", emptyList()),

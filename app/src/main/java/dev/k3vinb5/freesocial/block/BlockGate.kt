@@ -50,9 +50,9 @@ class BlockGate(
         // Gate 0 — screen off / locked (deliberate, reproduced).
         if (!deviceInteractive || keyguardLocked) return BlockDecision.Ignore
 
-        // Capture pause: while the rule inspector owns a capture (manual 60 s arm or a guided
-        // detection/recording window, see `filter.DumpArm.captureActive`) the block screen must not
-        // cover the target app — the dump has to record the real tree, not our own block screen.
+        // Capture pause: while the rule inspector owns a guided capture (detection/recording
+        // window, see `filter.DumpArm.isArmed`) the block screen must not cover the target app —
+        // the dump has to record the real tree, not our own block screen.
         // Checked before the dedupe map is written, so enforcement returns at full strength the
         // moment the capture ends instead of being swallowed by a stale 500 ms entry.
         if (dumpArmed) return BlockDecision.Ignore

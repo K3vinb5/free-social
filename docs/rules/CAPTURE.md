@@ -14,8 +14,10 @@ screen?* and *which rules are in use, and where can I fix one after an app updat
    `Recording <app> <surface> — scroll/do the thing ~15 s (auto-stops)` and offers **Stop now**.
 5. Recording starts only when the surface is **detected**: the accessibility service reads the
    target app's windows and matches the surface's own markers from the rule catalog (for Home
-   surfaces, a stable container id). A Reels capture therefore cannot be polluted by the home
-   screen.
+   surfaces, a feed-row anchor that only exists on the feed). A Reels capture therefore cannot be
+   polluted by the home screen. Every marker is verified against real device dumps by
+   `CaptureSurfacesTest`, so a marker the app can never expose fails the build instead of the
+   capture (D15).
 6. The capture stops after 15 s of recording, when **Stop now** is tapped, or when the surface is
    left. If the surface is not detected within 30 s, the notification says so and **no dump is
    written**.
@@ -90,12 +92,16 @@ While a capture owns the device, both enforcement engines stand down:
 
 * **Filtering** — `FilterService` sees `DumpArm.isArmed()` and skips the gate (no escapes, no
   scroll, no taps) so the user can navigate freely.
-* **Blocking** — `BlockService` checks `DumpArm.captureActive()` and returns before the gate runs.
+* **Blocking** — `BlockService` asks `DumpArm.remainingMillis()`: while an arm is active it skips
+  the gate and schedules one re-evaluation exactly at the arm's deadline (`CapturePauseSchedule`,
+  D16), so the block screen comes back for the app the user is sitting on even when no further
+  accessibility event arrives. Without that re-check the app stayed unblocked until the next
+  window-state change.
   A Block-mode app would otherwise get the block screen laid over it mid-capture and the dump
   would record our own screen instead of the target surface.
 
-The pause covers both capture modes: the manual 60 s arm (`DumpArm.EXPIRY_MS`) and the guided
-session (`DumpArm.GUIDED_EXPIRY_MS`). The guided arm is re-stamped by `DumpArm.refreshGuided(now)`
+The pause is the guided session (`DumpArm.GUIDED_EXPIRY_MS`; the old manual 60 s arm was removed in
+D17). The guided arm is re-stamped by `DumpArm.refreshGuided(now)`
 at the detection → recording transition, where `GuidedCapture.tick()` passes
 `SystemClock.elapsedRealtime()` — and `DumpArm` keeps every arm in that same elapsed-realtime
 domain (its default clock is `SystemClock.elapsedRealtime()`, injectable for tests). Mixing a
