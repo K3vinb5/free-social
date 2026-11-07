@@ -73,6 +73,67 @@ private const val PREFS = "capture_guide"
 private const val KEY_NOTIF_ASKED = "notif_requested"
 
 /**
+ * The import picker's request. The **base type**, and only the base type, decides what this
+ * ColorOS DocumentsUI lists: with `Intent.EXTRA_MIME_TYPES` present it applies a filter that hides
+ * the `application/json` rows (the exported `rules-override.json` and every edited copy), while
+ * `am start -a OPEN_DOCUMENT -t application/json` on the same device lists them immediately
+ * (`reverse/runtime-reno/heal/`, 2026-11-07). So the intent asks for JSON and passes no extra list —
+ * exactly the document Export writes. The picker is not the validator: [RuleOverride.parse] rejects
+ * anything that is not a valid rule document.
+ */
+internal const val IMPORT_BASE_TYPE = "application/json"
+
+/** `ACTION_OPEN_DOCUMENT` for one readable rule document (see [IMPORT_BASE_TYPE]). */
+private fun importDocumentIntent(): Intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+    .addCategory(Intent.CATEGORY_OPENABLE)
+    .setType(IMPORT_BASE_TYPE)
+    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+/** Which banner the Export button leaves on screen. */
+internal enum class ExportMessage { EXPORTED, REJECTED }
+
+/**
+ * What pressing **Export rules** must do after publishing the effective rules to the override
+ * path, decided from the catalog's result alone so it can be tested without a screen.
+ *
+ * [adopted] gates the catalog refresh: only an adopted document may make the screen read
+ * *Your override* and offer *Use built-in rules*. [openPicker] gates the "save a copy elsewhere"
+ * picker — a document that was **not** adopted must never be offered for saving as if it had been,
+ * and must never leave an "exported" banner behind (device regression, 2026-11-07: the failure
+ * banner was overwritten by the picker callback's success text).
+ */
+internal data class ExportEffect(
+    val adopted: Boolean,
+    val openPicker: Boolean,
+    val message: ExportMessage,
+)
+
+internal fun exportEffect(result: RuleCatalog.ApplyResult): ExportEffect = when (result) {
+    is RuleCatalog.ApplyResult.Ok ->
+        ExportEffect(adopted = true, openPicker = true, message = ExportMessage.EXPORTED)
+    is RuleCatalog.ApplyResult.Invalid ->
+        ExportEffect(adopted = false, openPicker = false, message = ExportMessage.REJECTED)
+    is RuleCatalog.ApplyResult.Failed ->
+        ExportEffect(adopted = false, openPicker = false, message = ExportMessage.REJECTED)
+}
+
+/** The validator's / file system's reason for a rejected document, or null on success. */
+internal fun RuleCatalog.ApplyResult.errorOrNull(): String? = when (this) {
+    is RuleCatalog.ApplyResult.Ok -> null
+    is RuleCatalog.ApplyResult.Invalid -> error
+    is RuleCatalog.ApplyResult.Failed -> error
+}
+
+/** Which banner the Import picker leaves on screen; only [IMPORTED] may claim the rules changed. */
+internal enum class RuleApplyMessage { IMPORTED, REJECTED }
+
+internal fun RuleCatalog.ApplyResult.importMessage(): RuleApplyMessage = when (this) {
+    is RuleCatalog.ApplyResult.Ok -> RuleApplyMessage.IMPORTED
+    is RuleCatalog.ApplyResult.Invalid -> RuleApplyMessage.REJECTED
+    is RuleCatalog.ApplyResult.Failed -> RuleApplyMessage.REJECTED
+}
+
+/**
  * F14 — surfaces & rules.
  *
  * Plain-language, normal feature. "Capture nodes" launches the target app, guides the user with a
@@ -180,8 +241,9 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     }
 
     val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
         if (uri != null) {
             val text = runCatching {
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
@@ -189,15 +251,20 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             message = if (text == null) {
                 context.getString(R.string.inspector_import_failed)
             } else {
-                when (val result = RuleCatalog.applyOverride(context, text)) {
-                    is RuleCatalog.ApplyResult.Ok -> {
+                val applied = RuleCatalog.applyOverride(context, text)
+                when (applied.importMessage()) {
+                    RuleApplyMessage.IMPORTED -> {
                         refreshCatalog()
-                        context.getString(R.string.inspector_import_ok, result.rules.size)
+                        context.getString(
+                            R.string.inspector_import_ok,
+                            (applied as RuleCatalog.ApplyResult.Ok).rules.size,
+                        )
                     }
-                    is RuleCatalog.ApplyResult.Invalid ->
-                        context.getString(R.string.inspector_import_rejected, result.error)
-                    is RuleCatalog.ApplyResult.Failed ->
-                        context.getString(R.string.inspector_import_rejected, result.error)
+                    RuleApplyMessage.REJECTED ->
+                        context.getString(
+                            R.string.inspector_import_rejected,
+                            applied.errorOrNull().orEmpty(),
+                        )
                 }
             }
         }
@@ -223,6 +290,10 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         selected = index == selected,
                         onClick = { selected = index },
                         modifier = Modifier.weight(1f),
+                        // Three equal columns on a 1080 px screen leave ~101 dp each; the default
+                        // 16 dp padding + labelLarge wrapped "Instagram" to "Instagra / m".
+                        horizontalPadding = 8.dp,
+                        labelStyle = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
@@ -314,19 +385,35 @@ fun RuleInspectorScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     text = stringResource(R.string.inspector_export),
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        // Always write the effective rules to the override path first (it is a
-                        // valid document), then let the user pick a text app to edit a copy.
-                        val text = RuleCatalog.exportText(context)
-                        val path = RuleCatalog.overrideFile(context).absolutePath
-                        runCatching { RuleCatalog.overrideFile(context).writeText(text) }
-                        message = context.getString(R.string.inspector_exported, path)
-                        exportLauncher.launch(RuleOverride.FILE_NAME)
+                        // Publish the effective rules to the override path *through the catalog*,
+                        // so the screen state matches the disk (source=OVERRIDE, import time, the
+                        // "Use built-in rules" button) instead of claiming "Built-in rules" while
+                        // a file is on disk that shadows them at the next process start.
+                        val applied = RuleCatalog.applyOverride(
+                            context,
+                            RuleCatalog.exportText(context),
+                        )
+                        val effect = exportEffect(applied)
+                        if (effect.adopted) refreshCatalog()
+                        message = when (effect.message) {
+                            ExportMessage.EXPORTED -> context.getString(
+                                R.string.inspector_exported,
+                                RuleCatalog.overridePath(context),
+                            )
+                            ExportMessage.REJECTED -> context.getString(
+                                R.string.inspector_import_rejected,
+                                applied.errorOrNull().orEmpty(),
+                            )
+                        }
+                        // A document that was not adopted is not offered for saving as if it
+                        // had been: the failure banner stays the last thing the user sees.
+                        if (effect.openPicker) exportLauncher.launch(RuleOverride.FILE_NAME)
                     },
                 )
                 SecondaryButton(
                     text = stringResource(R.string.inspector_import),
                     modifier = Modifier.weight(1f),
-                    onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                    onClick = { importLauncher.launch(importDocumentIntent()) },
                 )
             }
 

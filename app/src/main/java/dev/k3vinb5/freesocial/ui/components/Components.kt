@@ -35,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -401,13 +402,22 @@ fun SwitchRow(
     }
 }
 
-/** Selectable pill chip (inspector app filter, F14). Selected chips get the primary container. */
+/**
+ * Selectable pill chip (inspector app filter, F14). Selected chips get the primary container.
+ *
+ * [horizontalPadding] and [labelStyle] exist for rows that split the width into equal thirds: the
+ * 16 dp / `labelLarge` default clips a long app name ("Instagram" wrapped to "Instagra / m" in a
+ * 101 dp column on the 1080 px test device). Callers that need a tighter chip pass a smaller pair;
+ * the defaults are unchanged for every other call site.
+ */
 @Composable
 fun ChoiceChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 16.dp,
+    labelStyle: TextStyle = MaterialTheme.typography.labelLarge,
 ) {
     Row(
         modifier = modifier
@@ -415,7 +425,7 @@ fun ChoiceChip(
             .background(if (selected) FsColors.PrimaryContainer else FsColors.Card)
             .clickable(role = Role.Tab, onClick = onClick)
             .height(36.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = horizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected) {
@@ -424,7 +434,7 @@ fun ChoiceChip(
         }
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
+            style = labelStyle,
             color = if (selected) FsColors.Primary else FsColors.TextSecondary,
         )
     }

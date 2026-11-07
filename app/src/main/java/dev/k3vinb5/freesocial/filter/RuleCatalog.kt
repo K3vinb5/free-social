@@ -67,27 +67,55 @@ object RuleCatalog {
     }
 
     /**
+     * The adoption decision of [applyOverride], split out so it is testable without a `Context`:
+     * a document is adopted **only** when it parsed *and* the file write succeeded. Anything else
+     * leaves the active rules untouched and reports why — a failed write must never be reported as
+     * a written override, because the very next `load()` would drop the change.
+     */
+    object Adoption {
+        sealed interface Decision {
+            data class Adopt(val rules: List<Rule>) : Decision
+            data class Reject(val error: String) : Decision
+        }
+
+        fun decide(parsed: RuleOverride.Parse, writeError: String?): Decision = when (parsed) {
+            is RuleOverride.Parse.Invalid -> Decision.Reject(parsed.error)
+            is RuleOverride.Parse.Valid -> when {
+                writeError != null -> Decision.Reject(writeError)
+                else -> Decision.Adopt(parsed.rules)
+            }
+        }
+    }
+
+    /**
      * Validates [text] and, only when valid, becomes the override and reloads the live engine.
      * Invalid text leaves the active rules untouched and returns the validator's error.
      */
     fun applyOverride(context: Context, text: String): ApplyResult {
-        when (val parsed = RuleOverride.parse(text)) {
-            is RuleOverride.Parse.Invalid -> return ApplyResult.Invalid(parsed.error)
-            is RuleOverride.Parse.Valid -> {
-                val written = runCatching {
-                    overrideFile(context).writeText(text)
+        val parsed = RuleOverride.parse(text)
+        val writeError = if (parsed is RuleOverride.Parse.Valid) {
+            runCatching { overrideFile(context).writeText(text) }
+                .exceptionOrNull()
+                ?.let { it.message ?: "cannot write override file" }
+        } else {
+            null
+        }
+        return when (val decision = Adoption.decide(parsed, writeError)) {
+            is Adoption.Decision.Reject -> {
+                if (parsed is RuleOverride.Parse.Invalid) {
+                    ApplyResult.Invalid(decision.error)
+                } else {
+                    ApplyResult.Failed(decision.error)
                 }
-                if (written.isFailure) {
-                    val error = written.exceptionOrNull()?.message ?: "cannot write override file"
-                    return ApplyResult.Failed(error)
-                }
+            }
+            is Adoption.Decision.Adopt -> {
                 synchronized(lock) {
-                    current = parsed.rules
+                    current = decision.rules
                     source = RuleOverride.Source.OVERRIDE
                     lastError = null
                 }
                 RuleReload.wake()
-                return ApplyResult.Ok(parsed.rules)
+                ApplyResult.Ok(decision.rules)
             }
         }
     }

@@ -54,10 +54,17 @@ It uses the **same JSON schema and the same loader validation** as the shipped
 `app/src/main/assets/rules.json`, and **replaces** the built-in rules wholesale when valid.
 
 * **Export rules** writes the current effective rules to that path and opens the system file picker
-  so the same document can be saved/edited in any text app.
-* **Import rules** opens a document, validates it, writes it to the override path and applies it.
-  An invalid document changes nothing: the previous rules stay active and the validator's error is
-  shown in the screen.
+  so the same document can be saved/edited in any text app. The write goes through the same
+  `RuleCatalog.applyOverride` path an import uses, so the document is *adopted*: the screen then
+  reads `Your override (rules-override.json)` with its import time, and **Use built-in rules**
+  appears. (Before 2026-11-07 the file was written with a bare `writeText`, the screen kept claiming
+  *Built-in rules*, and the button that would remove the override stayed hidden while the file
+  shadowed the shipped rules at the next process start.)
+* **Import rules** asks the documents picker for a **JSON** document (`application/json`, no
+  `EXTRA_MIME_TYPES` — ColorOS DocumentsUI hides `application/json` rows whenever that extra is
+  present, which made the file Export had just written unselectable), validates it, writes it to
+  the override path and applies it. An invalid document changes nothing: the previous rules stay
+  active and the validator's error is shown in the screen.
 * On load (app start or on demand) an existing override is used. A validation failure falls back to
   the built-in asset and surfaces the error.
 

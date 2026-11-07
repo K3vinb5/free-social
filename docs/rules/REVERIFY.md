@@ -1282,6 +1282,86 @@ contrast: `before-rapid-transcript.txt` = 4 escapes / 2 flashes / 1 suppressed.
   state is SKIP. Filed as OpenProject #146 (Free Social); a fix needs a capture-settle/dedupe change outside
   this branch's file scope.
 
+## "Use built-in rules" — PASS (2026-11-07, first device proof)
+
+`RuleCatalog.revertOverride()` + its button shipped in `e1bf545` but had never been exercised on a
+device: subsection 3 above found the button absent from the installed APK, and 7.3 only noted it
+"was not shown and none was needed". This run opened an override deliberately, then reverted it with
+the button (**closing the open item**).
+
+Device: Reno4 5G, app 0.4.1, pt-PT, override active from an import in the same session.
+
+* **Dialog**: title *Use built-in rules*, body *Your imported rules will be removed. Free Social
+  will use its built-in rules.*, `Cancel` / `Use built-in rules`
+  (`reverse/runtime-reno/heal/driver/01-revert-dialog.png`).
+* **Confirm** → banner *Your imported rules were removed — built-in rules are active.*,
+  `files/` back to `profileInstalled` only (`rules-override.json` gone), `Rules in use` reads
+  **`Built-in rules`**, the button disappears, `RuleCatalog: engine cache dropped — the override
+  applies on the next event` (`driver/01-reverted.png`, `driver/01-reverted-source.png`,
+  `driver/02-ab2-reverted.png`).
+* **Live A/B, same PID, no restart** — the Reels tab scanned by `FilterService`:
+
+  | state | engine line |
+  | --- | --- |
+  | override (built-in with `ig_clips_viewer` disabled) | `rules=3/9, matched=1` |
+  | after **Use built-in rules** | `rules=4/9, matched=2` |
+
+  (`driver/01-ab2-disabled.png`, `driver/03-ab2-reverted.png`)
+
+## Heal-from-dump marathon — 2026-11-07
+
+Full pass of `docs/rules/CAPTURE.md` on the device, no APK rebuild and no process restart between
+the steps. Two kinds of evidence exist and they are **not** interchangeable — the scripted scenario
+reads the `GuidedCapture` and `RuleCatalog` tags only, so a scenario run proves the inspector
+analysis and the engine-cache drop, never a `matched=` count:
+
+* **Inspector analysis**: the *Rules that match this dump* block for a fixed dump file.
+* **Engine log**: `FilterService` `scan … matched=N` lines, which only exist in the **manual** run
+  of this day. They are transcribed in `reverse/runtime-reno/heal/logcat-heal-chain.txt` (the
+  logcat ring had rotated by the time the run was written up).
+
+Scripted: `uv run tools/device/drive.py run heal_from_dump` →
+**PASS** (63 steps, 351.1 s, `reverse/runtime-reno/driver-20261107-205244/heal_from_dump/`).
+
+| step | result | Inspector-analysis proof (scenario run, reproducible) | engine-log proof (manual run, once) |
+| --- | --- | --- | --- |
+| 1 capture | PASS | `GuidedCapture … com.instagram.android/reels_tab: 9 nodes, verified=true` (the scenario captures the Reels tab only); IG Home `feed_reel_cell` + YT Home `home` verified in the **manual** run (19:15–19:18), not by the scenario | — (capture is logged by `GuidedCapture`, not the engine) |
+| 2 analyse | PASS | the dump lists `ig_reels_tab · reels_tab` (+ `ig_clips_viewer`) with `viewId`/`desc`/`class`/`selected`; the Home dump lists none | — |
+| 3 break | PASS | `clips_tab` → `clips_tab_gone` imported: `engine cache dropped`; the same dump file **loses** `ig_reels_tab` (`06-break-analysis-empty.png`) | `rules=4/9, matched=1` on the Reels tab with the broken anchor (19:28:02) |
+| 4 heal | PASS | corrected anchor imported: `engine cache dropped`; the same dump **regains** `ig_reels_tab` (`07-heal-analysis-match.png`) | `rules=4/9, matched=2` after the heal (19:30:45), same PID 24053 |
+| 5 revert | PASS | dialog → confirm → banner, `files/` holds only `profileInstalled`, `Rules in use = Built-in rules`, button gone (`08-reverted.png`) | separate A/B with **`ig_clips_viewer` disabled**: `rules=3/9, matched=1` → `rules=4/9, matched=2` |
+
+`matched=1` vs `matched=2` for steps 3–4 is a comparison across two moments, not one continuous
+capture: the pre-break Reels scan was not recorded, so the `2` side is the post-heal measurement on
+the same screen. The revert A/B moves a **different** rule (`ig_clips_viewer`), so its `1 → 2` must
+not be read as part of the break/heal chain.
+
+Three defects found and fixed on the same branch (details in
+`reverse/runtime-reno/heal/REPORT.md`, `tools/device/scenarios/heal_from_dump.py`,
+`RuleInspectorHealTest`):
+
+* **A** `RuleInspectorScreen.kt:319-322` — Export wrote `filesDir/rules-override.json` with a bare
+  `writeText`, so the screen still read *Built-in rules* and hid *Use built-in rules* while a file
+  that would be loaded at the next start was on disk. Fixed by publishing the document through
+  `RuleCatalog.applyOverride` and refreshing the screen; the decision now lives in the pure
+  `exportEffect(...)` seam (adopt ⇒ refresh + picker + *exported*, reject ⇒ banner only).
+* **B** `RuleInspectorScreen.kt:329` — the import picker was launched via
+  `ActivityResultContracts.OpenDocument`, whose base type is the wildcard; ColorOS DocumentsUI then
+  lists no `application/json` row at all, so the exported document could not be imported. Fixed by
+  launching `ACTION_OPEN_DOCUMENT` with base type `application/json` and no `EXTRA_MIME_TYPES`
+  (measured: `am start -a OPEN_DOCUMENT -t application/json` lists the file immediately).
+* **C** `RuleInspectorScreen.kt:219` — the three app chips split the row into equal thirds and
+  "Instagram" wrapped to "Instagra / m"; the chip now takes a compact padding/label style.
+
+A fourth defect was caught by review after the first PR: a **rejected** Export still opened the
+save picker, and the picker callback then replaced the failure banner with *Rules exported to …* —
+a failed adoption reported as success. Fixed in the same seam (`ExportEffect.openPicker` is false
+unless the document was adopted) and pinned by `RuleInspectorHealTest`.
+
+Device limitation reconfirmed, not a regression: the accessibility tree handed to a third-party
+service on this build is decor-only (D8), so dumps are graft views — IG Home 4 walked + 5 grafted
+nodes while `uiautomator dump` of the same screen has 112.
+
 ## Restored state
 
 `budget_limit_minutes=20`, `schedule_enabled=true` with `420/1350` untouched, `filtering_enabled=true`,
