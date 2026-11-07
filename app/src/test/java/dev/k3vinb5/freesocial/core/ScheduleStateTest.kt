@@ -93,6 +93,22 @@ class ScheduleStateTest {
     }
 
     @Test
+    fun `next wake follows the schedule instead of a hardcoded clock`() {
+        // Midday, inside, and early morning all point at the same 07:00 wake.
+        assertEquals(7 * 60, defaults.nextWakeMinutes(at(2026, 11, 2, 12, 0)))
+        assertEquals(7 * 60, defaults.nextWakeMinutes(at(2026, 11, 2, 23, 0)))
+        assertEquals(7 * 60, defaults.nextWakeMinutes(at(2026, 11, 3, 2, 0)))
+        // Exactly at the wake boundary, that window is over and tonight's default still wakes at 07:00.
+        assertEquals(7 * 60, defaults.nextWakeMinutes(at(2026, 11, 3, 7, 0)))
+
+        // Friday's late override moves the return time to 09:00, and only for that window.
+        val fridayLate = ScheduleState(days = mapOf(5 to DaySchedule(23 * 60 + 30, 9 * 60)))
+        assertEquals(9 * 60, fridayLate.nextWakeMinutes(at(2026, 11, 6, 23, 40)))
+        assertEquals(9 * 60, fridayLate.nextWakeMinutes(at(2026, 11, 7, 1, 0)))
+        assertEquals(7 * 60, fridayLate.nextWakeMinutes(at(2026, 11, 7, 12, 0)))
+    }
+
+    @Test
     fun `per-day override only affects that weekday`() {
         // Friday later than the rest of the week: 23:30 -> 09:00 (9 h 30 m).
         val schedule = ScheduleState(days = mapOf(5 to DaySchedule(23 * 60 + 30, 9 * 60)))

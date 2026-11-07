@@ -54,7 +54,7 @@ home, because it was never given the ability to.
 <p align="center">
   <img src="docs/design/renders/runtime/02-app-detail.png" width="200" alt="Per-app mode and surfaces">
   <img src="docs/design/renders/03-budget.png" width="200" alt="Reels and Shorts budget">
-  <img src="docs/design/renders/04-schedule.png" width="200" alt="Per-weekday nightly lock">
+  <img src="docs/design/renders/04-schedule.png" width="200" alt="Schedule: per-weekday bedtime and wake times (22:30–07:00 default), live window length with the six-hour minimum, no off switch">
   <img src="docs/design/renders/07-dev.png" width="200" alt="Rule inspector">
 </p>
 

@@ -118,14 +118,15 @@ export function Behaviour() {
           </article>
 
           <article className="card card--7" data-reveal style={{ "--d": "80ms" } as CSSProperties}>
-            <p className="card__kicker">Nightly lock</p>
+            <p className="card__kicker">Nightly sleep window</p>
             <div className="card__split">
               <div className="card__txt">
                 <h3>A bedtime that is not a suggestion.</h3>
                 <p>
-                  Set bedtime and wake time for each weekday — one window per day, at least six
-                  hours long, and always on. During locked hours the app is closed rather than
-                  merely quiet — and the budget cannot be spent.
+                  Set bedtime and wake time for each weekday — one window per day, 22:30 to 07:00
+                  by default. It is always on: there is no off switch, and every day must clear a
+                  six-hour minimum. During locked hours the app is closed rather than merely
+                  quiet — and the budget cannot be spent.
                 </p>
                 <p>
                   Real exact alarms fire on each boundary, so the lock flips while the phone is idle
@@ -139,7 +140,7 @@ export function Behaviour() {
                   height={1600}
                   loading="lazy"
                   decoding="async"
-                  alt="Schedule screen: per-weekday bedtime and wake times from Monday to Sunday, each with its window length and the six-hour minimum."
+                  alt="Schedule screen: a mandatory nightly window with no off switch, Monday to Sunday bedtime and wake times, 22:30 to 07:00 by default, each row showing its live window length against the six-hour minimum."
                 />
               </div>
             </div>

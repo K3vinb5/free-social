@@ -89,6 +89,19 @@ class ScheduleState(
         return next ?: error("no lock boundary found")
     }
 
+    /**
+     * Wall-clock minutes of the wake that ends the window covering [now], or of the next window to
+     * start when none covers it. Lets UI copy ("come back at %1$s") follow the per-day schedule
+     * instead of hardcoding a clock time.
+     */
+    fun nextWakeMinutes(now: ZonedDateTime): Int {
+        val today = now.toLocalDate()
+        val candidates = listOf(today.minusDays(1), today, today.plusDays(1))
+        val lockDay = candidates.firstOrNull { isInside(now, it) }
+            ?: candidates.first { windowStart(it, now.zone).isAfter(now) }
+        return daySchedule(lockDay.dayOfWeek.value).wakeMinutes
+    }
+
     private fun isInside(now: ZonedDateTime, lockDay: LocalDate): Boolean =
         !now.isBefore(windowStart(lockDay, now.zone)) && now.isBefore(windowEnd(lockDay, now.zone))
 

@@ -76,7 +76,7 @@
 
     <!-- Schedule (F11) -->
     <string name="schedule_title">Schedule</string>
-    <string name="schedule_preview">Locked %1$s–%2$s tonight</string>
+    <string name="schedule_preview">Locked %1$s–%2$s</string>
     <string name="day_mon">Mon</string>
     <string name="day_tue">Tue</string>
     <string name="day_wed">Wed</string>
@@ -141,7 +141,7 @@
 
     <!-- Block screen (F13) -->
     <string name="block_screen_title">%1$s is blocked</string>
-    <string name="block_screen_body">Focus time — come back at 07:30.</string>
+    <string name="block_screen_body">Focus time — come back at %1$s.</string>
     <string name="block_go_home">Go home</string>
     <string name="block_caption">Blocked by Free Social</string>
     <string name="block_app_fallback">This app</string>
