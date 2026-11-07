@@ -924,8 +924,11 @@ and DM thread). Same-pattern sweep of every surface: YouTube home's `id/tabs_bar
 any YT dump (`170110`, `234610`) — replaced by `id/results` (RecyclerView, home-only: absent from
 `170126`/`234810` Shorts, so a Shorts capture can no longer verify as Home). IG clips viewer
 (`clips_viewer_view_pager` + `androidx.viewpager.widget.ViewPager`), IG Reels tab (`clips_tab`,
-FrameLayout, selected=true) and TikTok `player_view` are alive and unchanged. Tests:
-`CaptureSurfacesTest`.
+FrameLayout, selected=true) and TikTok `player_view` are alive and unchanged. The YT
+`shorts_player` spec (`id/reel_recycler`) was checked in the same pass and needed no change: it is
+present on the Shorts tab and absent from Home
+(`reverse/runtime-reno/anchor-audit/yt-b1-shorts-tab-player.json` vs `yt-b2-home-appdump.json`;
+`docs/rules/RULES.md` anchor table rows for `yt_shorts_player`). Tests: `CaptureSurfacesTest`.
 
 ## D16 — blocking stays paused after a capture arm expires (wave-final finding F4)
 

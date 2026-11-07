@@ -7,13 +7,18 @@ import android.os.SystemClock
  *
  * `GuidedCapture` arms it for the whole session (surface detection + recording), refreshes it at
  * the detection → recording handover, and cancels it when the session ends. Filtering reads
- * [isArmed] (`FilterService`), blocking reads [remainingMillis] (`block.BlockService`, which
- * schedules its post-expiry re-check on it).
+ * [isArmed] (`FilterService`), blocking reads [remainingMillis] and registers [setOnDisarmed]
+ * (`block.BlockService`, which re-evaluates the gate the moment the arm ends).
  *
  * **One clock domain.** Every arm lives in monotonic elapsed-realtime millis — the same source
  * `GuidedCapture` polls on and `FilterService` uses. Mixing a wall-clock stamp with an
  * elapsedRealtime refresh made a guided arm look expired at the detection → recording handover
  * (and blocking then resumed mid-recording), so the domain is fixed and injectable, never implicit.
+ *
+ * **Disarm notification.** An arm ends by `cancel()` (session finished, user stop, new session) or
+ * by expiry. Both clear the state and then invoke the one registered listener *outside* the lock,
+ * so a pause consumer never has to poll or wait for a deadline it can no longer see. This is what
+ * made the block screen linger for the rest of the window after a capture finished early.
  *
  * D17 removed the manual "arm, then switch app" entry point. The follow-up sweep removed every API
  * only the deleted service-side consumer used (`consume`, `readyFor`, `looksGhost`, `isGuided`,
@@ -29,8 +34,14 @@ object DumpArm {
      */
     const val GUIDED_EXPIRY_MS = 120_000L
 
+    private val lock = Any()
+
     private var armedAt: Long = 0L
     private var screen: String? = null
+
+    /** The single pause consumer (BlockService). Runs after the arm is cleared, never under [lock]. */
+    @Volatile
+    private var onDisarmed: (() -> Unit)? = null
 
     /** Device clock: monotonic elapsedRealtime; the JVM fallback only bites in unit tests. */
     private val deviceClock: () -> Long = {
@@ -51,60 +62,102 @@ object DumpArm {
         clock = provider
     }
 
+    /**
+     * Registers the one pause consumer that must re-evaluate immediately when the arm ends, or
+     * clears it with `null` when the service is destroyed. Replacing it is idempotent.
+     */
+    fun setOnDisarmed(listener: (() -> Unit)?) {
+        onDisarmed = listener
+    }
+
     /** Current time in the arm's single domain (elapsed-realtime millis on device). */
     fun nowMillis(): Long = clock()
 
     /** Arms a guided capture for [screen] (the surface slug recorded in the dump). */
-    @Synchronized
     fun armGuided(screen: String, now: Long = clock()) {
-        armedAt = now
-        this.screen = screen
+        synchronized(lock) {
+            armedAt = now
+            this.screen = screen
+        }
     }
 
     /**
      * Extends a guided arm across a phase change (detection -> recording). [now] is in the same
      * elapsed-realtime domain as every other arm write — see the class doc.
      */
-    @Synchronized
     fun refreshGuided(now: Long = clock()) {
-        if (screen != null) armedAt = now
+        synchronized(lock) {
+            if (screen != null) armedAt = now
+        }
     }
 
     /** True while a capture owns the device; `FilterService` pauses interaction on it. */
-    fun isArmed(now: Long = clock()): Boolean = armedScreen(now) != null
+    fun isArmed(now: Long = clock()): Boolean = armedLabel(now) != null
 
     /**
      * Millis left before the active arm expires, or null when nothing is armed (an expired arm
-     * clears itself). `block.BlockService` schedules its post-expiry re-check on this (D16).
+     * clears itself and notifies, exactly like [cancel]). `block.BlockService` schedules its
+     * post-expiry re-check on this (D16).
      */
-    @Synchronized
     fun remainingMillis(now: Long = clock()): Long? {
-        if (armedScreen(now) == null) return null
-        return GUIDED_EXPIRY_MS - (now - armedAt)
+        var expiredNow = false
+        val remaining = synchronized(lock) {
+            val current = screen
+            if (current == null) {
+                null
+            } else if (expired(now)) {
+                clearLocked()
+                expiredNow = true
+                null
+            } else {
+                GUIDED_EXPIRY_MS - (now - armedAt)
+            }
+        }
+        if (expiredNow) notifyDisarmed()
+        return remaining
     }
 
-    /** Disarms without capturing (a finished session, a user cancel, or a new session). */
-    @Synchronized
+    /**
+     * Disarms without capturing (a finished session, a user cancel, or a new session) and tells the
+     * registered consumer so enforcement resumes now instead of at the arm's deadline.
+     */
     fun cancel() {
-        clear()
+        val wasArmed = synchronized(lock) { clearLocked() }
+        if (wasArmed) notifyDisarmed()
     }
 
     /** The armed surface label, or null when nothing is armed / the arm has expired. */
-    @Synchronized
-    private fun armedScreen(now: Long): String? {
-        val label = screen ?: return null
-        if (expired(now)) {
-            clear()
-            return null
+    private fun armedLabel(now: Long): String? {
+        var expiredNow = false
+        val label = synchronized(lock) {
+            val current = screen
+            if (current == null) {
+                null
+            } else if (expired(now)) {
+                clearLocked()
+                expiredNow = true
+                null
+            } else {
+                current
+            }
         }
+        if (expiredNow) notifyDisarmed()
         return label
+    }
+
+    private fun notifyDisarmed() {
+        val listener = onDisarmed ?: return
+        runCatching { listener() }
     }
 
     private fun expired(now: Long): Boolean =
         now - armedAt >= GUIDED_EXPIRY_MS
 
-    private fun clear() {
+    /** Returns true when an arm was actually dropped (so only a real disarm notifies). */
+    private fun clearLocked(): Boolean {
+        val wasArmed = screen != null
         armedAt = 0L
         screen = null
+        return wasArmed
     }
 }

@@ -5,6 +5,7 @@ import dev.k3vinb5.freesocial.settings.AppMode
 import dev.k3vinb5.freesocial.settings.AppTarget
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -26,6 +27,7 @@ class CapturePauseScheduleTest {
 
     @After
     fun tearDown() {
+        DumpArm.setOnDisarmed(null)
         DumpArm.useClock()
         DumpArm.cancel()
     }
@@ -85,6 +87,38 @@ class CapturePauseScheduleTest {
         now += step.delayMs - 1
         assertEquals(BlockDecision.Ignore, gate.decideOnThisDevice())
         assertEquals(CapturePauseSchedule.Step.RecheckIn(1L), schedule().step())
+    }
+
+    /**
+     * Reviewer finding: this is the BlockService wiring in one test. `GuidedCapture.finish()` calls
+     * `DumpArm.cancel()`; the registered consumer is the service's immediate re-check. The clock does
+     * not move at all between arm and cancel, so the gate can only be active again because the
+     * disarm was noticed — not because a deadline passed.
+     */
+    @Test
+    fun `a cancelled capture re-activates the gate immediately, before any deadline`() {
+        val gate = gate()
+        var onDisarmDecision: BlockDecision? = null
+        // Same thing BlockService.onArmDisarmed() ends up doing: evaluate the current package now.
+        DumpArm.setOnDisarmed { onDisarmDecision = gate.decideOnThisDevice() }
+        try {
+            DumpArm.armGuided("home")
+            assertEquals(BlockDecision.Ignore, gate.decideOnThisDevice())
+            assertEquals(CapturePauseSchedule.Step.RecheckIn(DumpArm.GUIDED_EXPIRY_MS), schedule().step())
+
+            DumpArm.cancel() // GuidedCapture.finish(): zero events, zero elapsed time
+
+            assertTrue("the consumer ran synchronously", onDisarmDecision is BlockDecision.Launch)
+            assertEquals(
+                AppTarget.INSTAGRAM.packageName,
+                (onDisarmDecision as BlockDecision.Launch).packageName,
+            )
+            assertEquals(CapturePauseSchedule.Step.Evaluate, schedule().step())
+            assertNull(DumpArm.remainingMillis())
+        } finally {
+            DumpArm.setOnDisarmed(null)
+            DumpArm.cancel()
+        }
     }
 
     /**

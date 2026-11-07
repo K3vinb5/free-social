@@ -24,6 +24,7 @@ class DumpArmTest {
 
     @After
     fun tearDown() {
+        DumpArm.setOnDisarmed(null)
         DumpArm.useClock()
         DumpArm.cancel()
     }
@@ -54,6 +55,86 @@ class DumpArmTest {
 
         assertFalse(DumpArm.isArmed(0))
         assertNull(DumpArm.remainingMillis(0))
+    }
+
+    /**
+     * Reviewer finding: a capture that ends early (GuidedCapture calls `cancel()` on every stop
+     * path) must resume enforcement at once. The pause consumer is told synchronously, so the
+     * service can drop the post that was waiting for the now-dead deadline.
+     */
+    @Test
+    fun `cancel notifies the registered consumer exactly once`() {
+        var notified = 0
+        DumpArm.setOnDisarmed { notified++ }
+        try {
+            DumpArm.armGuided("home", now = 1_000)
+            assertEquals(0, notified)
+
+            DumpArm.cancel()
+            assertEquals("cancel must resume enforcement immediately", 1, notified)
+            assertFalse(DumpArm.isArmed(1_000))
+            assertNull(DumpArm.remainingMillis(1_000))
+
+            // Nothing left to disarm: a second cancel must not fire the consumer again.
+            DumpArm.cancel()
+            assertEquals(1, notified)
+        } finally {
+            DumpArm.setOnDisarmed(null)
+            DumpArm.cancel()
+        }
+    }
+
+    @Test
+    fun `expiry notifies the registered consumer once and a later cancel is silent`() {
+        var notified = 0
+        DumpArm.setOnDisarmed { notified++ }
+        try {
+            DumpArm.armGuided("home", now = 1_000)
+
+            assertFalse(DumpArm.isArmed(1_000 + DumpArm.GUIDED_EXPIRY_MS))
+            assertEquals(1, notified)
+
+            DumpArm.cancel()
+            assertEquals("the expired arm was already cleared", 1, notified)
+        } finally {
+            DumpArm.setOnDisarmed(null)
+            DumpArm.cancel()
+        }
+    }
+
+    @Test
+    fun `cancel without an arm does not notify`() {
+        var notified = 0
+        DumpArm.setOnDisarmed { notified++ }
+        try {
+            DumpArm.cancel()
+            assertEquals(0, notified)
+        } finally {
+            DumpArm.setOnDisarmed(null)
+        }
+    }
+
+    @Test
+    fun `a re-armed capture notifies again and only the current listener hears it`() {
+        var first = 0
+        var second = 0
+        DumpArm.setOnDisarmed { first++ }
+        try {
+            DumpArm.armGuided("home", now = 1_000)
+            DumpArm.cancel()
+            assertEquals(1, first)
+
+            // A new session replaces the consumer (service rebind) and re-arms.
+            DumpArm.setOnDisarmed { second++ }
+            DumpArm.armGuided("shorts_player", now = 10_000)
+            assertTrue(DumpArm.isArmed(10_000))
+            DumpArm.cancel()
+            assertEquals(1, first)
+            assertEquals(1, second)
+        } finally {
+            DumpArm.setOnDisarmed(null)
+            DumpArm.cancel()
+        }
     }
 
     @Test

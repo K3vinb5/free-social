@@ -45,6 +45,16 @@ class BlockService : AccessibilityService() {
         now = { DumpArm.nowMillis() },
     )
 
+    /**
+     * The arm ended before its deadline (GuidedCapture.cancel() on every stop path, or expiry).
+     * Drop the post that was waiting for the dead deadline and evaluate on the next main-loop turn,
+     * so the block screen comes back for the app the user is sitting on immediately.
+     */
+    private fun onArmDisarmed() {
+        handler.removeCallbacks(recheck)
+        handler.post(recheck)
+    }
+
     private val scheduleReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             // The boundary flipped: the app we last saw may still be in front.
@@ -57,6 +67,8 @@ class BlockService : AccessibilityService() {
         try {
             settings = SettingsRepository.from(this)
             registerScheduleReceiver()
+            // An arm that ends early must resume blocking at once, not at its 120 s deadline.
+            DumpArm.setOnDisarmed(::onArmDisarmed)
             // Best-effort v1 wiring: keep the boundary alarm armed whenever this service comes up.
             ScheduleAlarmScheduler.scheduleNow(this)
         } catch (t: Throwable) {
@@ -169,6 +181,8 @@ class BlockService : AccessibilityService() {
     }
 
     private fun teardown() {
+        // Deregister before touching the queue: a late cancel must not post into a dead service.
+        DumpArm.setOnDisarmed(null)
         handler.removeCallbacks(recheck)
         if (receiverRegistered) {
             runCatching { unregisterReceiver(scheduleReceiver) }
