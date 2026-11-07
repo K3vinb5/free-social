@@ -10,8 +10,12 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * The inspector <-> service handshake: guided capture arms the device for detection + recording,
- * the service never consumes it, and it expires at the guided ceiling (D17 removed the manual arm).
+ * The guided arm shared by the inspector session and the two enforcement services: it covers
+ * detection + recording, is refreshed at the phase change, and expires at the guided ceiling.
+ *
+ * The service-side consumer (`consume`/`readyFor`/`looksGhost`/`isGuided`/`captureActive`) was
+ * removed with the manual armed-dump path (D17 follow-up), so these tests only exercise the API
+ * production still calls.
  */
 class DumpArmTest {
 
@@ -27,41 +31,15 @@ class DumpArmTest {
     @Test
     fun `capture while unarmed is ignored`() {
         assertFalse(DumpArm.isArmed(0))
-        assertNull(DumpArm.consume(0))
-        assertNull(DumpArm.armedScreen(0))
         assertNull(DumpArm.remainingMillis(0))
     }
 
     @Test
-    fun `a launch transition keeps the arm armed until the target window is active`() {
-        // The event says YouTube, but the active root is still Free Social: capturing would write
-        // that app's decor tree labelled "YT · shorts player" (Wave A retry R4).
-        assertFalse(DumpArm.readyFor(YT, "dev.k3vinb5.freesocial"))
-        assertTrue(DumpArm.readyFor(YT, YT))
-        // An unreadable root must not block: the dump reports the ghost tree it actually saw.
-        assertTrue(DumpArm.readyFor(YT, null))
-    }
-
-    @Test
-    fun `a decor-only capture is recognised as a ghost and retried`() {
-        // Wave A A5 / retry R4: 4 nodes, 1 view id, no grafts, labelled as the target app.
-        assertTrue(DumpArm.looksGhost(nodeCount = 4, grafts = 0))
-        // The scan path on the same window a moment later: real content.
-        assertFalse(DumpArm.looksGhost(nodeCount = 44, grafts = 40))
-        // A graft small enough to stay under the limit is real content, not a ghost.
-        assertFalse(DumpArm.looksGhost(nodeCount = 4, grafts = 1))
-    }
-
-    @Test
-    fun `a guided arm covers detection and recording and the service never consumes it`() {
+    fun `a guided arm covers detection and recording and expires at the ceiling`() {
         DumpArm.armGuided("shorts_player", now = 1_000)
 
-        // 30 s detection + 15 s recording fit, well inside the guided ceiling.
+        // 30 s detection + 15 s recording fit well inside the guided window.
         assertTrue(DumpArm.isArmed(1_000 + 61_000))
-        assertTrue(DumpArm.isGuided(1_000 + 61_000))
-        // The service must not capture on its own: the guided session verifies the surface first.
-        assertFalse(DumpArm.readyFor(YT, YT))
-        assertFalse(DumpArm.readyFor(YT, null))
 
         // Phase change refreshes the window.
         DumpArm.refreshGuided(now = 70_000)
@@ -74,22 +52,21 @@ class DumpArmTest {
         DumpArm.armGuided("home", now = 0)
         DumpArm.cancel()
 
-        assertFalse(DumpArm.isGuided(0))
-        assertFalse(DumpArm.captureActive(0))
+        assertFalse(DumpArm.isArmed(0))
         assertNull(DumpArm.remainingMillis(0))
     }
 
     @Test
-    fun `captureActive covers the guided window and ends with the session`() {
+    fun `the armed window covers detection and recording and ends with the session`() {
         DumpArm.armGuided("shorts_player", now = 1_000)
-        assertTrue(DumpArm.captureActive(1_000 + 61_000))
+        assertTrue(DumpArm.isArmed(1_000 + 61_000))
         DumpArm.refreshGuided(now = 100_000)
-        assertTrue(DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
-        assertFalse(DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS))
+        assertTrue(DumpArm.isArmed(100_000 + DumpArm.GUIDED_EXPIRY_MS - 1))
+        assertFalse(DumpArm.isArmed(100_000 + DumpArm.GUIDED_EXPIRY_MS))
 
         DumpArm.armGuided("home", now = 200_000)
         DumpArm.cancel()
-        assertFalse(DumpArm.captureActive(200_000))
+        assertFalse(DumpArm.isArmed(200_000))
     }
 
     /**
@@ -117,22 +94,14 @@ class DumpArmTest {
         assertNull(DumpArm.remainingMillis(50_000 + DumpArm.GUIDED_EXPIRY_MS))
     }
 
-    @Test
-    fun `consume clears an armed guided session`() {
-        DumpArm.armGuided("IG · home feed", now = 1_000)
-        assertEquals("IG · home feed", DumpArm.consume(2_000))
-        assertFalse(DumpArm.isArmed(2_000))
-        assertNull(DumpArm.consume(2_001))
-    }
-
     /**
      * Regression (review PR #3): the guided arm was stamped by `armGuided()`'s wall-clock default
      * and then refreshed with `SystemClock.elapsedRealtime()` at the detection -> recording edge.
      * The stored deadline jumped to the elapsed scale while `isArmed` compared against wall-clock
      * millis, so the arm read as expired and blocking resumed in the middle of the recording.
      *
-     * This drives the production call shape: `armGuided()` / `captureActive()` with no argument
-     * (what GuidedCapture and BlockService actually call) and `refreshGuided(now)` fed an
+     * This drives the production call shape: `armGuided()` / `isArmed()` with no argument (what
+     * GuidedCapture and FilterService actually call) and `refreshGuided(now)` fed an
      * elapsedRealtime-scale value, all on one injected clock.
      */
     @Test
@@ -142,15 +111,15 @@ class DumpArmTest {
         try {
             DumpArm.useClock { boot }
             DumpArm.armGuided("shorts_player") // GuidedCapture.start(): no clock argument
-            assertTrue(DumpArm.captureActive())
+            assertTrue(DumpArm.isArmed())
 
             DumpArm.useClock { detectedAt }
             DumpArm.refreshGuided(now = detectedAt) // GuidedCapture.tick(): elapsedRealtime
 
             // The handover no longer disarms: recording keeps filtering AND blocking paused.
-            assertTrue(DumpArm.captureActive())
-            assertTrue(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS - 1))
-            assertFalse(DumpArm.captureActive(detectedAt + DumpArm.GUIDED_EXPIRY_MS))
+            assertTrue(DumpArm.isArmed())
+            assertTrue(DumpArm.isArmed(detectedAt + DumpArm.GUIDED_EXPIRY_MS - 1))
+            assertFalse(DumpArm.isArmed(detectedAt + DumpArm.GUIDED_EXPIRY_MS))
         } finally {
             DumpArm.useClock()
             DumpArm.cancel()

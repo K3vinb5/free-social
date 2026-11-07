@@ -146,20 +146,20 @@ class BlockGateTest {
             val armedGate = gate()
             assertEquals(
                 BlockDecision.Ignore,
-                armedGate.decide(now = 2_000, dumpArmed = DumpArm.captureActive(2_000)),
+                armedGate.decide(now = 2_000, dumpArmed = DumpArm.isArmed(2_000)),
             )
             assertEquals(
                 BlockDecision.Ignore,
                 armedGate.decide(
                     now = 1_000 + DumpArm.GUIDED_EXPIRY_MS - 1,
-                    dumpArmed = DumpArm.captureActive(1_000 + DumpArm.GUIDED_EXPIRY_MS - 1),
+                    dumpArmed = DumpArm.isArmed(1_000 + DumpArm.GUIDED_EXPIRY_MS - 1),
                 ),
             )
             // The arm is dead: the gate fires on the next event.
             assertTrue(
                 armedGate.decide(
                     now = 1_000 + DumpArm.GUIDED_EXPIRY_MS,
-                    dumpArmed = DumpArm.captureActive(1_000 + DumpArm.GUIDED_EXPIRY_MS),
+                    dumpArmed = DumpArm.isArmed(1_000 + DumpArm.GUIDED_EXPIRY_MS),
                 ) is BlockDecision.Launch,
             )
         } finally {
@@ -175,12 +175,12 @@ class BlockGateTest {
             val armedGate = gate()
             assertEquals(
                 BlockDecision.Ignore,
-                armedGate.decide(now = 2_000, dumpArmed = DumpArm.captureActive(2_000)),
+                armedGate.decide(now = 2_000, dumpArmed = DumpArm.isArmed(2_000)),
             )
             // The session finished: the arm is cancelled, so no leftover pause state remains.
             DumpArm.cancel()
             assertTrue(
-                armedGate.decide(now = 2_001, dumpArmed = DumpArm.captureActive(2_001))
+                armedGate.decide(now = 2_001, dumpArmed = DumpArm.isArmed(2_001))
                     is BlockDecision.Launch,
             )
         } finally {
@@ -198,19 +198,19 @@ class BlockGateTest {
             // device well past the first minute.
             assertEquals(
                 BlockDecision.Ignore,
-                armedGate.decide(now = 61_000, dumpArmed = DumpArm.captureActive(61_000)),
+                armedGate.decide(now = 61_000, dumpArmed = DumpArm.isArmed(61_000)),
             )
             // Detection -> recording refreshes the window.
             DumpArm.refreshGuided(now = 100_000)
             assertEquals(
                 BlockDecision.Ignore,
-                armedGate.decide(now = 219_000, dumpArmed = DumpArm.captureActive(219_000)),
+                armedGate.decide(now = 219_000, dumpArmed = DumpArm.isArmed(219_000)),
             )
             // Ceiling reached: enforcement is back.
             assertTrue(
                 armedGate.decide(
                     now = 100_000 + DumpArm.GUIDED_EXPIRY_MS,
-                    dumpArmed = DumpArm.captureActive(100_000 + DumpArm.GUIDED_EXPIRY_MS),
+                    dumpArmed = DumpArm.isArmed(100_000 + DumpArm.GUIDED_EXPIRY_MS),
                 ) is BlockDecision.Launch,
             )
         } finally {

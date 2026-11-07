@@ -46,7 +46,7 @@ class CapturePauseScheduleTest {
         keyguardLocked = false,
         scheduleLocked = false,
         nowMillis = now,
-        dumpArmed = DumpArm.captureActive(now),
+        dumpArmed = DumpArm.isArmed(now),
     )
 
     @Test
