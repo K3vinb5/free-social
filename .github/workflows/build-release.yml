@@ -201,15 +201,22 @@ jobs:
           gh release create "$TAG" "${args[@]}" "$ZIP" "$APK"
 
   # Publishes the artifacts just built to the static site: the APK/zip and
-  # versions.json under website/downloads/, then commits only that path to
-  # master. The download tables are rendered from versions.json when the site
-  # image is built, so no HTML is committed here. Tags are never pushed here.
+  # versions.json under website/downloads/, then lands that commit on master
+  # through a pull request (master is protected; see
+  # tools/release/bookkeeping_pr.sh) so the site build picks up the merged sha.
+  # The download tables are rendered from versions.json when the site image is
+  # built, so no HTML is committed here. Tags are never pushed here.
   publish-site:
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The bookkeeping PR has to wait for ci.yml's build-test, so this is a
+    # long-running job by design; bounded so a stuck check fails instead of hangs.
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: write      # push the throwaway branch
+      pull-requests: write # open and squash-merge the bookkeeping PR
+      actions: write       # dispatch ci.yml on the branch
+      checks: read         # poll the build-test check run
     concurrency:
       group: site-deploy
       cancel-in-progress: false
@@ -307,6 +314,7 @@ jobs:
       - name: Commit published downloads
         id: commit
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KIND: ${{ steps.kind.outputs.kind }}
           VERSION: ${{ steps.kind.outputs.version }}
           TAG: ${{ inputs.tag_name }}
@@ -319,6 +327,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           paths=(website/downloads)
+          commit="$(git rev-parse HEAD)"
           changes="$(git status --porcelain -- "${paths[@]}")"
           if [ -n "$changes" ]; then
             printf '%s\n' "$changes"
@@ -330,21 +339,29 @@ jobs:
               printf '%s\n' "$unexpected" >&2
               exit 1
             fi
+            branch="chore/site-bookkeeping-${GITHUB_RUN_ID}"
+            git checkout -b "$branch"
             git commit -m "chore(site): publish ${label}"
-            if ! git push origin HEAD:master; then
-              echo "::warning::push rejected; rebasing once on origin/master and retrying"
-              git fetch origin master
-              git rebase origin/master
-              git push origin HEAD:master
+            body="$(printf '%s\n' \
+              "Site downloads for ${label}, produced by the build-release workflow." \
+              "" \
+              "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              "- files: website/downloads/ only (apk, zip, versions.json)" \
+              "- landed by tools/release/bookkeeping_pr.sh: throwaway branch, PR, required build-test check, squash merge")"
+            out="$(tools/release/bookkeeping_pr.sh --branch "$branch" --title "chore(site): publish ${label}" --body "$body")"
+            commit="$(printf '%s\n' "$out" | sed -n 's/^merged_sha=//p')"
+            pr_url="$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p')"
+            if [ -z "$commit" ]; then
+              echo "::error::bookkeeping_pr.sh reported no merged sha (PR: ${pr_url:-unknown})"
+              exit 1
             fi
+            echo "site commit: ${commit} (${pr_url})"
           else
             echo "::notice::website already up to date for ${label}; nothing to commit"
           fi
 
-          commit="$(git rev-parse HEAD)"
           echo "commit=${commit}" >> "$GITHUB_OUTPUT"
           echo "short=$(printf '%s' "$commit" | cut -c1-7)" >> "$GITHUB_OUTPUT"
-          echo "site commit: ${commit}"
 
   # The one image-build/publish definition in the repository:
   # website-image.yml. This job only *calls* it — there is no docker login,

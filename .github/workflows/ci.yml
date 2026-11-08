@@ -9,6 +9,12 @@ on:
   pull_request:
   push:
     branches: [master]
+  # Dispatched by tools/release/bookkeeping_pr.sh. A pull request opened with
+  # GITHUB_TOKEN does not start `pull_request` workflows (GitHub suppresses
+  # events authored by the token), so the required `build-test` check would
+  # never be reported on the pipeline's own bookkeeping PRs. A dispatch on the
+  # branch reports the same check against the PR head sha.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
