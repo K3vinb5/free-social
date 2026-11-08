@@ -1,6 +1,15 @@
 {
-  "generated": "2026-11-07T23:15:42Z",
+  "generated": "2026-11-08T19:15:05Z",
   "stable": [
+    {
+      "version": "0.4.2",
+      "sha": "06eb5f8",
+      "date": "2026-11-08",
+      "apk": "downloads/free-social-0.4.2-06eb5f8.apk",
+      "zip": "downloads/free-social-0.4.2-06eb5f8.zip",
+      "bytes_apk": 23766169,
+      "bytes_zip": 8259483
+    },
     {
       "version": "0.4.1",
       "sha": "1e7b5a1",
