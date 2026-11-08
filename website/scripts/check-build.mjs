@@ -4,7 +4,7 @@
 // that the download tables are exactly what website/downloads/versions.json says.
 // This script fails the build when either stops being true, so a broken prerender
 // can never reach the image.
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -92,6 +92,59 @@ for (const [channel, entries] of [
     );
   }
 }
+
+// ------------------------------------------------------------- live facts
+// Every claim about the current release must come from versions.json, and every
+// number that is only a default of the reader's own settings must not read as a
+// fixed fact. This is the regression gate for both: copy that hardcodes either
+// one fails the build here instead of going stale in production.
+const newest = stable[0];
+if (newest) {
+  const hrefs = Array.from(html.matchAll(new RegExp(`href="${newest.apk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`, "g")));
+  check(
+    hrefs.length >= 3,
+    `the newest stable APK is linked ${hrefs.length} time(s); expected the hero CTA, the Download CTA and its table row (${newest.apk})`,
+  );
+  check(
+    html.includes(`href="${newest.zip}"`),
+    `the newest stable ZIP is not linked from the page (${newest.zip})`,
+  );
+}
+
+const srcDir = join(site, "src");
+const walk = (dir) =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((item) =>
+    item.isDirectory() ? walk(join(dir, item.name)) : [join(dir, item.name)],
+  );
+const staleFacts = [
+  // release facts: pinned file names, versions and byte counts typed into copy
+  [/(?:free-social-|nightly-)\d[\w.-]*\.(?:apk|zip)/, "a pinned download file name"],
+  [/\bv?\d+\.\d+\.\d+\b/, "a literal version number"],
+  [/\b\d+\.\d+ MB\b/, "a literal file size"],
+  // configurable: the budget is the reader's, 20 minutes is only the default
+  [/\b\d+ of \d+ minutes\b/, "a literal budget split"],
+  [/\b\d{1,2}:\d{2}\b/, "a literal schedule time"],
+];
+for (const file of walk(srcDir)) {
+  if (!/\.(ts|tsx)$/.test(file)) continue;
+  const text = readFileSync(file, "utf8");
+  for (const [pattern, label] of staleFacts) {
+    const hit = text.match(pattern);
+    if (hit) failures.push(`${file.replace(site, "website/")}: ${label} in copy ("${hit[0]}")`);
+  }
+}
+
+// ------------------------------------------------------------ scroll panes
+// The build list is a fixed-height pane, so a growing nightly list cannot grow
+// the page. Both tables get the wrapper; only an over-full one is focusable.
+const panes = html.split('class="dl-scroll"').length - 1;
+check(panes === 2, `expected 2 scroll panes around the build tables, found ${panes}`);
+check(
+  html.includes('class="dl-scroll" tabindex="0" role="region"'),
+  "the over-full Nightlies pane is not keyboard-reachable",
+);
+const css = readFileSync(join(dist, "styles.css"), "utf8");
+check(/\.dl-scroll \{[^}]*max-height: 216px[^}]*overflow-y: auto/.test(css), ".dl-scroll is not a fixed-height scroll pane in styles.css");
 
 // ------------------------------------------------------------ local targets
 const targets = new Set();

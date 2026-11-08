@@ -1,3 +1,5 @@
+import { latestStable } from "../downloads";
+
 /** Site footer: brand blurb, product/elsewhere columns and the legal line. */
 export function SiteFooter() {
   return (
@@ -48,7 +50,8 @@ export function SiteFooter() {
           <p className="foot__legal">
             <span>
               <a href="https://github.com/K3vinb5/free-social/blob/master/LICENSE">MIT</a> © 2026
-              Kevin Borges · Free Social 0.4.1
+              Kevin Borges · Free Social
+              {latestStable ? ` ${latestStable.version}` : ""}
             </span>
             <span>
               No cookies, no analytics, no third-party requests. Android is a trademark of Google
