@@ -46,6 +46,12 @@ payloads (`/api/v3/projects/4`, `/api/v3/users/4`, `/api/v3/roles/11`).
 Wrap every `op`/`curl` call in `timeout 15`. `op login`/`op logout` are interactive —
 never run them. After any mutation, re-inspect and report the resulting state.
 
+## Release gate (standing rule)
+
+A release is cut only after `tools/release/release-gate.sh` passes on a device. The gate
+runs every `tools/device/scenarios/` scenario and must exit 0; a FAIL (including a
+`WALL`) blocks the release until it is fixed — never lower the bar to ship.
+
 ## Keep the docs in sync
 
 - **README mirrors the product.** When a run changes a screen, feature, permission flow

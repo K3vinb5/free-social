@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -107,6 +108,10 @@ PASSWORD_FIELD_WORDS = (
     "kennwort",
     "mot de passe",
 )
+# The guard exists to protect third-party consent/login walls. Free Social's own screens
+# are the app under test, and localized copy like the "Permitir" mode chip is a generic
+# weak wall word in pt — never treat our own surface as a wall.
+WALL_EXEMPT_PACKAGES = ("dev.k3vinb5.freesocial",)
 
 
 class DriverError(RuntimeError):
@@ -281,7 +286,7 @@ class Device:
                 if attempt < retries:
                     time.sleep(1.2)
         # Fallback: screenshot the failure, preserve last known good hierarchy.
-        shot = self.screencap("dump-failed")
+        shot = self.screencap("dump-failed") or "unavailable"
         if self._last_nodes is not None and self._last_xml:
             self.save_dump("last-good-dump.xml", self._last_xml)
         raise DumpError(
@@ -307,11 +312,7 @@ class Device:
 
     def _fail(self, message: str) -> None:
         """Attach evidence to a failure, then raise."""
-        shot = ""
-        try:
-            shot = str(self.screencap("failure"))
-        except DriverError:
-            pass
+        shot = str(self.screencap("failure") or "")
         try:
             self.dump(retries=0, save=True, label="failure-dump.xml")
         except DriverError:
@@ -323,6 +324,8 @@ class Device:
         weak: dict[str, str] = {}
         for node in nodes:
             if not node.visible:
+                continue
+            if node.package in WALL_EXEMPT_PACKAGES:
                 continue
             blob = _deaccent(
                 " ".join(filter(None, (node.resource_id, node.text, node.content_desc)))
@@ -505,8 +508,19 @@ class Device:
         self._adb("shell", "input", "keyevent", "KEYCODE_HOME")
         self._record("home", "ok")
 
+    def wake(self) -> None:
+        """Send WAKEUP: a no-op while awake, but it stops the 15 s screen timeout from
+        pausing playback (and the budget accrual) during a long watch loop."""
+        self._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+
     def wait(self, seconds: float) -> None:
-        time.sleep(max(0.0, seconds))
+        remaining = max(0.0, seconds)
+        while remaining > 0:
+            slice_s = min(remaining, 5.0)
+            time.sleep(slice_s)
+            remaining -= slice_s
+            if remaining > 0:
+                self.wake()
 
     def current_package(self) -> str:
         out = self.shell(
@@ -587,7 +601,14 @@ class Device:
             self.wait(0.6)
 
     # -------------------------------------------------------------- evidence
-    def screencap(self, name: str) -> Path:
+    def screencap(self, name: str, required: bool = False) -> Path | None:
+        """Capture a PNG into the evidence dir.
+
+        Evidence, not an assertion: ColorOS intermittently refuses `screencap` after a
+        burst of captures (measured: four scenarios failed on `exit 1` with no message
+        while every behavioural assert passed). A missing shot is logged and the step
+        continues unless the caller asked for `required=True`.
+        """
         self._shot += 1
         path = self.evidence_dir / f"{self._shot:02d}-{_safe(name)}.png"
         last = "unknown"
@@ -604,7 +625,10 @@ class Device:
                 return path
             last = (pull.stderr or "").strip() or "pull produced no file"
             self.wait(0.8)
-        raise DriverError(f"screencap failed for {name!r}: {last}")
+        if required:
+            raise DriverError(f"screencap failed for {name!r}: {last}")
+        self.log(f"screencap unavailable for {name!r} ({last}); evidence-only, continuing")
+        return None
 
     def logcat_since(self, tag: str, marker: str | None = None, lines: int = 2000) -> Path:
         """Write a bounded logcat excerpt containing `tag` (and `marker`)."""
@@ -626,13 +650,24 @@ class Device:
         return self.evidence(path)
 
     def app_settings_read(self, package: str = "dev.k3vinb5.freesocial") -> dict[str, str]:
-        """Read-only peek at shared_prefs/settings.xml via `run-as`."""
-        proc = self._adb(
-            "shell", "run-as", package, "cat", "shared_prefs/settings.xml"
-        )
-        raw = proc.stdout or ""
-        if proc.returncode != 0 or "<map" not in raw:
-            self.log(f"app_settings_read {package}: unavailable ({(proc.stderr or '').strip()[:80]})")
+        """Read-only peek at shared_prefs/settings.xml via `run-as`.
+
+        `run-as` fails occasionally for one call (measured in a flash run, which then read
+        used=0/limit=0 and mistook it for a spent budget), so retry before giving up.
+        """
+        proc = None
+        for attempt in range(3):
+            proc = self._adb("shell", "run-as", package, "cat", "shared_prefs/settings.xml")
+            raw = proc.stdout or ""
+            if proc.returncode == 0 and "<map" in raw:
+                break
+            if attempt < 2:
+                time.sleep(0.8)
+        else:
+            self.log(
+                f"app_settings_read {package}: unavailable after 3 tries "
+                f"({((proc.stderr or '') if proc else '').strip()[:80]})"
+            )
             return {}
         import xml.etree.ElementTree as ET
 
@@ -651,6 +686,42 @@ class Device:
             values[name] = el.text if el.text is not None else el.get("value", "")
         self._record(f"app_settings_read {package}", f"{len(values)} keys (read-only)")
         return values
+
+    def installed_apk(self, package: str) -> str:
+        """On-device path of an installed package's base APK (first `pm path` line)."""
+        for line in self.shell("pm", "path", package).splitlines():
+            if line.startswith("package:"):
+                return line[len("package:"):].strip()
+        return ""
+
+    def pull(self, remote: str, local: str | Path) -> bool:
+        proc = self._adb("pull", remote, str(local), timeout=max(self.timeout, 120))
+        ok = proc.returncode == 0 and Path(local).exists()
+        self.log(f"pull {remote}: {'ok' if ok else (proc.stdout + proc.stderr).strip()[:120]}")
+        return ok
+
+    def install(self, apk: str | Path) -> bool:
+        """`adb install -r`: reinstalls the same build and restarts its process."""
+        proc = self._adb("install", "-r", str(apk), timeout=max(self.timeout, 120))
+        out = (proc.stdout + proc.stderr).strip()
+        ok = proc.returncode == 0 and "Success" in out
+        self.log(f"install -r {apk}: {'ok' if ok else out[:160]}")
+        return ok
+
+    def reinstall(self, package: str) -> bool:
+        """Reinstall the package's own base APK so its process restarts with the same data.
+
+        The APK is pulled to the host and installed from there: `pm install -r <data path>`
+        hung past 180 s once (measured), and a gate preflight must not depend on it.
+        """
+        apk = self.installed_apk(package)
+        if not apk:
+            self.log(f"reinstall {package}: no installed APK path")
+            return False
+        local = Path(tempfile.gettempdir()) / f"{package}.reinstall.apk"
+        if not self.pull(apk, local):
+            return False
+        return self.install(local)
 
     def pid(self, package: str) -> str:
         return self.shell("pidof", package).strip()

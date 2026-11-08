@@ -18,18 +18,19 @@ wave. State is restored to Filter and the run ends on the Free Social hub.
 
 import time
 
-from driver import by_text
+from driver import by_text, by_texts, policy
 
 FS_PKG = "dev.k3vinb5.freesocial"
 IG_PKG = "com.instagram.android"
 MODE_KEY = f"app_mode_{IG_PKG}"
 
-MODE_LABEL = by_text("Mode", match="exact")
-IG_ROW = by_text("Instagram", match="exact")
-CHIP_BLOCK = by_text("Block", match="exact")
-CHIP_ALLOW = by_text("Allow", match="exact")
-CHIP_FILTER = by_text("Filter", match="exact")
-GO_HOME = by_text("Go home", match="exact")
+# Locale variants are the resource values in values/strings.xml + values-pt/strings.xml.
+MODE_LABEL = by_texts("Mode", "Modo")  # section_mode
+IG_ROW = by_text("Instagram")  # app_instagram (identical in both locales)
+CHIP_BLOCK = by_texts("Block", "Bloquear")  # mode_block
+CHIP_ALLOW = by_texts("Allow", "Permitir")  # mode_allow
+CHIP_FILTER = by_texts("Filter", "Filtrar")  # mode_filter
+GO_HOME = by_texts("Go home", "Ir para o início")  # block_go_home
 
 TRIALS = (
     ("t1-filter-to-block", "filter"),
@@ -41,19 +42,13 @@ MAX_BLOCK_LATENCY_S = 6.0
 
 
 def _open_ig_detail(d):
-    """Free Social may resume on the hub or on the last detail screen."""
-    d.launch(FS_PKG, settle=1.5)
-    for _ in range(3):
-        nodes = d.dump(retries=2)
-        if d.find(MODE_LABEL, nodes):
-            return
-        if d.find(IG_ROW, nodes):
-            d.tap(IG_ROW, nodes)
-            d.wait_for(MODE_LABEL, timeout=10)
-            return
-        d.back()
-        d.wait(0.8)
-    raise AssertionError("could not reach the Instagram detail screen in Free Social")
+    """Free Social may resume on the hub, the detail screen or the inspector: go via the
+    hub (the inspector also shows an "Instagram" chip, so a bare find is ambiguous)."""
+    policy.to_hub(d)
+    nodes = d.dump(retries=2)
+    if not d.find(MODE_LABEL, nodes):
+        d.tap(IG_ROW, nodes)
+    d.wait_for(MODE_LABEL, timeout=10)
 
 
 def _read_mode(d):

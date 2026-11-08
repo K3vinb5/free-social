@@ -8,7 +8,7 @@ excerpt. If Instagram is replaced/blocked/escaped, that is recorded as data,
 not a failure — only a wall or a missing tab fails the run.
 """
 
-from driver import DumpError, by_id, by_text
+from driver import DumpError, by_id, by_text, policy
 
 PKG = "com.instagram.android"
 CLIPS_TAB = by_id("com.instagram.android:id/clips_tab")
@@ -17,6 +17,7 @@ FEED_TAB_TEXTS = ("Para ti", "For You")
 
 
 def run(d):
+    policy.ensure_ig_home(d)  # IG resumes in the reel viewer, where the tab bar is gone
     d.launch(PKG, settle=2.0)
     d.wait_for(CLIPS_TAB, timeout=25)
     d.screencap("ig-home")

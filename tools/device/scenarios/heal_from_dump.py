@@ -28,7 +28,7 @@ import json
 import re
 import time
 
-from driver import by_desc, by_id, by_text, policy
+from driver import by_desc, by_id, by_text, by_texts, policy
 
 FS = policy.APP_PACKAGE
 IG = "com.instagram.android"
@@ -36,20 +36,23 @@ OVERRIDE_REMOTE = "files/rules-override.json"
 DOWNLOAD = "/sdcard/Download"
 BROKEN_ANCHOR = f"{IG}:id/clips_tab_gone"
 
-HUB = by_text("Reels & Shorts budget")
-INSPECTOR = by_text("Surfaces & rules")
-INSTAGRAM_CHIP = by_text("Instagram")
-REELS_SURFACE = by_text("Reels tab")
-CAPTURE_DONE = by_text("Capture complete", match="contains")
-NODES_ROW = by_text(r"^\d+ nodes$", match="regex")
-ANALYSIS = by_text("Rules that match this dump")
-REELS_MATCH = by_text("ig_reels_tab · reels_tab", match="contains")
-NO_MATCH = by_text("No rule matches this dump", match="contains")
-REVERT = by_text("Use built-in rules")
-OVERRIDE_SOURCE = by_text("Your override (rules-override.json)", match="contains")
-BUILTIN_SOURCE = by_text("Built-in rules", match="exact")
-IMPORT = by_text("Import rules")
-EXPORT = by_text("Export rules")
+# Locale variants are the resource values in values/strings.xml + values-pt/strings.xml.
+HUB = by_texts("Reels & Shorts budget", "Orçamento de Reels e Shorts")  # hub_budget_row
+INSPECTOR = by_texts("Surfaces & rules", "Superfícies e regras")  # hub_rule_inspector
+INSTAGRAM_CHIP = by_text("Instagram")  # app_instagram (identical in both locales)
+REELS_SURFACE = by_texts("Reels tab", "Separador Reels")  # surface_name_reels_tab
+CAPTURE_DONE = by_texts("Capture complete", "Captura concluída", match="contains")  # inspector_capture_done
+# inspector_nodes_count: "%1$d nodes" / "%1$d nós"
+NODES_ROW = by_texts(r"^\d+ nodes$", r"^\d+ nós$", match="regex")
+ANALYSIS = by_texts("Rules that match this dump", "Regras que correspondem a esta captura")  # inspector_analysis
+# Rule/surface ids (untranslated); separator_dot renders trimmed, so allow optional spaces.
+REELS_MATCH = by_text(r"ig_reels_tab\s*·\s*reels_tab", match="regex")
+REVERT = by_texts("Use built-in rules", "Usar as regras incorporadas")  # inspector_rules_use_builtin
+# inspector_rules_source_override: "Your override (%1$s)" / "A tua substituição (%1$s)"
+OVERRIDE_SOURCE = by_texts("Your override", "A tua substituição", match="contains")
+BUILTIN_SOURCE = by_texts("Built-in rules", "Regras incorporadas")  # inspector_rules_source_assets
+IMPORT = by_texts("Import rules", "Importar regras")  # inspector_import
+EXPORT = by_texts("Export rules", "Exportar regras")  # inspector_export
 
 # The documents picker is a system app; these are the observed EN/PT labels only. The
 # roots toggle is an icon button (content-desc), the root entries are drawer titles.
@@ -105,11 +108,11 @@ def _revert_leftover_override(d):
 
 def _app_screen(d, surface):
     if not d.find(INSTAGRAM_CHIP):
-        d.tap(by_text("Instagram"))
+        d.tap(INSTAGRAM_CHIP)
         d.wait(1.0)
-    row = by_text(surface)
+    row = surface
     if not policy.scroll_until(d, row):
-        raise AssertionError(f"surface row '{surface}' not found in the inspector")
+        raise AssertionError(f"surface row {row} not found in the inspector")
     d.tap(row)
 
 
@@ -237,13 +240,14 @@ def _rewrite_anchor(document, view_id):
 
 def run(d):
     # ---------------------------------------------------------------- 0. precondition
+    policy.ensure_ig_home(d)  # IG resumes in the reel viewer, which cannot be dumped
     _revert_leftover_override(d)
 
     # ---------------------------------------------------------------- 1. capture
     _open_inspector(d)
     d.screencap("inspector-before-capture")
     mark = policy.log_stamp(d)
-    _app_screen(d, "Reels tab")
+    _app_screen(d, REELS_SURFACE)
     d.wait(2.5)
 
     clips_tab = by_id(f"{IG}:id/clips_tab")
@@ -290,7 +294,10 @@ def run(d):
     d.screencap("analysis-match")
 
     # ------------------------------------------------------------- 3. break it
-    policy.scroll_until(d, EXPORT)
+    # Export/Import sit below the whole saved-dump list, which grows by one entry per
+    # capture — give the scroll a budget that does not depend on how many dumps exist.
+    if not policy.scroll_until(d, EXPORT, max_swipes=16):
+        raise AssertionError("the Export button is not reachable at the bottom of the inspector")
     d.tap(EXPORT)
     d.wait(3.0)
     if d.current_package() == "com.google.android.documentsui":

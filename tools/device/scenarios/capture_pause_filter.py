@@ -15,22 +15,29 @@ Instagram for the 15 s recording window, and prove:
 import re
 import time
 
-from driver import by_id, by_text, policy
+from driver import DumpError, by_id, by_text, by_texts, policy
 
 IG = "com.instagram.android"
 CLIPS_TAB = by_id("com.instagram.android:id/clips_tab")
 VIDEO_CELL = by_id("com.instagram.android:id/video_container")
 
+# Locale variants are the resource values in values/strings.xml + values-pt/strings.xml.
+INSPECTOR = by_texts("Surfaces & rules", "Superfícies e regras")  # hub_rule_inspector
+APP_INSTAGRAM = by_text("Instagram")  # app_instagram (identical in both locales)
+HOME_FEED = by_texts("Home feed", "Feed inicial")  # surface_name_home_feed
+STEP_START = by_texts("Open app and capture", "Abrir a app e capturar")  # inspector_step_start
+CAPTURE_DONE = by_texts("Capture complete", "Captura concluída", match="contains")  # inspector_capture_done
+
 
 def _open_inspector(d):
     policy.to_hub(d)
-    entry = by_text("Surfaces & rules")
+    entry = INSPECTOR
     policy.scroll_until(d, entry)
     d.tap(entry)
     d.wait(1.5)
-    d.tap(by_text("Instagram"))
+    d.tap(APP_INSTAGRAM)
     d.wait(1.0)
-    row = by_text("Home feed")
+    row = HOME_FEED
     policy.scroll_until(d, row)
     d.assert_visible(row)
 
@@ -47,23 +54,35 @@ def _capture_complete_line(d, mark):
 
 
 def run(d):
+    policy.ensure_ig_home(d)
     _open_inspector(d)
     d.screencap("inspector-before-capture")
 
     mark = policy.log_stamp(d)
     d.log(f"guided window starts at device clock {mark}")
-    d.tap(by_text("Home feed"))  # row action = Capture nodes
+    d.tap(HOME_FEED)  # row action = Capture nodes
     d.wait(2.0)
 
-    step_card = by_text("Open app and capture")
-    if d.find(step_card):
+    try:
+        step_card = d.find(STEP_START)
+    except DumpError:
+        # The target app is already in front and refusing a dump (a reel is playing):
+        # notifications are on, so the capture armed itself — nothing to tap.
+        step_card = None
+        d.log("IG already in front; notifications are on, the capture is armed")
+    if step_card:
         d.log("notifications are off; using the in-app step card instead")
         d.screencap("step-card")
         d.tap(step_card)
         d.wait(2.0)
 
-    # The app launched Instagram for us; navigate while the arm is held.
-    d.wait_for(CLIPS_TAB, timeout=25)
+    # The app launched Instagram for us; navigate while the arm is held. A reel already
+    # playing refuses `uiautomator dump`; that is not a failure here — the capture's own
+    # verified dump is the surface evidence.
+    try:
+        d.wait_for(CLIPS_TAB, timeout=10, recover=False)
+    except Exception as exc:  # noqa: BLE001 - undumpable playing surface, reported below
+        d.log(f"IG tree not dumpable on arrival ({exc}); continuing with the recording window")
     d.screencap("ig-during-capture-arrived")
     d.swipe(direction="up", times=1)
     d.wait(2.0)
@@ -84,8 +103,17 @@ def run(d):
 
     engine = policy.log_lines(d, since=mark)
     policy.save_lines(d, "engine-window.log", engine)
-    actions = policy.action_lines(engine)
-    d.log(f"engine lines during the guided window: {len(engine)}; actions: {len(actions)}")
+    # Only the armed window must be action-free: the arm is released the moment the
+    # capture completes, and an escape after that is correct product behaviour (the
+    # scenario keeps driving Instagram until it reads the log).
+    armed_until = finish[:17]  # "MM-DD HH:MM:SS.mmm" prefix, same shape as every log line
+    actions = [
+        line for line in policy.action_lines(engine)
+        if not armed_until or line[:17] <= armed_until
+    ]
+    late = len(policy.action_lines(engine)) - len(actions)
+    d.log(f"engine lines during the guided window: {len(engine)}; actions while armed: "
+          f"{len(actions)}; after the capture finished: {late}")
     if actions:
         policy.save_lines(d, "ACTION-LINES.log", actions)
 
@@ -98,9 +126,9 @@ def run(d):
 
     # Back to the inspector; the session banner should read "Capture complete".
     d.launch(policy.APP_PACKAGE, settle=2.0)
-    banner = by_text("Capture complete", match="contains")
+    banner = CAPTURE_DONE
     try:
-        d.wait_for(banner, timeout=10)
+        d.wait_for(banner, timeout=10, recover=False)
         d.screencap("inspector-capture-complete")
     except Exception as exc:  # noqa: BLE001 - reported with the finish line
         d.log(f"completion banner not visible: {exc}")

@@ -106,23 +106,9 @@ def run(d):
         raise AssertionError(f"an entry produced no escape action: {results}")
 
     # Restore: allowance back to 20 min through the app's own stepper, then the
-    # used counter back to 0 with a recorded prefs fixture.
-    restored = policy.set_budget_limit(d, 20)
-    if restored != 20:
-        raise AssertionError(f"could not restore the budget limit to 20 (reads {restored})")
-    today = d.shell("date", "+%Y-%m-%d").strip()
-    policy.prefs_fixture(d, {
-        "budget_used_seconds": ("long", "0"),
-        "budget_date": ("string", today),
-        "budget_limit_minutes": ("int", "20"),
-    })
-    after = policy.budget(d)
-    for _ in range(5):
-        if after["used"] == 0 and after["limit"] == 20:
-            break
-        d.wait(1.0)
-        after = policy.budget(d)
-    d.log(f"restored budget: {after}")
+    # used counter back to 0 with a recorded prefs fixture (policy handles the
+    # live process re-committing its in-memory map over the fixture).
+    after = policy.restore_budget(d)
     if after["used"] != 0 or after["limit"] != 20:
         raise AssertionError(f"budget restore failed: {after}")
     d.log("PASS: 3/3 exhausted Reels entries escaped identically")

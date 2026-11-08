@@ -38,6 +38,47 @@ class GuardTest(unittest.TestCase):
             device._guard(parse_xml(XML))  # noqa: SLF001 - unit-testing the guard
 
 
+PT_MODE_CHIPS = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="Modo" resource-id="" class="android.widget.TextView"
+        package="dev.k3vinb5.freesocial" content-desc="" bounds="[72,377][172,423]" />
+  <node index="1" text="Permitir" resource-id="" class="android.widget.TextView"
+        package="dev.k3vinb5.freesocial" content-desc="" bounds="[786,496][927,542]" />
+  <node index="2" text="Bloquear" resource-id="" class="android.widget.TextView"
+        package="dev.k3vinb5.freesocial" content-desc="" bounds="[462,496][619,542]" />
+</hierarchy>
+"""
+
+SYSTEM_PERMISSION_ASK = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="Permitir" resource-id="" class="android.widget.Button"
+        package="com.android.permissioncontroller" content-desc="" bounds="[600,1400][900,1500]" />
+</hierarchy>
+"""
+
+
+class LocalizedOwnAppGuardTest(unittest.TestCase):
+    """pt-PT "Permitir" is a generic weak wall word AND our mode chip: our own screens
+    are never a wall, while a third-party permission ask with the same word still is."""
+
+    def device(self) -> Device:
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        device = Device(serial="test", evidence_dir=tmp, scenario="guard")
+        # The wall path screenshots/dumps for evidence; keep this offline.
+        device.screencap = lambda name: Path(tmp) / name  # type: ignore[method-assign]
+        device.save_dump = lambda *a, **k: Path(tmp) / "wall-dump.xml"  # type: ignore[method-assign]
+        return device
+
+    def test_own_app_mode_chip_is_not_a_wall(self) -> None:
+        self.device()._guard(parse_xml(PT_MODE_CHIPS))  # noqa: SLF001
+
+    def test_third_party_permitir_still_raises(self) -> None:
+        from driver.device import WallError
+
+        with self.assertRaises(WallError):
+            self.device()._guard(parse_xml(SYSTEM_PERMISSION_ASK))  # noqa: SLF001
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -3,6 +3,44 @@
 Everything here runs on GitHub Actions; no local tooling beyond `./gradlew` and
 `python3` (stdlib only) is required.
 
+## On-device release gate (required before a release)
+
+```bash
+tools/release/release-gate.sh
+```
+
+Runs a device preflight, then **every** scenario in `tools/device/scenarios/` through the
+semantic device driver (`uv run tools/device/drive.py run <scenario>`), one evidence
+directory per scenario, then prints a `scenario → PASS/FAIL/SKIP` table and exits
+**non-zero if anything FAILed**. `WALL` exits the driver non-zero and is reported as FAIL
+— a consent/login wall on the test device is never a pass.
+
+The preflight (`uv run tools/device/drive.py preflight`) is what makes the gate repeatable:
+it checks both accessibility services, resets any app mode to Filter, restores the budget
+to 20 min / 0 used, reinstalls the currently-installed APK (same bytes) so the app process
+re-reads preferences — the live process caches them in memory, so a fixture alone does not
+survive — and requires no active rules override. It aborts the gate with `exit 2` rather
+than letting a dirty phone fail a scenario.
+
+One-time device setup: on the first install of an unsigned debug APK, Play Protect asks
+whether to send the app for a security check — answer **Não enviar**; while that dialog is
+open every `adb install`/`reinstall` hangs.
+
+- Device: `--device <serial>`, `$FS_DEVICE_SERIAL`, else the first authorised device —
+  the driver's contract, nothing hardcoded.
+- Evidence: `reverse/runtime-reno/release-gate/<timestamp>/<scenario>/` plus
+  `table.md` and the full `gate.log` beside them. `reverse/` is gitignored.
+- Skips: only scenarios that genuinely cannot run unattended, listed in `SKIPS` in the
+  script with a written reason (today: `dm_carveout_structural`, which needs the TikTok
+  DM inbox while the FYP is undumpable). A scenario added to `scenarios/` runs unless it
+  is added to `SKIPS` — the decision is never implicit.
+- `--only <scenario>` re-runs a single scenario while debugging; it is **not** a gate run
+  and never clears a failed release.
+
+A release is cut only after this gate passes on a device. Product bugs found by the gate
+get a D-entry in `docs/rules/DEFECT-DIAGNOSIS.md` before any fix; a bug too large to fix
+in the same run keeps the gate red and therefore blocks the release.
+
 ## Workflows
 
 - `.github/workflows/release.yml` — manual (`workflow_dispatch`). Inputs: `bump`

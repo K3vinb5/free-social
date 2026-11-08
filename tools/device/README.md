@@ -50,6 +50,13 @@ Scenarios must stay independent of screen size and phone language:
 - **Locale:** prefer resource-id / class selectors (locale-proof). String selectors
   (text/content-desc) carry a list of **observed** variants only — never guess a
   translation — and scenarios report `ABSENT_OR_LOCALE` when no variant matches.
+  `by_texts("Mode", "Modo")` / `by_descs(...)` take one label per shipped locale; every
+  variant is copied from `app/src/main/res/values/strings.xml` and
+  `values-<locale>/strings.xml` and the selector line names the string key it came from.
+  Matching folds diacritics (`Orçamento` also matches `Orcamento`), so a dump that drops
+  accents needs no duplicate variant. UI copy from *other* apps (Instagram, YouTube,
+  TikTok, DocumentsUI) is not in our resource tables: those lists stay observed-only,
+  with the dump or run that observed them noted in the scenario.
 - **Walls:** detection is deaccented and multilingual (EN/PT/ES/FR/DE markers) plus
   a structural password-field signal (`PASSWORD_FIELD_WORDS` on ids/hints); a wall
   aborts the scenario untapped (`WALL` status).

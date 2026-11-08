@@ -3,7 +3,8 @@
 Selectors keyed on (from live Reno dumps, pt-PT UI; string variants below are
 observed-only — EN from the rule-authoring dumps, PT from pt-yt-home3.xml; add
 new locales to the variant lists when actually observed):
-  - Home anchor:  com.google.android.youtube:id/tabs_bar (only exists on Home) — locale-proof
+  - Home anchor:  com.google.android.youtube:id/results (Home feed container; exists only
+                  on Home — D15 retired tabs_bar, which no YT dump ever contained)
   - shelf/header: content-desc == "Shorts" (brand string, unchanged in pt-PT)
   - shelf cards:  content-desc contains "reproduzir Short" (PT) / "play Short" (EN)
   - scroll area:  com.google.android.youtube:id/results (scrollable feed container) — locale-proof
@@ -18,7 +19,6 @@ the scenario first backs out to Home using the tabs bar as the anchor.
 from driver import by_desc, by_id
 
 PKG = "com.google.android.youtube"
-HOME_TABS = by_id("com.google.android.youtube:id/tabs_bar")
 FEED = by_id("com.google.android.youtube:id/results")
 SHORTS_HEADER = by_desc("Shorts", match="exact")
 # Observed string variants only (see header); a missing locale means
@@ -28,12 +28,12 @@ SHORTS_CARD_DESCS = ("reproduzir Short", "play Short")
 
 def _ensure_home(d):
     for attempt in range(3):
-        if d.find(HOME_TABS):
+        if d.find(FEED):
             return
-        d.log(f"Home tabs not visible (attempt {attempt + 1}); backing out once")
+        d.log(f"Home feed not visible (attempt {attempt + 1}); backing out once")
         d.back()
         d.wait(1.2)
-    d.wait_for(HOME_TABS, timeout=15, recover=False)
+    d.wait_for(FEED, timeout=15, recover=False)
 
 
 def run(d):

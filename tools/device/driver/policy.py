@@ -17,13 +17,23 @@ import base64
 import re
 import time
 
-from .selectors import by_text
+from .selectors import by_text, by_texts
 
 APP_PACKAGE = "dev.k3vinb5.freesocial"
 ENGINE_TAG = "FilterService"
 GUIDED_TAG = "GuidedCapture"
 PREFS_PATH = "shared_prefs/settings.xml"
 DUMPS_DIR = "/sdcard/Android/data/dev.k3vinb5.freesocial/files/dumps"
+
+# Hub labels, observed in both shipped locales (values/strings.xml + values-pt/strings.xml):
+#   hub_budget_row        "Reels & Shorts budget" / "Orçamento de Reels e Shorts"
+#   app_name              "Free Social" (identical in both locales)
+#   stepper_plus/minus    "+" / "−" (translatable="false", identical in both)
+HUB_BUDGET_ROW = by_texts("Reels & Shorts budget", "Orçamento de Reels e Shorts")
+# budget_title is the same text as hub_budget_row, so the row cannot prove "we are on the
+# hub" — it also matches the budget screen. The app bar title (app_name, identical in both
+# locales) sits in the fixed top bar, so it is reachable whatever the scroll offset is.
+HUB_ANCHOR = by_text("Free Social")
 
 # "11-05 17:42:24.481 I/FilterService(14486): ..." -> "11-05 17:42:24"
 _TS = re.compile(r"^(\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\s")
@@ -127,14 +137,65 @@ def prefs_fixture(d, updates: dict[str, tuple[str, str]]) -> str:
                 lines.insert(opening, f'    <{kind} name="{key}" value="{value}" />')
     body = "\n".join(lines) + "\n"
     encoded = base64.b64encode(body.encode("utf-8")).decode("ascii")
+    # One argv element: adb re-joins argv and the device shell re-splits it, so a nested
+    # `sh -c "<pipeline>"` passed as separate args collapses to `sh -c echo` and the
+    # redirect runs in `/` (measured: the fixture silently never landed, used stayed 301).
     d.shell(
-        "run-as", APP_PACKAGE, "sh", "-c",
-        f"echo {encoded} | base64 -d > {PREFS_PATH}.new && "
-        f"mv {PREFS_PATH}.new {PREFS_PATH}",
+        f"run-as {APP_PACKAGE} sh -c 'echo {encoded} | base64 -d > {PREFS_PATH}.new "
+        f"&& mv {PREFS_PATH}.new {PREFS_PATH}'",
         timeout=30,
     )
     d.log(f"FIXTURE prefs write {updates} -> {PREFS_PATH} (run-as)")
     return _read_prefs(d)
+
+
+def restore_budget(d, limit: int = 20) -> dict[str, int | str]:
+    """Put the allowance back to `limit` min / used 0 and prove the prefs file holds it.
+
+    The limit goes back through the app's own stepper. `used` can only be reset by a
+    prefs fixture, and the live process keeps its SharedPreferences map in memory — any
+    later commit rewrites the file. So stop the target apps first (nothing playing, no
+    accrual), then write and verify. A durable reset across a process restart is the
+    gate preflight's job (`drive.py preflight`), not a scenario's.
+    """
+    restored = set_budget_limit(d, limit)
+    if restored != limit:
+        raise AssertionError(
+            f"could not restore the budget limit to {limit} (reads {restored})"
+        )
+    # A target app still playing in the background keeps the engine accruing, and every
+    # accrue commit re-writes this process's in-memory counter over the fixture (measured:
+    # the fixture read 0, then 1200 after the next accrual commit). Stop the targets first:
+    # they are not the app under test, and this is the end of a budget scenario.
+    for package in (IG_PACKAGE, "com.google.android.youtube", "com.zhiliaoapp.musically"):
+        d.shell("am", "force-stop", package)
+    d.home()
+    d.wait(2.0)
+    today = d.shell("date", "+%Y-%m-%d").strip()
+    updates = {
+        "budget_used_seconds": ("long", "0"),
+        "budget_date": ("string", today),
+        "budget_limit_minutes": ("int", str(limit)),
+    }
+    prefs_fixture(d, updates)
+    after = budget(d)
+    d.log(f"restored budget: {after}")
+    return after
+
+
+def wait_for_log(d, needle: str, timeout: float = 10.0, tags: tuple[str, ...] = (ENGINE_TAG,)) -> str:
+    """Poll the bounded logcat tail until `needle` appears; returns the matched lines.
+
+    A settings change reaches the engine on its next scan, which can lag the app coming to
+    the foreground; a single immediate read is a race (measured on the Allow check).
+    """
+    text = ""
+    deadline = time.monotonic() + timeout
+    while True:
+        text = "\n".join(log_lines(d, tags=tags))
+        if needle in text or time.monotonic() >= deadline:
+            return text
+        d.wait(0.8)
 
 
 def newest_dump(d) -> str:
@@ -149,18 +210,73 @@ def read_dump(d, remote_path: str) -> str:
 
 # ------------------------------------------------------------------- app shell
 def to_hub(d, attempts: int = 5) -> None:
-    """Bring the Free Social hub to the front (back out of any inner screen)."""
+    """Bring the Free Social hub to the front, scrolled to the top.
+
+    The hub remembers its scroll offset, and several flows end on a lower entry, so a
+    forward-only `scroll_until` from a stale offset walks away from the row it wants.
+    """
     d.launch(APP_PACKAGE, settle=1.5)
-    anchor = by_text("Reels & Shorts budget")
+    anchor = HUB_ANCHOR
+    found = False
     for _ in range(attempts):
         if d.find(anchor):
-            return
+            found = True
+            break
         d.back()
         d.wait(1.0)
-    d.wait_for(anchor, timeout=10, recover=False)
+    if not found:
+        d.wait_for(anchor, timeout=10, recover=False)
+    for _ in range(3):
+        d.swipe(direction="down", ratio=0.8)
+        d.wait(0.3)
 
 
-def scroll_until(d, selector, max_swipes: int = 6, pause: float = 0.8) -> bool:
+IG_PACKAGE = "com.instagram.android"
+
+
+def ensure_ig_home(d, attempts: int = 4) -> bool:
+    """Put Instagram on a dumpable surface with its bottom tab bar before arming.
+
+    Instagram resumes wherever it was left — often the full-screen reel viewer, which
+    refuses `uiautomator dump`, so a guided capture would wait for a tab it can neither
+    see nor tap. Back out until the tab bar is readable; returns False if it never is.
+    """
+    from .device import DumpError
+    from .selectors import by_id
+
+    d.launch(IG_PACKAGE, settle=2.0)
+    feed = by_id(f"{IG_PACKAGE}:id/feed_tab")
+    clips = by_id(f"{IG_PACKAGE}:id/clips_tab")
+    for _ in range(attempts + 2):
+        try:
+            nodes = d.dump(retries=0)
+        except DumpError:
+            d.back()  # a playing reel refuses the dump: leave the viewer
+            d.wait(1.5)
+            continue
+        on_clips = any(n.selected for n in d.find(clips, nodes))
+        if not on_clips and d.find(feed, nodes):
+            return True
+        if on_clips and d.find(feed, nodes):
+            d.tap(feed, nodes)  # the Reels tab is dumpable but is not the Home feed
+            d.wait(2.0)
+            try:
+                after = d.dump(retries=0)
+            except DumpError:
+                d.back()
+                d.wait(1.5)
+                continue
+            if any(n.selected for n in d.find(clips, after)):
+                # The tap went to a reel viewer/overlay on top of the tab bar.
+                d.back()
+                d.wait(1.5)
+            continue
+        d.back()
+        d.wait(1.5)
+    return False
+
+
+def scroll_until(d, selector, max_swipes: int = 10, pause: float = 0.8) -> bool:
     """Swipe up until `selector` is visible; returns visibility, never raises."""
     for _ in range(max_swipes + 1):
         if d.find(selector):
@@ -172,11 +288,12 @@ def scroll_until(d, selector, max_swipes: int = 6, pause: float = 0.8) -> bool:
 
 def open_budget(d) -> None:
     to_hub(d)
-    d.tap(by_text("Reels & Shorts budget"))
+    d.tap(HUB_BUDGET_ROW)
     d.wait(1.5)
 
 
 def budget_limit_text(d) -> int:
+    # budget_minutes_value is "%1$d min" in both locales.
     node = d.find_one(by_text(r"^\d+ min$", match="regex"))
     return _int(node.text.split()[0], -1)
 
@@ -189,9 +306,9 @@ def set_budget_limit(d, target: int, step: int = 5, tries: int = 12) -> int:
         if current == target:
             break
         if current < target:
-            d.tap(by_text("+"))
+            d.tap(by_text("+"))  # stepper_plus (translatable="false")
         else:
-            d.tap(by_text("−"))
+            d.tap(by_text("−"))  # stepper_minus (translatable="false")
         d.wait(1.2)
         current = budget_limit_text(d)
     d.log(f"budget limit now {current} min (target {target})")
