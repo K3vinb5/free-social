@@ -1395,6 +1395,25 @@ h2 em {
   font-size: 12px;
   color: var(--text-3);
 }
+/* The Stable and Nightlies lists are scroll panes ~4 rows tall: the nightly
+   list grows with every build, and the page should not. Measured against the
+   row height above (one row is 47px, the header 27px); paired with
+   VISIBLE_ROWS in src/components/DownloadTables.tsx. */
+.dl-scroll {
+  max-height: 216px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+/* Keep the column labels in view while the rows move. This deep in the card
+   the gradient has faded out, so --surface matches the card exactly. */
+.dl-scroll .dl-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
 
 /* ---------- footer ---------- */
 .site-footer {
@@ -1580,6 +1599,8 @@ html.js [data-reveal].is-in {
   .dl-table td:nth-of-type(3) { grid-area: size; text-align: right; }
   .dl-table td:nth-of-type(4) { grid-area: apk; margin-top: 4px; }
   .dl-table td:nth-of-type(5) { grid-area: zip; margin-top: 4px; }
+  /* Each row is a card here, so ~3 rows is the phone equivalent of four. */
+  .dl-scroll { max-height: 344px; }
   .dl-table tr.dl-empty { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ver"; }
   .dl-table tr.dl-empty td { grid-area: auto; text-align: left; }
   .dl-table .dl-link { display: flex; min-height: 34px; }

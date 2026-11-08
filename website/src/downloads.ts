@@ -25,6 +25,12 @@ const doc = versions as VersionsFile;
 export const stable: DownloadEntry[] = doc.stable ?? [];
 export const nightlies: DownloadEntry[] = doc.nightlies ?? [];
 
+/**
+ * The newest stable release — the only thing the hero and download CTAs may
+ * point at. null only before the first stable publish.
+ */
+export const latestStable: DownloadEntry | null = stable[0] ?? null;
+
 /** Same formatting the generated tables used: GB / MB / kB / B. */
 export function humanSize(size: number): string {
   if (size >= 1e9) return `${(size / 1e9).toFixed(1)} GB`;

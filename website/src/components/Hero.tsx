@@ -1,6 +1,10 @@
+import { humanSize, latestStable } from "../downloads";
 import { StarIcon } from "./icons";
 
-/** Hero: copy, CTAs and the three-phone stage. Values here are hand-maintained with the release. */
+/**
+ * Hero: copy, CTAs and the three-phone stage. Anything that describes the
+ * current release is read from downloads/versions.json, never typed in here.
+ */
 export function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-title">
@@ -22,10 +26,14 @@ export function Hero() {
             want one, you spend it from one daily budget.
           </p>
           <div className="hero__actions">
-            <a className="btn" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
-              Download the APK
-              <span className="btn__meta">23.7 MB · free</span>
-            </a>
+            {latestStable ? (
+              <a className="btn" href={latestStable.apk} download>
+                Download the APK
+                <span className="btn__meta">
+                  v{latestStable.version} · {humanSize(latestStable.bytes_apk)} · free
+                </span>
+              </a>
+            ) : null}
             <a className="btn btn--ghost" href="https://github.com/K3vinb5/free-social">
               <StarIcon size={15} />
               Star on GitHub
@@ -68,7 +76,7 @@ export function Hero() {
                 width={820}
                 height={1645}
                 decoding="async"
-                alt="Free Social home screen: the status pill reads Paused · 20 min left, each app shows Filter · budget left, the budget row shows 20 min left, with schedule and permissions below."
+                alt="Free Social home screen: the status pill reads Paused with minutes left, each app shows Filter and its share of the budget, the budget row shows the remaining allowance, with schedule and permissions below."
               />
             </figure>
             <figure className="phone phone--r">
@@ -78,7 +86,7 @@ export function Hero() {
                 height={1600}
                 loading="lazy"
                 decoding="async"
-                alt="The budget screen: a ring showing 13 of 20 minutes left today, with the daily allowance stepper."
+                alt="The budget screen: a ring showing minutes left of the daily budget, with the daily allowance stepper."
               />
             </figure>
             <p className="stage__tag">

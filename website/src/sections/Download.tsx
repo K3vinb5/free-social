@@ -1,10 +1,10 @@
 import { DownloadTables } from "../components/DownloadTables";
-import { nightlies, stable } from "../downloads";
+import { humanSize, latestStable, nightlies, stable } from "../downloads";
 
 /**
  * 06 / Download — the CTA, install steps, the Android 13 note and the build list.
- * The hero APK line and the checksum are hand-maintained with each release;
- * the Stable/Nightlies tables come from downloads/versions.json at build time.
+ * Every release fact on this screen (version, file names, sizes, build id) is
+ * read from downloads/versions.json at build time, same as the tables below.
  */
 export function Download() {
   return (
@@ -28,7 +28,7 @@ export function Download() {
           </svg>
           <p className="sec-index">06 / Download</p>
           <h2 id="download-title">
-            Take the twenty minutes <em>back</em>.
+            Take your minutes <em>back</em>.
           </h2>
           <ul className="download__stats" aria-label="Zero accounts, zero trackers, zero servers">
             <li>
@@ -47,18 +47,34 @@ export function Download() {
             next to the file. Android 12L or newer.
           </p>
           <div className="download__actions">
-            <a className="btn btn--lg" href="downloads/free-social-0.4.1-1e7b5a1.apk" download>
-              Download the APK
-              <span className="btn__meta">23.7 MB</span>
-            </a>
-            <a className="download__alt" href="downloads/free-social-0.4.1-1e7b5a1.zip" download>
-              or the .zip <span aria-hidden="true">·</span> 8.2 MB, APK + install notes
-            </a>
+            {latestStable ? (
+              <>
+                <a className="btn btn--lg" href={latestStable.apk} download>
+                  Download the APK
+                  <span className="btn__meta">{humanSize(latestStable.bytes_apk)}</span>
+                </a>
+                <a className="download__alt" href={latestStable.zip} download>
+                  or the .zip <span aria-hidden="true">·</span>{" "}
+                  {humanSize(latestStable.bytes_zip)}, APK + install notes
+                </a>
+              </>
+            ) : (
+              <p className="download__meta">
+                <span>No stable build is published yet — the nightlies below are the newest work.</span>
+              </p>
+            )}
           </div>
-          <p className="download__meta">
-            <span>v0.4.1 · 23.7 MB APK · Android 12L or newer</span>
-            <code>APK SHA-256 4f40926c0833eaa21532beaa6ca5493002f5600d884bcdf43b017de575825f93</code>
-          </p>
+          {latestStable ? (
+            <p className="download__meta">
+              <span>
+                v{latestStable.version} · {humanSize(latestStable.bytes_apk)} APK · Android 12L or
+                newer
+              </span>
+              <code>
+                build {latestStable.sha} · published {latestStable.date}
+              </code>
+            </p>
+          ) : null}
           <ol className="install">
             <li>
               <span>01</span>

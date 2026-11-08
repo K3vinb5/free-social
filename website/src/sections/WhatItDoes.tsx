@@ -86,7 +86,7 @@ export function WhatItDoes() {
                 </p>
                 <p>
                   It is the one part of the app that is strict on purpose. You set it once, while
-                  thinking clearly, and it keeps the promise for you at 23:40.
+                  thinking clearly, and it keeps the promise for you when the window opens.
                 </p>
               </div>
               <div className="phone mini">
@@ -96,7 +96,7 @@ export function WhatItDoes() {
                   height={1600}
                   loading="lazy"
                   decoding="async"
-                  alt="Schedule screen: bedtime and wake time for each day, set to 22:30–07:00 by default, each row showing its window length against the six-hour minimum."
+                  alt="Schedule screen: bedtime and wake time for each day, each row showing its window length against the six-hour minimum."
                 />
               </div>
             </div>

@@ -1,6 +1,8 @@
 /**
  * 02 / A day with Free Social — the shared budget as it actually feels.
- * One allowance across Reels, Shorts and TikTok; it resets at midnight.
+ * One allowance across Reels, Shorts and TikTok; it resets at midnight. The
+ * allowance is the reader's own (20 minutes is only the default), so the copy
+ * here counts nothing specific.
  */
 export function Day() {
   return (
@@ -9,7 +11,7 @@ export function Day() {
         <header className="sec-head" data-reveal>
           <p className="sec-index">02 / A day with it</p>
           <h2 id="how-title">
-            Twenty minutes. <em>Then the loop ends.</em>
+            Your minutes. <em>Then the loop ends.</em>
           </h2>
           <p className="sec-note">
             One allowance covers Instagram Reels, YouTube Shorts and TikTok together. It resets at
@@ -26,7 +28,7 @@ export function Day() {
                 height={1600}
                 loading="lazy"
                 decoding="async"
-                alt="The budget screen: a ring showing 13 of 20 minutes left today, with the daily allowance stepper underneath."
+                alt="The budget screen: a ring showing minutes left of the daily budget, with the daily allowance stepper underneath."
               />
             </div>
             <figcaption className="shot-cap">
@@ -37,7 +39,7 @@ export function Day() {
           <ol className="steps" data-reveal>
             <li>
               <span className="step__n">01</span>
-              <h3>Morning: a fresh twenty.</h3>
+              <h3>Morning: a fresh budget.</h3>
               <p>
                 The counter resets at midnight, so the day starts whole. Twenty minutes is the
                 default; you can make it shorter or longer.
