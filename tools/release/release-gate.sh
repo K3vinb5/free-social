@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # On-device release gate: run EVERY scenario in tools/device/scenarios/, print one
-# aggregated PASS/FAIL/SKIP table, and exit non-zero if anything FAILed.
+# aggregated PASS/FAIL/SKIP table, and exit non-zero if anything FAILed — or if nothing
+# ran (a run of only documented skips proves nothing).
 #
 #   tools/release/release-gate.sh                  # the gate (a release needs this)
 #   tools/release/release-gate.sh --only <name>    # debug one scenario, never a gate run
@@ -106,4 +107,10 @@ cat "$TABLE"
 echo
 echo "PASS=$pass FAIL=$fail SKIP=$skip  evidence=$EVIDENCE"
 
+# A gate that exercised nothing must not go green: documented skips are allowed, but a run
+# where every scenario was skipped (or the list came back empty) proves nothing.
+if [[ $pass -eq 0 ]]; then
+    echo "FAIL: no scenario ran (PASS=0 FAIL=$fail SKIP=$skip) — refusing to pass an empty gate" >&2
+    exit 1
+fi
 [[ $fail -eq 0 ]] || exit 1

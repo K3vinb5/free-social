@@ -49,8 +49,10 @@ never run them. After any mutation, re-inspect and report the resulting state.
 ## Release gate (standing rule)
 
 A release is cut only after `tools/release/release-gate.sh` passes on a device. The gate
-runs every `tools/device/scenarios/` scenario and must exit 0; a FAIL (including a
-`WALL`) blocks the release until it is fixed — never lower the bar to ship.
+runs the scenario battery — a small `SKIPS` list of documented unattended-impossibilities
+is allowed — and exits 0 only when at least one scenario PASSed and nothing FAILed. A
+FAIL (including a `WALL`) or an empty run blocks the release until it is fixed — never
+lower the bar to ship.
 
 ## Keep the docs in sync
 

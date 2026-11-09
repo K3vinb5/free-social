@@ -29,7 +29,9 @@ open every `adb install`/`reinstall` hangs.
 - Device: `--device <serial>`, `$FS_DEVICE_SERIAL`, else the first authorised device —
   the driver's contract, nothing hardcoded.
 - Evidence: `reverse/runtime-reno/release-gate/<timestamp>/<scenario>/` plus
-  `table.md` and the full `gate.log` beside them. `reverse/` is gitignored.
+  `table.md` and the full `gate.log` beside them. `reverse/` is gitignored — including
+  `FINAL-TABLE.md`, which is evidence too: it is written into the evidence dir and pasted
+  into the release PR/notes, never committed.
 - Skips: only scenarios that genuinely cannot run unattended, listed in `SKIPS` in the
   script with a written reason (today: `dm_carveout_structural`, which needs the TikTok
   DM inbox while the FYP is undumpable). A scenario added to `scenarios/` runs unless it

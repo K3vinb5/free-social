@@ -3,8 +3,17 @@
 Contract under test (exhausted budget):
   * a real escape shows the dark flash once, with the BUDGET copy,
   * the flash auto-dismisses within 2.5 s,
-  * two escapes inside 3 s show exactly one flash (`FlashPolicy` window 3 s),
+  * a flash never stacks: an escape episode yields exactly one flash, and a second escape
+    landing inside `FlashPolicy`'s 3 s window must not show a second one — the run FAILs
+    if that ever happens,
   * the flash never leaves the user stuck (activity is gone afterwards).
+
+Scope note: the 3 s same-episode throttle is pinned by `FlashPolicy`'s JVM tests
+(`app/src/test/java/dev/k3vinb5/freesocial/filter/FlashPolicyTest.kt`), not by this
+scenario. The engine ends an escape episode as soon as another surface is on screen, so a
+UI-driven re-escape inside 3 s is not producible on this device (measured ~16 s); the
+on-device assertion here is therefore "no stacked flash, ever", and the in-window check is
+a guard that only fires if the device does produce a pair that fast.
 
 The flash is detected from the focused window (`dumpsys window`, no uiautomator
 dump: a dump on a 2.2 s screen would miss it; `dumpsys activity` keeps a finished
@@ -138,6 +147,20 @@ def _wait_flash(d, timeout=8.0, poll=0.15, capture=False):
     return None, None
 
 
+def _wait_flash_gone(d, timeout=6.0, poll=0.1) -> bool:
+    """Wait for the flash to leave the focused window; False if it outstays [timeout].
+
+    Bounded on purpose: a stuck `ContentFlashActivity` used to spin `while
+    _flash_present(d)` forever and hang the whole gate.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _flash_present(d):
+            return True
+        time.sleep(poll)
+    return not _flash_present(d)
+
+
 def run(d):
     _ensure_exhausted(d)
 
@@ -175,8 +198,10 @@ def run(d):
     appeared2, _ = _wait_flash(d, capture=True)
     if appeared2 is None:
         raise AssertionError("no flash on the second entry (one per episode expected)")
-    while _flash_present(d):
-        time.sleep(0.1)
+    if not _wait_flash_gone(d):
+        raise AssertionError(
+            "flash still on screen 6 s after the evidence capture (user could be stuck)"
+        )
     d.log("flash copy captured mid-show")
 
     # --- a rapid second escape must never stack a second flash ---------------------
