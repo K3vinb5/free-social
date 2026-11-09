@@ -177,3 +177,35 @@ Two gotchas worth knowing:
 upstream release tarball:
 `curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz`
 → `tar xzf … actionlint`, then `./actionlint .github/workflows/*.yml`.
+
+<!-- branch-protection:start -->
+## Branch protection (2026-11-08)
+
+`master` is protected by one repository ruleset, **Protect master** (id `26818162`,
+enforcement `active`, conditions `ref_name.include = ~DEFAULT_BRANCH`). Four rules:
+
+| Rule | Effect |
+| --- | --- |
+| `pull_request` | every change needs a PR; merge methods are merge/squash/rebase, and the convention is squash |
+| `required_status_checks` | the `build-test` context from `ci.yml` must be green |
+| `non_fast_forward` | no force-push to `master` |
+| `deletion` | `master` cannot be deleted |
+
+`bypass_actors` is empty — there is no bot or admin exemption. Note what GitHub does **not**
+enforce here: `required_approving_review_count` is `0`, because a solo owner cannot approve
+their own PR; the approving review is the agent protocol in `AGENTS.md`, not a GitHub gate.
+
+- **Why no Actions bypass:** on a user-owned repo the only bypass actors available are the
+  admin repository role and installed GitHub Apps — `GITHUB_TOKEN` cannot be one, and
+  installing an App just to let a workflow skip review is a larger hole than the problem.
+  So the release and nightly flows land their bookkeeping commits (`chore(release): vX.Y.Z`,
+  `chore(site): publish …`) through an **auto-merged PR with green checks** instead of
+  pushing to `master`.
+- **Emergency hatch (owner only):** edit the ruleset through the API, never by pushing
+  past it — `gh api repos/K3vinb5/free-social/rulesets/26818162` to read it,
+  `gh api -X PUT .../rulesets/26818162 --input ruleset.json` to change it. Inspect after any
+  edit with `gh api repos/K3vinb5/free-social/rulesets/26818162`.
+- Verify what master really enforces with
+  `gh api repos/K3vinb5/free-social/rules/branches/master`; the ruleset list alone does not
+  prove the rules apply to the branch.
+<!-- branch-protection:end -->

@@ -62,6 +62,24 @@ Parallel tasks each get their own git worktree + branch (`feature/<slug>`, `fix/
 `chore/<slug>`). Do all your work inside the assigned worktree directory — never edit the
 main checkout. Commit on your branch, open one PR per task (title carries the OpenProject
 id when one exists), and let the light CI (`.github/workflows/ci.yml`, tests + build) run.
-Never push to `master` — the only exception is the release pipeline's own bump/site
-bookkeeping commits. Overlapping-file tasks follow the combine → serialize → rebase ladder
+Never push to `master`. Overlapping-file tasks follow the combine → serialize → rebase ladder
 in `docs/dev/BRANCHES.md`.
+
+## Master protection & PR policy
+
+`master` is protected by the GitHub ruleset **Protect master**: a pull request is required,
+the `build-test` check must be green, force-pushes and deletion are refused, and there is no
+bypass actor. The only emergency hatch is the owner editing the ruleset through the API.
+
+Every change lands as a squash-merged PR from a `feature|fix|chore/<slug>` branch, with the
+OpenProject id in the title when one exists. Review:
+
+- The orchestrator reads every diff before merge.
+- Behavior, security, CI-pipeline and data changes additionally need an independent
+  reviewer-agent verdict — exactly `PASS` or `FAIL`, recorded in the PR body. `FAIL` blocks
+  the merge; at most two correction rounds, then escalate to the user.
+- Mechanical and docs-only diffs skip the reviewer.
+
+Release and nightly bookkeeping (version bump, site publish) lands through auto-merged PRs
+with green checks: machine-generated, no review needed. Details:
+`docs/dev/BRANCHES.md`, protection internals: `docs/dev/DEVOPS.md`.
