@@ -11,12 +11,12 @@
 #
 #   1. push HEAD to refs/heads/<branch> — a throwaway branch, never master
 #   2. open a PR against <base> (reused when one is already open for the branch)
-#   3. `gh workflow run ci.yml --ref <branch>`. Mandatory: a pull request created
-#      with GITHUB_TOKEN does not start `pull_request` workflows (GitHub suppresses
-#      events authored by the token), so `build-test` would never be reported and
-#      the required check would wait forever. workflow_dispatch is the one event
-#      the token may still originate; its run reports `build-test` against the
-#      same head sha the PR is waiting on.
+#   3. make sure a CI run will report `build-test` for the PR head sha. A PR
+#      authored by GITHUB_TOKEN gets its `pull_request` run parked as
+#      `action_required` (the author is a bot, not a collaborator); the helper
+#      approves that run when it can, and otherwise dispatches ci.yml on the
+#      branch (workflow_dispatch is the one event the token may still
+#      originate). Either way the check lands on the same sha the PR waits on.
 #   4. wait for `build-test` on the PR head sha, bounded by <timeout> (default 1200s)
 #   5. `gh pr merge --squash --delete-branch`; one rebase + re-check + retry if the
 #      base moved under us
@@ -104,6 +104,49 @@ check_state() {
   fi
 }
 
+# Start (or reuse) the CI run that reports `build-test` for the PR head sha.
+#
+# A pull request authored by GITHUB_TOKEN does get a `pull_request` run, but
+# GitHub parks it with conclusion `action_required` (the author is the bot, not a
+# collaborator). Reusing it — best effort via the approve endpoint — avoids both
+# a permanently stuck run on the PR and a second full build. When the run is
+# absent or cannot be approved, dispatch ci.yml on the branch instead: that is
+# the one event a GITHUB_TOKEN workflow may still originate, and it reports the
+# same check against the same sha. Requires ci.yml to declare workflow_dispatch
+# on the default branch.
+start_ci() {
+  local sha="$1" branch="$2" deadline found run_id conclusion
+  deadline=$(( $(date +%s) + 20 ))
+  while :; do
+    found="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${sha}&per_page=20" \
+      --jq '[.workflow_runs[] | select(.event=="pull_request") | "\(.id):\(.conclusion // "running")"] | first // ""' \
+      2>/dev/null || true)"
+    [ -n "$found" ] && break
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      break
+    fi
+    sleep 3
+  done
+
+  if [ -n "$found" ]; then
+    run_id="${found%%:*}"
+    conclusion="${found#*:}"
+    if [ "$conclusion" = "action_required" ]; then
+      if gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" >/dev/null 2>&1; then
+        log "approved the parked pull_request run ${run_id} for ${sha}"
+        return 0
+      fi
+      log "could not approve run ${run_id}; falling back to a dispatch"
+    else
+      log "pull_request run ${run_id} already started (${conclusion})"
+      return 0
+    fi
+  fi
+
+  log "dispatching ci.yml on ${branch}"
+  gh workflow run ci.yml --ref "$branch"
+}
+
 wait_for_check() {
   local deadline state
   deadline=$(( $(date +%s) + timeout ))
@@ -139,12 +182,10 @@ fi
 pr_number="${pr_url##*/}"
 [[ "$pr_number" =~ ^[0-9]+$ ]] || fail "could not derive the pull request number from '${pr_url}'"
 
-log "dispatching ci.yml on ${branch}"
-gh workflow run ci.yml --ref "$branch" \
-  || fail "could not dispatch ci.yml on ${branch}; build-test would never be reported for the PR"
+start_ci "$(head_sha)" "$branch" \
+  || fail "could not start ci.yml for ${branch}; build-test would never be reported for the PR"
 
 wait_for_check
-
 merged=false
 for attempt in 1 2; do
   if gh pr merge "$pr_number" --squash --delete-branch --subject "$title"; then
@@ -159,8 +200,8 @@ for attempt in 1 2; do
     fail "could not rebase ${branch} onto origin/${base}"
   fi
   git push --force-with-lease origin "HEAD:refs/heads/${branch}"
-  gh workflow run ci.yml --ref "$branch" \
-    || fail "could not dispatch ci.yml on ${branch} after the rebase"
+  start_ci "$(head_sha)" "$branch" \
+    || fail "could not start ci.yml for ${branch} after the rebase"
   wait_for_check
 done
 [ "$merged" = "true" ] || fail "the pull request did not merge after two attempts"
