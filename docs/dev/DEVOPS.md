@@ -145,3 +145,35 @@ their assets. Any doc or artifact naming an old SHA (e.g.
 `free-social-0.4.1-1e7b5a1.zip`) is naming history. Verification is a
 `git grep` over `git rev-list origin/master --tags` — not over local refs, which
 keep stale pre-rewrite objects until `git gc --prune=now`.
+
+## Protected master: bookkeeping lands via PRs (2026-11-09)
+
+Ruleset **"Protect master"** (id 26818162): pull request required, required
+status check `build-test`, no force-push, no deletion, **zero bypass actors**.
+The ruleset cannot grant GitHub Actions a bypass on a user-owned repo (the API
+rejects app-based bypass), so a workflow push to `master` is rejected — the
+release/nightly pipelines therefore land their own commits through PRs.
+
+`tools/release/bookkeeping_pr.sh` is the single path: throwaway branch
+(`chore/*-bookkeeping-<run_id>`) → PR → CI → bounded wait on `build-test` →
+`gh pr merge --squash --delete-branch` → prints `pr_url=` / `merged_sha=`.
+A red or missing check fails the job with the PR URL. `release.yml` tags the
+**squash** sha (squash creates a new commit; the pre-merge sha never reaches
+master). Tags themselves are not covered by the ruleset.
+
+Two gotchas worth knowing:
+
+- A PR authored by `GITHUB_TOKEN` **does** get its `pull_request` run, but parked
+  with conclusion `action_required` (the author is a bot, not a collaborator).
+  `GITHUB_TOKEN` can approve it (`POST /actions/runs/<id>/approve`), which is what
+  the helper does before falling back to `gh workflow run ci.yml`; the dispatch
+  needs `workflow_dispatch` declared in the **default branch** copy of the file,
+  so it cannot bootstrap its own first run.
+- `publish-site` checks out `master` (its commit must sit there) but runs the
+  helper from `$GITHUB_SHA`, because `nightly.yml` can be dispatched on a branch
+  and master may not carry the helper yet.
+
+`actionlint` is not installed on this machine; the verified binary is the
+upstream release tarball:
+`curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz`
+→ `tar xzf … actionlint`, then `./actionlint .github/workflows/*.yml`.
