@@ -1,7 +1,9 @@
 name: Release
 
-# Manual release: bump versionName on master, commit, tag, push, then publish
-# via the shared reusable workflow (build-release.yml).
+# Manual release: bump versionName, land the bump on master through a pull
+# request (master is a protected branch — see tools/release/bookkeeping_pr.sh),
+# tag the squash commit, then publish via the shared reusable workflow
+# (build-release.yml).
 on:
   workflow_dispatch:
     inputs:
@@ -27,8 +29,13 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    # Bounded so a stuck build-test check fails the run instead of hanging.
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: write      # push the throwaway branch and the tag
+      pull-requests: write # open and squash-merge the bookkeeping PR
+      actions: write       # dispatch ci.yml on the branch (see bookkeeping_pr.sh)
+      checks: read         # poll the build-test check run
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -63,40 +70,101 @@ jobs:
             echo "name=Free Social v$version"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Commit, tag and push
+      # Abort before anything lands on master if the tag is taken: a merged bump
+      # commit without its tag would be worse than a no-op run.
+      - name: Check the tag is still free
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::tag ${TAG} already exists; aborting without changes"
+            exit 1
+          fi
+          echo "tag ${TAG} is free"
+
+      # The bump commit is never pushed to master directly (the ruleset rejects
+      # it): it goes to a throwaway branch and lands as a squash-merged PR.
+      - name: Commit version bump
+        id: commit
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: chore/release-bookkeeping-${{ github.run_id }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-            echo "::error::tag ${TAG} already exists; aborting without changes"
-            exit 1
-          fi
-
           if git diff --quiet -- app/build.gradle.kts; then
             echo "versionName already at ${VERSION}; nothing to commit"
+            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
           else
+            git checkout -b "$BRANCH"
             git add app/build.gradle.kts
             git commit -m "chore(release): v${VERSION}"
+            echo "needs_pr=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          git tag -a "$TAG" -m "Free Social ${TAG}"
-          git push origin "HEAD:master"
+      # Open the PR, wait for build-test, squash-merge it. Fails loudly with the
+      # PR URL if the check is red or times out — the tag step below then never
+      # runs, so no release is published from an unlanded bump.
+      - name: Land the version bump via pull request
+        id: land
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: chore/release-bookkeeping-${{ github.run_id }}
+          NEEDS_PR: ${{ steps.commit.outputs.needs_pr }}
+        run: |
+          set -euo pipefail
+          if [ "$NEEDS_PR" != "true" ]; then
+            echo "no bump commit to land; master already carries ${VERSION}"
+            echo "merged_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          body="$(printf '%s\n' \
+            "Automated version bump for v${VERSION}, produced by the Release workflow." \
+            "" \
+            "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            "- landed by tools/release/bookkeeping_pr.sh: throwaway branch, PR, required build-test check, squash merge" \
+            "- tag v${VERSION} is created after the merge and points at this PR's squash commit")"
+          out="$(tools/release/bookkeeping_pr.sh --branch "$BRANCH" --title "chore(release): v${VERSION}" --body "$body")"
+          pr_url="$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p')"
+          merged_sha="$(printf '%s\n' "$out" | sed -n 's/^merged_sha=//p')"
+          [ -n "$merged_sha" ] || { echo "::error::bookkeeping_pr.sh reported no merged sha"; exit 1; }
+          {
+            echo "merged_sha=${merged_sha}"
+            echo "pr_url=${pr_url}"
+          } >> "$GITHUB_OUTPUT"
+          echo "landed v${VERSION} as ${merged_sha} (${pr_url})"
+
+      # Tags are not covered by the branch ruleset, so this is still a direct tag
+      # push — but it must point at the squash commit that is now on master, not
+      # at the pre-merge bump commit (which no longer exists on any branch).
+      - name: Tag the merged commit
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          MERGED_SHA: ${{ steps.land.outputs.merged_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          git tag -a "$TAG" -m "Free Social ${TAG}" "$MERGED_SHA"
           git push origin "refs/tags/${TAG}"
-          echo "pushed ${TAG} at $(git rev-parse --short HEAD)"
+          echo "pushed ${TAG} at ${MERGED_SHA}"
 
   publish:
     needs: prepare
-    # contents: write for the release + the site publish commit inside the reusable
-    # workflow; packages: write so its site-image call (website-image.yml, the only
-    # image build/push definition) may push to GHCR.
+    # contents: write for the release + the site publish PR inside the reusable
+    # workflow; pull-requests/actions/checks for that PR's build-test gate;
+    # packages: write so its site-image call (website-image.yml, the only image
+    # build/push definition) may push to GHCR.
     permissions:
       contents: write
+      pull-requests: write
+      actions: write
+      checks: read
       packages: write
     uses: ./.github/workflows/build-release.yml
     secrets: inherit
