@@ -3,6 +3,8 @@
 Decided 2026-11-06 (grill session). This is how parallel agent work is isolated and
 merged in this repo. It replaces the shared-checkout + file-ownership-contract model,
 which produced three same-day collisions (workers seeing each other's half-written files).
+Updated 2026-11-08: `master` is now GitHub-protected, so every change — bookkeeping
+included — lands through a pull request.
 
 ## Model
 
@@ -26,15 +28,19 @@ which produced three same-day collisions (workers seeing each other's half-writt
 - **PR flow on GitHub.** The light CI (`.github/workflows/ci.yml`) runs
   `./gradlew test assembleDebug` on every PR and on every push to `master`. That is the
   whole CI — the release pipeline is separate and stays as-is.
-- **Review:** the orchestrator reviews every PR. The `reviewer` subagent is mandatory for
-  risky diffs — multi-file behavior changes, CI/release, security, data, concurrency — and
-  must return exactly PASS or a failure list. Small mechanical diffs skip it.
+- **`master` is protected.** The GitHub ruleset **Protect master** (id `26818162`) enforces
+  a pull request, a green `build-test` check, no force-push and no deletion, with an empty
+  bypass list. There is no direct-push path left, for humans or workflows.
+- **Review ladder.** The orchestrator reads every diff. Behavior, security, CI-pipeline and
+  data changes additionally get an independent reviewer-agent verdict — exactly `PASS` or
+  `FAIL`, recorded in the PR body. `FAIL` blocks the merge; max two correction rounds, then
+  escalation to the user. Mechanical and docs-only diffs skip the reviewer.
 - **Merge: squash into `master`**, then delete the branch and remove the worktree. The
   loser of a conflict race re-lands as a fresh PR.
-- **Documented exception:** the release pipeline pushes directly to `master`
-  (`chore(release): vX.Y.Z` version bump and `chore(site): publish …` commits). These
-  bypass PRs by design — the pipeline must never 403 on its own bookkeeping. No branch
-  protection on `master` until that exception has a bot bypass.
+- **Bookkeeping exception.** Release and nightly flows no longer push to `master`: their
+  commits (`chore(release): vX.Y.Z`, `chore(site): publish …`) land through an auto-merged
+  PR with green checks. Machine-generated bookkeeping needs no review — but it still needs
+  the green check like everything else.
 
 ## Same-file conflicts (decision ladder)
 
@@ -53,6 +59,4 @@ no `adb` at all.
 
 ## Open questions (deferred)
 
-- Branch protection / required checks on `master` (needs a bypass for the release
-  pipeline's direct pushes).
 - PR template file (the PR body convention above is enough for now).

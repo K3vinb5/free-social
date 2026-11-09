@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/design/renders/runtime/01-hub.png" width="300" alt="Free Social settings hub: the status pill reads Paused · 20 min left while the daily budget remains, and each app shows Filter · budget left">
+  <img src="website/public/assets/icon-512.png" width="220" alt="Free Social app icon: an orange pause bar and a play triangle on a dark rounded square">
 </p>
 
 <h1 align="center">Free Social</h1>
@@ -7,7 +7,7 @@
 <p align="center"><strong>Scroll past. Watch on purpose.</strong></p>
 
 <p align="center">
-  An Android app that removes reels and shorts from inside Instagram, YouTube and TikTok —
+  An Android app that takes the infinite reel out of Instagram, YouTube and TikTok —
   while the apps themselves stay fully usable.
 </p>
 
@@ -24,64 +24,70 @@
 
 Free Social is not a replacement client, a VPN, a DNS filter or a webview. It is an
 [AccessibilityService](https://developer.android.com/guide/topics/ui/accessibility/service)
-that reads the **real** Instagram, YouTube and TikTok node trees and neutralises the
+that reads the **real** Instagram, YouTube and TikTok node trees and acts on the
 short-video surfaces inside them: reel cells in the feed, the Reels tab, the Shorts shelf,
 the Shorts player, TikTok playback.
 
 Everything else in those apps keeps working — DMs, search, stories, comments, profiles,
-long-form video. Whole-app blocking exists too, but it is opt-in per app, never a default.
+long-form video. Reel cells in the Instagram feed, the Reels tab and the YouTube Shorts shelf
+are removed outright. Opening short video on purpose is metered by a daily budget instead,
+and blocked once that budget is spent. Whole-app blocking exists too, but it is opt-in per
+app, never a default.
 
-The app has **no `INTERNET` permission**, no accounts and no telemetry. It cannot phone
-home, because it was never given the ability to.
+The interface ships in **English, Portuguese and Spanish**. The app has **no `INTERNET`
+permission**, no accounts and no telemetry. It cannot phone home, because it was never given
+the ability to.
 
 ## Features
 
 | Feature | What it does |
 | --- | --- |
-| Reels & Shorts filter | Hides short-video surfaces inside Instagram, YouTube and TikTok. Passive feed scrolling is never touched. |
-| Per-app Filter / Block / Allow | Three states per app. Settings propagate to the running service immediately. |
-| DIRECT-ENGAGEMENT policy | The budget clock runs only when *you* open Reels, Shorts or TikTok playback — not while you scroll a normal feed. |
-| Reels & Shorts budget | One shared daily allowance across all three apps, reset at midnight. Spent allowance follows the live clock during locked hours. |
-| Nightly sleep window | Per-weekday bedtime and wake time, enforced with exact alarms. Always on, and never shorter than 6 hours. |
-| Escape flash | A 2.2 s explanation after a blocked surface, never a dismissable wall. |
-| Rule inspector | Dump the screen you are looking at, see every matching rule and its anchor evidence. |
-| Guided node capture | Launches the target app, waits until the surface is actually detected, records for ~15 s, auto-stops. |
-| Editable rule override | Export, edit and re-import `rules.json` to heal a broken rule **without a new build**; revert with *Use built-in rules*, with an override-age warning. |
-| Staleness warning | Compares each rule's verified app version with the installed one and warns before a vendor update silently degrades filtering. |
-| Dump auto-prune | Keeps capture dumps bounded instead of growing forever. |
+| Filtering inside the real apps | Reads the installed Instagram, YouTube and TikTok screens through AccessibilityService and acts on the short-video surfaces there. No modified client, no proxy, no screen recording. |
+| Per-app Filter / Block / Allow | Three states per app, applied to the running service immediately, never after a restart. Filter is the default for all three; Block is opt-in. |
+| Short-video budget | One daily allowance shared by Instagram Reels, YouTube Shorts and TikTok playback, reset at midnight. Deliberate playback draws from it; a passive feed scroll never does. |
+| Honest status | The hub pill reads `Paused · X min left` while short video still plays, `Filtering on` only when it is actually gated (budget spent or sleep window active), `Service off` when nothing runs. No cheerful lie. |
+| Mandatory sleep window | A nightly window per weekday, always on, enforced with exact alarms, minimum 6 hours. No wind-down, no morning lock, no off switch. |
+| Escape flash | A 2.2 s *Free Social blocked this* screen after a real escape, naming the reason. Never a dismissable wall. |
+| DM carve-outs | Instagram and TikTok DMs are left alone, including a reel opened inside a DM thread: carve-out rules anchor on the message composer and force a skip. |
+| Surfaces & rules | The Rule Inspector dumps the screen you are on, lists the nodes the engine reads and every rule that matches, with its anchor evidence. |
+| Guided capture | Pick a surface and the app opens the target app, waits until the surface is detected, records for ~15 s and stops itself. Filtering and blocking pause for the whole flow. |
+| Heal without a rebuild | After a vendor update: capture the new tree, expand the dump to see what still matches, then export, edit and re-import `rules.json`. Import is validated and hot-applied; *Use built-in rules* reverts. |
+| Staleness warning | Compares each rule's verified app version with the one installed and warns before a vendor update quietly degrades filtering — with **Capture now** as the next step. |
+| Bounded captures | Old dumps are pruned automatically (newest 25 per surface, 14 days) and can be deleted one by one or all at once from the inspector. |
+| Five-step setup | Restricted settings, filtering service, block service, overlay, battery exemption — the wizard advances by itself as each grant lands, with a brief `✓ Granted` beat so the jump is never a mystery. |
+| Localised UI | UI copy in English, Portuguese and Spanish; rules never depend on UI text, so a localised target app does not break filtering. |
 | Offline by construction | No network permission, no analytics, no account, no backend. |
 
+### Screens
+
 <p align="center">
-  <img src="docs/design/renders/runtime/02-app-detail.png" width="200" alt="Per-app mode and surfaces">
-  <img src="docs/design/renders/03-budget.png" width="200" alt="Reels and Shorts budget">
-  <img src="docs/design/renders/04-schedule.png" width="200" alt="Schedule: per-weekday bedtime and wake times (22:30–07:00 default), live window length with the six-hour minimum, no off switch">
-  <img src="docs/design/renders/07-dev.png" width="200" alt="Rule inspector">
+  <img src="docs/design/renders/runtime/01-hub.png" width="240" alt="Free Social hub: the status pill reads Paused · 20 min left while the daily budget remains, each app shows Filter · budget left">
 </p>
 
-## How it works
+<p align="center"><em>The hub says what is actually true: short video still plays while the
+budget lasts, so the pill says <code>Paused · 20 min left</code> — not “Filtering on”.</em></p>
 
-1. **Install and grant.** Sideload the APK and enable the *Content filtering* accessibility
-   service. The optional *Whole-app blocking* service, the overlay and the battery exemption
-   are separate, opt-in grants — the Permissions screen shows live status for each.
-2. **Allow restricted settings on Android 13+.** Because the APK is sideloaded, Android hides
-   the accessibility toggle behind *App info → ⋮ → Allow restricted settings*. Without this
-   step the service switch is dead. The setup wizard walks through it.
-3. **Pick a mode per app.** Filter is the default for all three. The service then watches only
-   the foreground app's windows and acts on the surfaces you chose.
+<p align="center">
+  <img src="docs/design/renders/runtime/02-app-detail.png" width="200" alt="Instagram app screen: Filter / Block / Allow segmented control and per-surface switches for reel cells and the Reels tab">
+  <img src="docs/design/renders/03-budget.png" width="200" alt="Reels &amp; Shorts budget: 13 of 20 min left today, one allowance shared by all three apps">
+  <img src="docs/design/renders/04-schedule.png" width="200" alt="Schedule: seven weekday rows, each 22:30–07:00 (8 h 30 m), always on, minimum six hours, no off switch">
+  <img src="docs/design/renders/07-dev.png" width="200" alt="Surfaces &amp; rules: captured screens per app with node counts, plus the dump control">
+</p>
 
-## Quick start
+## Install
 
-1. Download `free-social-<version>-<sha>.apk` from
-   [Releases](https://github.com/K3vinb5/free-social/releases) (or
-   [freesocial.k3vinb5.dev](https://freesocial.k3vinb5.dev)). Stable builds are direct
-   `.apk` files, and nightlies join the same list once the nightly workflow publishes one.
-   `free-social-<version>-<sha>.zip` holds the same signed APK plus a `README.txt` with these
-   install steps, if you want them next to the file.
-2. Tap the APK. Allow install from this source when prompted.
-3. Follow the setup wizard: restricted settings → filtering service → optional block service
-   and battery exemption → done. Rules are verified for the Instagram, YouTube and TikTok
-   versions listed on the hub; an app update raises a staleness warning instead of failing
-   silently.
+1. Download from **[freesocial.k3vinb5.dev](https://freesocial.k3vinb5.dev/)** — stable
+   builds and nightlies in one place — or from
+   [Releases](https://github.com/K3vinb5/free-social/releases). The zip next to each APK is
+   the same signed build plus a short install note.
+2. Tap the APK and allow install from this source when Android asks.
+3. Follow the five-step wizard: restricted settings → filtering service → optional block
+   service → overlay → battery exemption. Rules are verified for the Instagram, YouTube and
+   TikTok versions shown on the hub; an app update raises a staleness warning instead of
+   failing silently.
+4. On Android 13+ the APK is sideloaded, so Android hides the accessibility toggle behind
+   *App info → ⋮ → Allow restricted settings*. The wizard walks through it; without that step
+   the service switch is dead.
 
 ## How the engine works
 
@@ -92,14 +98,20 @@ strings** — so rules survive a German or Japanese phone. Loader tests enforce 
 language-independence rule; a text-anchored rule that cannot be proven locale-proof does not
 ship.
 
+Rules come in two layers. **Layer 1** is always on: reel cells in the feed, the Reels tab and
+the Shorts shelf are removed the moment one appears. **Layer 2** is budget-governed: opening
+a reel, a Short or TikTok playback deliberately is allowed while the daily allowance lasts and
+met with one escape once it is spent or the sleep window is locked.
+
 Matching is gated by policy, not by a blunt "is this app open" check:
 
 - **DIRECT-ENGAGEMENT** — a passive feed scroll is not engagement. Only a deliberate entry
   into a short-video surface starts the budget clock.
-- **One action per scan** — the most escape-like action wins: home tab, back, scroll past,
-  click a view, redirect home. Layer 1 neutralises; layer 2 only runs when the budget is
-  exhausted or the nightly window is locked.
+- **One action per scan** — the most escape-like action wins: home tab, back, click a view,
+  redirect home. Exactly one runs per scan, and every escape flashes once confirmed.
 - **Budget** — shared daily minutes, midnight reset, locked hours counted as spent.
+- **Carve-outs win** — a matched skip rule (a DM composer, a reply box) shields the whole
+  scan, whatever else matched.
 - **Fail-open, but loudly** — if a vendor update changes the tree, rules stop matching. The
   app does not pretend otherwise: it warns on version staleness, and the inspector shows
   what no longer matches.
@@ -118,7 +130,7 @@ The app never blocks a whole target app because a rule broke. If nothing matches
 behaves as if filtering were off, warns about staleness, and lets you repair the rule. That
 trade-off is deliberate: over-blocking a messaging app is worse than a reel leaking through.
 
-Spec: [`docs/SPEC.md`](docs/SPEC.md). Rule provenance and the defect log:
+Spec: [`docs/SPEC.md`](docs/SPEC.md). Rule provenance and re-verification:
 [`docs/rules/RULES.md`](docs/rules/RULES.md).
 
 ## Architecture
@@ -132,9 +144,10 @@ app/src/main/java/dev/k3vinb5/freesocial/
 └── settings/   settings repository (SharedPreferences)
 
 app/src/main/assets/rules.json    built-in, versioned rule catalog
-app/src/test/                     258 JVM tests, no device required
-tools/device/                     semantic on-device scenario driver (adb, no x/y)
-docs/rules/                       root-cause defect log and re-verification record
+app/src/test/                     359 JVM tests, no device required
+app/src/main/res/values-{es,pt}/  translations alongside the English base strings
+tools/device/                     semantic on-device scenario driver, no coordinates
+docs/rules/                       rule provenance and re-verification record
 ```
 
 The filter engine and the block engine are two separate accessibility services so that
@@ -145,16 +158,16 @@ runtime dependency beyond AndroidX: kotlinx-serialization for the rule document.
 
 Correctness here is not "it compiled".
 
-- **258 JVM tests** cover the rule loader's locale-proof enforcement, the negotiation gate,
+- **359 JVM tests** cover the rule loader's locale-proof enforcement, the negotiation gate,
   the DIRECT-ENGAGEMENT decision table, budget rollover, schedule windows, dump pruning,
   rule overrides and staleness comparison. No emulator needed: `./gradlew test`.
 - **A real-device scenario driver** ([`tools/device/drive.py`](tools/device/drive.py)) runs
   Playwright-style scenarios against the actual apps. Selectors are semantic (view ID, text,
-  content description, class); every action resolves bounds from a fresh `uiautomator dump`,
-  so scenarios contain no coordinates. It saves numbered screenshots, every dump, logcat
-  excerpts and a pass/fail summary under `reverse/runtime-*/`. There are currently 11
-  scenarios, including passive-feed-untouched, direct-entry-pays and DM carve-out.
-- **A written defect log** in [`docs/rules/`](docs/rules/) records root causes, not just
+  content description, class); every action resolves bounds from a fresh accessibility dump,
+  so scenarios contain no coordinates. It saves numbered screenshots, the dumps it acted on
+  and a pass/fail summary per run. There are currently 12 scenarios, including
+  passive-feed-untouched, direct-entry-pays, DM carve-out and heal-from-dump.
+- **A written provenance record** in [`docs/rules/`](docs/rules/) holds root causes, not just
   symptoms, plus the re-verification protocol in
   [`REVERIFY.md`](docs/rules/REVERIFY.md). Rules were authored from fresh live-device dumps
   on a Pixel 9a and re-verified on an Android 13 ColorOS device.
@@ -164,11 +177,12 @@ that proves the behaviour in the app the rule is about.
 
 ## Building from source
 
-Requirements: **JDK 21**, Android SDK platform 36 and build-tools 36.0.0 (the Gradle wrapper
-is 8.14.3, AGP 8.13.2). `local.properties` must point at your SDK.
+Requirements: **JDK 21** (what CI uses), Android SDK platform 36 and build-tools 36.0.0
+(Gradle wrapper 8.14.3, AGP 8.13.2, source/target 17). `local.properties` must point at your
+SDK.
 
 ```bash
-./gradlew test            # 258 JVM tests
+./gradlew test            # 359 JVM tests
 ./gradlew assembleDebug   # debug: app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease # signed release: app/build/outputs/apk/release/app-release.apk (needs keystore.properties)
 ```
@@ -193,8 +207,12 @@ health-gated, with automatic rollback to `<container>-prev`.
 - **Fail-open by design.** Android apps are not a stable API. When Instagram, YouTube or
   TikTok rename a view or restructure a screen, the affected rule stops matching and the
   surface can come back. The app warns (installed version newer than the rule's verified
-  stamp) but it cannot prevent it. The override flow exists precisely for this: capture the
-  new tree, patch the rule, keep the fix until the next release.
+  stamp) but it cannot prevent it. The capture-and-override flow exists precisely for this:
+  dump the new tree, patch the rule, keep the fix until the next release.
+- **First-scan races.** A cold app switch can hand the service a partial tree before the
+  target screen finishes rendering, so one reel or DM video can slip through before the
+  composer or player shows up. Steady state is correct; the first second after a switch is
+  the honest gap.
 - **Accessibility is a fragile host.** Aggressive OEM battery managers (ColorOS, MIUI and
   friends) kill background services. The app offers the battery exemption and reports service
   health, but it cannot win against a vendor that ignores Android's rules.
@@ -202,8 +220,6 @@ health-gated, with automatic rollback to `<container>-prev`.
   toggle behind *Allow restricted settings* until granted per install.
 - **Three apps, one job.** v1 covers Instagram, YouTube and TikTok. Snapchat, X and Facebook
   were analysed and deliberately deferred.
-- **Known rough edge.** The TikTok DM carve-out is structurally matched; its live check is
-  still pending.
 - **No cloud, no sync, no family accounts.** Settings live on the device, and nothing leaves
   it.
 
