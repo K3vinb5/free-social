@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-09T00:28:31Z",
+  "generated": "2026-11-09T01:22:22Z",
   "stable": [
     {
       "version": "0.4.2",
@@ -21,6 +21,15 @@
     }
   ],
   "nightlies": [
+    {
+      "version": "0.4.2",
+      "sha": "8e9656b",
+      "date": "2026-11-09",
+      "apk": "downloads/nightly-20261109-8e9656b.apk",
+      "zip": "downloads/nightly-20261109-8e9656b.zip",
+      "bytes_apk": 23766169,
+      "bytes_zip": 8259508
+    },
     {
       "version": "0.4.2",
       "sha": "2aad3b0",
