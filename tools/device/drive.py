@@ -2,10 +2,11 @@
 """CLI for the Free Social semantic device driver.
 
     uv run tools/device/drive.py list
+    uv run tools/device/drive.py preflight          # gate precondition check
     uv run tools/device/drive.py run yt_home_shelf_visibility
     uv run tools/device/drive.py run ig_reels_entry --device <serial>
 
-Exit code: 0 = PASS, 1 = FAIL or WALL.
+Exit code: 0 = PASS, 1 = FAIL or WALL (preflight: 0 = ready, 1 = device not ready).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from driver.preflight import run_preflight  # noqa: E402
 from driver.runner import list_scenarios, run_scenario  # noqa: E402
 
 
@@ -24,6 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="list scenarios")
+
+    pre = sub.add_parser("preflight", help="check/fix the device state a gate run assumes")
+    pre.add_argument("--device", default=None, help="adb serial (same default as run)")
+    pre.add_argument("--evidence-dir", default=None, help="override evidence directory")
 
     run = sub.add_parser("run", help="run one scenario")
     run.add_argument("scenario", help="scenario module name under tools/device/scenarios/")
@@ -46,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
         for name in list_scenarios():
             print(name)
         return 0
+
+    if args.command == "preflight":
+        ok, report = run_preflight(serial=args.device, evidence_dir=args.evidence_dir)
+        for line in report:
+            print(line)
+        print("PREFLIGHT: READY" if ok else "PREFLIGHT: NOT READY")
+        return 0 if ok else 1
 
     if args.evidence_dir:
         Path(args.evidence_dir).mkdir(parents=True, exist_ok=True)

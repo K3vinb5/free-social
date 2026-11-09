@@ -15,22 +15,32 @@ the inspector open the newest dump → assert the analysis lists
 import re
 import time
 
-from driver import by_id, by_text, policy
+from driver import DumpError, by_id, by_text, by_texts, policy
 
 CLIPS_TAB = by_id("com.instagram.android:id/clips_tab")
-NODES_VALUE = by_text(r"^\d+ nodes$", match="regex")
-MATCH_ROW = by_text("ig_reels_tab · reels_tab", match="contains")
+# inspector_nodes_count: "%1$d nodes" / "%1$d nós"
+NODES_VALUE = by_texts(r"^\d+ nodes$", r"^\d+ nós$", match="regex")
+# Rule/surface ids (untranslated); separator_dot renders trimmed, so allow optional spaces.
+MATCH_ROW = by_text(r"ig_reels_tab\s*·\s*reels_tab", match="regex")
+
+# Locale variants are the resource values in values/strings.xml + values-pt/strings.xml.
+INSPECTOR = by_texts("Surfaces & rules", "Superfícies e regras")  # hub_rule_inspector
+APP_INSTAGRAM = by_text("Instagram")  # app_instagram (identical in both locales)
+REELS_TAB = by_texts("Reels tab", "Separador Reels")  # surface_name_reels_tab
+STEP_START = by_texts("Open app and capture", "Abrir a app e capturar")  # inspector_step_start
+CAPTURE_DONE = by_texts("Capture complete", "Captura concluída", match="contains")  # inspector_capture_done
+ANALYSIS = by_texts("Rules that match this dump", "Regras que correspondem a esta captura")  # inspector_analysis
 
 
 def _open_inspector(d):
     policy.to_hub(d)
-    entry = by_text("Surfaces & rules")
+    entry = INSPECTOR
     policy.scroll_until(d, entry)
     d.tap(entry)
     d.wait(1.5)
-    d.tap(by_text("Instagram"))
+    d.tap(APP_INSTAGRAM)
     d.wait(1.0)
-    row = by_text("Reels tab")
+    row = REELS_TAB
     policy.scroll_until(d, row)
     d.assert_visible(row)
 
@@ -47,27 +57,40 @@ def _finish_line(d, mark):
 
 
 def run(d):
+    policy.ensure_ig_home(d)
     _open_inspector(d)
     d.screencap("inspector-before-capture")
 
     mark = policy.log_stamp(d)
     d.log(f"guided window starts at device clock {mark}")
-    d.tap(by_text("Reels tab"))
+    d.tap(REELS_TAB)
     d.wait(2.0)
 
-    step_card = by_text("Open app and capture")
-    if d.find(step_card):
+    try:
+        step_card = d.find(STEP_START)
+    except DumpError:
+        # The target app is already in front and refusing a dump (a reel is playing):
+        # notifications are on, so the capture armed itself — nothing to tap.
+        step_card = None
+        d.log("IG already in front; notifications are on, the capture is armed")
+    if step_card:
         d.log("notifications are off; using the in-app step card instead")
         d.tap(step_card)
         d.wait(2.0)
 
     # The app launched Instagram; get onto the Reels tab while the arm is held
-    # (the engine must not escape this tap — filtering is paused).
-    d.wait_for(CLIPS_TAB, timeout=25)
-    d.screencap("ig-before-reels-during-capture")
-    if not d.find_one(CLIPS_TAB).selected:
-        d.tap(CLIPS_TAB)
-        d.log("tapped the Reels tab inside the guided capture")
+    # (the engine must not escape this tap — filtering is paused). A reel already
+    # playing refuses `uiautomator dump`, and then the capture's own verified dump is
+    # the surface evidence (same fallback as heal_from_dump / capture_pause_filter).
+    try:
+        d.wait_for(CLIPS_TAB, timeout=10, recover=False)
+        d.screencap("ig-before-reels-during-capture")
+        if not d.find_one(CLIPS_TAB).selected:
+            d.tap(CLIPS_TAB)
+            d.log("tapped the Reels tab inside the guided capture")
+    except Exception as exc:  # noqa: BLE001 - undumpable playing surface, reported below
+        d.log(f"IG tree not dumpable during the capture window ({exc}); "
+              "the verified capture dump is the surface assertion")
     d.wait(4.0)
     d.screencap("ig-reels-during-capture")
 
@@ -81,7 +104,7 @@ def run(d):
 
     d.launch(policy.APP_PACKAGE, settle=2.0)
     try:
-        d.wait_for(by_text("Capture complete", match="contains"), timeout=10)
+        d.wait_for(CAPTURE_DONE, timeout=10, recover=False)
         d.screencap("inspector-capture-complete")
     except Exception as exc:  # noqa: BLE001
         d.log(f"completion banner not visible: {exc}")
@@ -102,7 +125,7 @@ def run(d):
         raise AssertionError(
             "the dump analysis does not list 'ig_reels_tab · reels_tab'"
         )
-    d.assert_visible(by_text("Rules that match this dump"))
+    d.assert_visible(ANALYSIS)
     d.assert_visible(MATCH_ROW)
     d.screencap("analysis-match-list")
 

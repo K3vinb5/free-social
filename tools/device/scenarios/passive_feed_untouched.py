@@ -10,25 +10,25 @@ a bounded logcat window:
     TAP_HOME_TAB / BACK dispatch) were emitted in the whole window. Scan lines
     are expected and fine.
 
-Selectors are locale-proof ids (`tabs_bar`, `results`); the only string is the
-brand "Shorts", which this scenario does not use.
+Selectors are locale-proof ids: `results` is the Home feed container and exists only
+on Home (D15: the old `tabs_bar` anchor never existed in any YT dump).
 """
 
 from driver import by_id, policy
 
 PKG = "com.google.android.youtube"
-HOME_TABS = by_id("com.google.android.youtube:id/tabs_bar")
+# Home feed container: present only on Home, absent from Shorts/watch (D15 anchor audit).
 FEED = by_id("com.google.android.youtube:id/results")
 
 
 def _ensure_home(d):
     for attempt in range(3):
-        if d.find(HOME_TABS):
+        if d.find(FEED):
             return
-        d.log(f"Home tabs not visible (attempt {attempt + 1}); backing out once")
+        d.log(f"Home feed not visible (attempt {attempt + 1}); backing out once")
         d.back()
         d.wait(1.5)
-    d.wait_for(HOME_TABS, timeout=15, recover=False)
+    d.wait_for(FEED, timeout=15, recover=False)
 
 
 def run(d):

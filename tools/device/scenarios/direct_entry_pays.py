@@ -18,23 +18,25 @@ from driver import DumpError, by_id, policy
 
 PKG = "com.instagram.android"
 CLIPS_TAB = by_id("com.instagram.android:id/clips_tab")
-FEED_TAB = by_id("com.instagram.android:id/feed_tab")
 CLIPS_VIEWER = by_id("com.instagram.android:id/clips_viewer_view_pager")
 
 
 def _ensure_home(d):
+    policy.ensure_ig_home(d)  # dumpable Home feed, tab bar visible
     d.launch(PKG, settle=2.5)
     d.wait_for(CLIPS_TAB, timeout=25)
-    if d.find_one(CLIPS_TAB).selected:
-        d.log("Instagram resumed on the Reels tab; tapping Home first")
-        d.tap(FEED_TAB)
-        d.wait(2.0)
 
 
 def run(d):
     _ensure_home(d)
     before = policy.budget(d)
     d.log(f"budget before entry: {before}")
+    if int(before["used"]) >= int(before["limit"]) * 60 and int(before["limit"]) != 0:
+        # A previous budget scenario left the allowance spent; restore it through the
+        # shared helper (stepper + fixture + process reload) instead of skipping the gate.
+        d.log("allowance already spent — restoring 20 min / 0 used before the paid entry")
+        before = policy.restore_budget(d)
+        d.log(f"budget after restore: {before}")
     if int(before["used"]) >= int(before["limit"]) * 60:
         raise AssertionError(
             f"scenario needs budget left, but used={before['used']}s "

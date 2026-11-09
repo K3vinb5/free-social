@@ -25,6 +25,9 @@ All adb calls are pinned to one serial and bounded to 15 s.
   exact | contains | regex (`by_id`, `by_text`, `by_desc`, `by_class`).
 - `tap(sel)`, `long_press(sel)` — center of the node's runtime bounds.
 - `swipe(direction=, container=, times=)`, or `from_selector`/`to_selector`.
+  Without a container the gesture is confined to the screen minus the top 15 % and
+  bottom 10 % (`device.content_rect`): a swipe starting in the top band is a
+  notification-shade pull on ColorOS, not a scroll.
 - `launch(pkg|component)`, `back()`, `home()`, `wait(sec)`.
 - `wait_for(sel, timeout)` — polls; on timeout backs out once, retries once.
 - `assert_visible(sel)`, `assert_gone(sel, after=sec)`.
@@ -50,6 +53,13 @@ Scenarios must stay independent of screen size and phone language:
 - **Locale:** prefer resource-id / class selectors (locale-proof). String selectors
   (text/content-desc) carry a list of **observed** variants only — never guess a
   translation — and scenarios report `ABSENT_OR_LOCALE` when no variant matches.
+  `by_texts("Mode", "Modo")` / `by_descs(...)` take one label per shipped locale; every
+  variant is copied from `app/src/main/res/values/strings.xml` and
+  `values-<locale>/strings.xml` and the selector line names the string key it came from.
+  Matching folds diacritics (`Orçamento` also matches `Orcamento`), so a dump that drops
+  accents needs no duplicate variant. UI copy from *other* apps (Instagram, YouTube,
+  TikTok, DocumentsUI) is not in our resource tables: those lists stay observed-only,
+  with the dump or run that observed them noted in the scenario.
 - **Walls:** detection is deaccented and multilingual (EN/PT/ES/FR/DE markers) plus
   a structural password-field signal (`PASSWORD_FIELD_WORDS` on ids/hints); a wall
   aborts the scenario untapped (`WALL` status).

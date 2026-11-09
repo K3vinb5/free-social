@@ -14,18 +14,20 @@ returned to Filter at the end, and the run ends on the Free Social hub.
 
 import time
 
-from driver import by_text
+from driver import by_text, by_texts, policy
 
 FS_PKG = "dev.k3vinb5.freesocial"
 IG_PKG = "com.instagram.android"
 
-MODE_LABEL = by_text("Mode", match="exact")
-IG_ROW = by_text("Instagram", match="exact")
-CHIP_BLOCK = by_text("Block", match="exact")
-CHIP_ALLOW = by_text("Allow", match="exact")
-CHIP_FILTER = by_text("Filter", match="exact")
-GO_HOME = by_text("Go home", match="exact")
-BLOCKED_TITLE = by_text("is blocked", match="contains")
+# Locale variants are the resource values in values/strings.xml + values-pt/strings.xml.
+MODE_LABEL = by_texts("Mode", "Modo")  # section_mode
+IG_ROW = by_text("Instagram")  # app_instagram (identical in both locales)
+CHIP_BLOCK = by_texts("Block", "Bloquear")  # mode_block
+CHIP_ALLOW = by_texts("Allow", "Permitir")  # mode_allow
+CHIP_FILTER = by_texts("Filter", "Filtrar")  # mode_filter
+GO_HOME = by_texts("Go home", "Ir para o início")  # block_go_home
+# block_screen_title is "%1$s is blocked" / "%1$s está bloqueada".
+BLOCKED_TITLE = by_texts("is blocked", "está bloqueada", match="contains")
 
 # The user-facing promise: a mode tapped now is in force on the very next launch.
 MAX_BLOCK_LATENCY_S = 2.0
@@ -36,19 +38,13 @@ def _top_activity(d):
 
 
 def _open_ig_detail(d):
-    """Free Social may resume on the hub or on the last detail screen."""
-    d.launch(FS_PKG, settle=1.5)
-    for _ in range(3):
-        nodes = d.dump(retries=2)
-        if d.find(MODE_LABEL, nodes):
-            return
-        if d.find(IG_ROW, nodes):
-            d.tap(IG_ROW, nodes)
-            d.wait_for(MODE_LABEL, timeout=10)
-            return
-        d.back()
-        d.wait(0.8)
-    raise AssertionError("could not reach the Instagram detail screen in Free Social")
+    """Free Social may resume on the hub, the detail screen or the inspector: go via the
+    hub (the inspector also shows an "Instagram" chip, so a bare find is ambiguous)."""
+    policy.to_hub(d)
+    nodes = d.dump(retries=2)
+    if not d.find(MODE_LABEL, nodes):
+        d.tap(IG_ROW, nodes)
+    d.wait_for(MODE_LABEL, timeout=10)
 
 
 def _tap_chip(d, chip):
@@ -88,8 +84,9 @@ def run(d):
     if "BlockActivity" in _top_activity(d):
         raise AssertionError("Allow: the block screen still appeared (stale mode)")
     d.screencap("instant-allow-open")
+    # The engine tells us on its next scan; poll instead of racing a single read.
+    text = policy.wait_for_log(d, "is not filtered", timeout=10)
     excerpt = d.logcat_since("FilterService")
-    text = excerpt.read_text(encoding="utf-8")
     if "neutralising" in text or "escape flash" in text:
         raise AssertionError(f"Allow: engine took an action ({excerpt.name})")
     if "is not filtered" not in text:
@@ -106,8 +103,8 @@ def run(d):
         raise AssertionError(f"Filter: Instagram not foreground ({d.current_package()!r})")
     if "BlockActivity" in _top_activity(d):
         raise AssertionError("Filter: the block screen appeared (mode not applied)")
+    text = policy.wait_for_log(d, "scan com.instagram.android", timeout=10)
     excerpt = d.logcat_since("FilterService")
-    text = excerpt.read_text(encoding="utf-8")
     if "com.instagram.android is not filtered" in text:
         raise AssertionError(f"Filter: the engine still treats Instagram as unfiltered ({excerpt.name})")
     if "scan com.instagram.android" not in text:
@@ -120,7 +117,7 @@ def run(d):
     if d.find(MODE_LABEL):
         d.back()
         d.wait(1.0)
-    d.assert_visible(by_text("Apps", match="exact"), timeout=8)
+    d.assert_visible(by_text("Apps"), timeout=8)  # hub_apps_section (identical in both locales)
     d.screencap("final-hub")
     if FS_PKG not in d.current_package():
         raise AssertionError(f"expected Free Social hub, got {d.current_package()!r}")

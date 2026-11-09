@@ -16,8 +16,10 @@ from .selectors import (
     Selector,
     by_class,
     by_desc,
+    by_descs,
     by_id,
     by_text,
+    by_texts,
     matches,
 )
 from .xmlnodes import Node, parse_xml
@@ -37,8 +39,10 @@ __all__ = [
     "resolve_serial",
     "by_class",
     "by_desc",
+    "by_descs",
     "by_id",
     "by_text",
+    "by_texts",
     "matches",
     "parse_xml",
 ]
