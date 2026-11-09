@@ -234,6 +234,23 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # The landing helper comes from the revision this pipeline was dispatched
+      # with, not from the master tree: nightly.yml may be dispatched on a branch
+      # (publish-site still commits on top of master), and on the first run after
+      # a change to this workflow master does not carry the helper yet.
+      - name: Stage the bookkeeping helper
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/bookkeeping_pr.sh"
+          if git cat-file -e "${GITHUB_SHA}:tools/release/bookkeeping_pr.sh" 2>/dev/null; then
+            git show "${GITHUB_SHA}:tools/release/bookkeeping_pr.sh" > "$helper"
+          else
+            cp tools/release/bookkeeping_pr.sh "$helper"
+          fi
+          chmod +x "$helper"
+          echo "BOOKKEEPING_HELPER=$helper" >> "$GITHUB_ENV"
+          echo "helper staged from ${GITHUB_SHA}"
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -348,7 +365,7 @@ jobs:
               "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
               "- files: website/downloads/ only (apk, zip, versions.json)" \
               "- landed by tools/release/bookkeeping_pr.sh: throwaway branch, PR, required build-test check, squash merge")"
-            out="$(tools/release/bookkeeping_pr.sh --branch "$branch" --title "chore(site): publish ${label}" --body "$body")"
+            out="$(bash "${BOOKKEEPING_HELPER:?}" --branch "$branch" --title "chore(site): publish ${label}" --body "$body")"
             commit="$(printf '%s\n' "$out" | sed -n 's/^merged_sha=//p')"
             pr_url="$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p')"
             if [ -z "$commit" ]; then
