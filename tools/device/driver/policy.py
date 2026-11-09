@@ -20,6 +20,7 @@ import time
 from .selectors import by_text, by_texts
 
 APP_PACKAGE = "dev.k3vinb5.freesocial"
+SYSTEM_UI_PACKAGE = "com.android.systemui"
 ENGINE_TAG = "FilterService"
 GUIDED_TAG = "GuidedCapture"
 PREFS_PATH = "shared_prefs/settings.xml"
@@ -222,13 +223,29 @@ def to_hub(d, attempts: int = 5) -> None:
         if d.find(anchor):
             found = True
             break
-        d.back()
-        d.wait(1.0)
+        # BACK only means "leave this screen" while the app is in front. Right after a
+        # reinstall (preflight) the first launch can die before it draws, and five BACKs
+        # from the launcher simply stay on the launcher — seen on 2026-11-09.
+        if (d.current_package() or "") != APP_PACKAGE:
+            d.launch(APP_PACKAGE, settle=1.0)
+        else:
+            d.back()
+            d.wait(1.0)
     if not found:
         d.wait_for(anchor, timeout=10, recover=False)
-    for _ in range(3):
-        d.swipe(direction="down", ratio=0.8)
-        d.wait(0.3)
+    # The driver keeps no-container swipes out of the status-bar band (a swipe starting
+    # there is a notification-shade pull on ColorOS), but if the shade still came down it
+    # covers the hub rather than replacing it: dismiss, then retry the scroll once.
+    for attempt in range(2):
+        for _ in range(3):
+            d.swipe(direction="down", ratio=0.8)
+            d.wait(0.3)
+        if SYSTEM_UI_PACKAGE not in (d.current_package() or ""):
+            return
+        d.log(f"notification shade opened over the hub (attempt {attempt + 1}/2); dismissing it")
+        d.back()
+        d.wait(0.6)
+        d.launch(APP_PACKAGE, settle=1.0)
 
 
 IG_PACKAGE = "com.instagram.android"

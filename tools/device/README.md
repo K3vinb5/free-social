@@ -25,6 +25,9 @@ All adb calls are pinned to one serial and bounded to 15 s.
   exact | contains | regex (`by_id`, `by_text`, `by_desc`, `by_class`).
 - `tap(sel)`, `long_press(sel)` — center of the node's runtime bounds.
 - `swipe(direction=, container=, times=)`, or `from_selector`/`to_selector`.
+  Without a container the gesture is confined to the screen minus the top 15 % and
+  bottom 10 % (`device.content_rect`): a swipe starting in the top band is a
+  notification-shade pull on ColorOS, not a scroll.
 - `launch(pkg|component)`, `back()`, `home()`, `wait(sec)`.
 - `wait_for(sel, timeout)` — polls; on timeout backs out once, retries once.
 - `assert_visible(sel)`, `assert_gone(sel, after=sec)`.

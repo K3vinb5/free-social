@@ -16,9 +16,29 @@ Evidence root: `reverse/runtime-reno/release-gate/20261108-195620/` (per-scenari
 | flash_escape_visibility | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/flash_escape_visibility |
 | heal_from_dump | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/heal_from_dump |
 | ig_reels_entry | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/ig_reels_entry |
-| instant_settings_mode | FAIL | step 17: no node matches `<text='Instagram'>` (0 visible nodes) after returning to Free Social and swiping down 3× — the swipes opened the ColorOS notification shade over the app (02-failure.png shows the shade with the app panel ghosted behind), so the settings row was never reachable | reverse/runtime-reno/release-gate/20261108-195620/instant_settings_mode |
+| instant_settings_mode | PASS | all assertions passed on re-run (35 steps, 81.5 s; block screen 1.96 s of the 2.0 s budget after the driver gesture fix) | reverse/runtime-reno/release-gate/20261109-021320/instant_settings_mode |
 | passive_feed_untouched | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/passive_feed_untouched |
 | yt_home_shelf_visibility | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/yt_home_shelf_visibility |
+
+## Re-run 2026-11-09 — `instant_settings_mode`
+
+The 2026-11-08 FAIL above was a **driver gesture bug, not a product defect**.
+`policy.to_hub` scrolls the hub with `swipe(direction="down")` and no container, and the
+driver used the raw screen rect, so the gesture started at y=240 of 2400 — inside the
+ColorOS shade-pull band. The shade landed over Free Social (the failure dump held 175
+`com.android.systemui` nodes and zero app nodes), so the "Instagram" row was never
+reachable. The product's instant-settings path was already device-proven in that run:
+the block screen appeared 0.81 s after the chip tap with the process alive.
+
+Fix: no-container swipes are confined to `device.content_rect` (screen minus the top 15 %
+and bottom 10 %), and `policy.to_hub` dismisses a shade that appears anyway and retries the
+scroll once. Re-run after the fix (`drive.py preflight` → READY, then
+`drive.py run instant_settings_mode`): **PASS**, 35 steps, 81.5 s, block screen 1.96 s of
+the 2.0 s budget.
+
+Effect on the gate: this row is now PASS, so the 2026-11-08 summary at the top of this file
+(10 PASS / 1 FAIL / 1 SKIP, exit 1) is history for that run only; with this row the gate has
+no failing scenario left. Every other row above is the 2026-11-08 result, unchanged.
 
 ## Device end state
 

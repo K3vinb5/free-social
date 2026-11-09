@@ -34,6 +34,44 @@ DEFAULT_EVIDENCE_ROOT = REPO_ROOT / "reverse" / "runtime-reno"
 REMOTE_DUMP = "/sdcard/freesocial-driver-dump.xml"
 REMOTE_SHOT = "/sdcard/freesocial-driver-shot.png"
 
+# No-container gestures are confined to the screen minus the system bands. On ColorOS
+# (Oppo Reno4 5G) a swipe that *starts* near the top edge is a notification-shade pull:
+# the 2026-11-08 `instant_settings_mode` run swiped down from y=240 of 2400 and the shade
+# landed over Free Social (dumps above the app were 175/175 com.android.systemui nodes,
+# so the "Instagram" row could not be found). Starting inside the bottom band is a
+# home/back gesture instead of a scroll. Both bands are fractions of the screen height.
+SWIPE_TOP_BAND = 0.15
+SWIPE_BOTTOM_BAND = 0.10
+
+
+def content_rect(width: int, height: int) -> tuple[int, int, int, int]:
+    """Safe content band (left, top, right, bottom) for gestures with no container node."""
+    top = int(round(height * SWIPE_TOP_BAND))
+    bottom = height - int(round(height * SWIPE_BOTTOM_BAND))
+    if bottom - top < 2 or width < 2:  # absurd/tiny screen: better the raw rect than an inverted one
+        return (0, 0, width, height)
+    return (0, top, width, bottom)
+
+
+def direction_points(
+    rect: tuple[int, int, int, int], direction: str, ratio: float
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Start/end points of a gesture inside `rect`; the start is the far edge."""
+    left, top, right, bottom = rect
+    cx, cy = (left + right) // 2, (top + bottom) // 2
+    w, h = max(1, right - left), max(1, bottom - top)
+    dx, dy = int(w * ratio / 2), int(h * ratio / 2)
+    if direction == "up":
+        return (cx, cy + dy), (cx, cy - dy)
+    if direction == "down":
+        return (cx, cy - dy), (cx, cy + dy)
+    if direction == "left":
+        return (cx + dx, cy), (cx - dx, cy)
+    if direction == "right":
+        return (cx - dx, cy), (cx + dx, cy)
+    raise ValueError(f"direction must be up/down/left/right, got {direction!r}")
+
+
 # Consent / login / permission walls. Never interact with these: abort WALL.
 # Strong markers may appear as labels inside longer UI text; weak markers only
 # count as a whole button label, otherwise feed captions/ads ("Sign up...")
@@ -408,23 +446,6 @@ class Device:
             self._screen = (int(m.group(1)), int(m.group(2)))
         return self._screen
 
-    def _direction_points(
-        self, rect: tuple[int, int, int, int], direction: str, ratio: float
-    ) -> tuple[tuple[int, int], tuple[int, int]]:
-        left, top, right, bottom = rect
-        cx, cy = (left + right) // 2, (top + bottom) // 2
-        w, h = max(1, right - left), max(1, bottom - top)
-        dx, dy = int(w * ratio / 2), int(h * ratio / 2)
-        if direction == "up":
-            return (cx, cy + dy), (cx, cy - dy)
-        if direction == "down":
-            return (cx, cy - dy), (cx, cy + dy)
-        if direction == "left":
-            return (cx + dx, cy), (cx - dx, cy)
-        if direction == "right":
-            return (cx - dx, cy), (cx + dx, cy)
-        raise ValueError(f"direction must be up/down/left/right, got {direction!r}")
-
     def swipe(
         self,
         direction: str = "up",
@@ -455,9 +476,9 @@ class Device:
                 where = f"container={container}"
             else:
                 w, h = self.screen_size()
-                rect = (0, 0, w, h)
+                rect = content_rect(w, h)
                 where = "screen"
-            start, end = self._direction_points(rect, direction, ratio)
+            start, end = direction_points(rect, direction, ratio)
             for _ in range(times):
                 self._adb(
                     "shell", "input", "swipe",
