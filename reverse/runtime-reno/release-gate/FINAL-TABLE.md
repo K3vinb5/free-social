@@ -11,7 +11,7 @@ Evidence root: `reverse/runtime-reno/release-gate/20261108-195620/` (per-scenari
 | capture_match_list | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/capture_match_list |
 | capture_pause_filter | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/capture_pause_filter |
 | direct_entry_pays | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/direct_entry_pays |
-| dm_carveout_structural | SKIP | needs the TikTok DM inbox; the FYP is undumpable while a video plays, so no unattended route into a chat exists | — |
+| dm_carveout_structural | SKIP | needs the TikTok DM inbox; the FYP is undumpable while a video plays, so no unattended route into a chat exists (skipped by the gate, so no evidence dir) | — |
 | exhaustion_consistent | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/exhaustion_consistent |
 | flash_escape_visibility | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/flash_escape_visibility |
 | heal_from_dump | PASS | all assertions passed | reverse/runtime-reno/release-gate/20261108-195620/heal_from_dump |
